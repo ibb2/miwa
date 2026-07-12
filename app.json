@@ -13,7 +13,8 @@
       "backgroundColor": "#ffffff"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.ib.miwa"
     },
     "android": {
       "adaptiveIcon": {
@@ -21,10 +22,29 @@
         "backgroundColor": "#ffffff"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.ib.miwa"
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "platforms": [
+      "android",
+      "ios",
+      "macos",
+      "windows"
+    ],
+    "macos": {
+      "bundleIdentifier": "com.ib.miwa"
+    },
+    "plugins": [
+      [
+        "expo-desktop-config-plugins",
+        {
+          "displayName": "Miwa",
+          "bundleIdentifier": "com.ib.miwa"
+        }
+      ]
+    ]
   }
 }
