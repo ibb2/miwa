@@ -1,0 +1,13 @@
+{
+  "name": "expo-ui-macos",
+  "version": "1.0.0",
+  "description": "macOS compatibility module for Expo UI SDK 54",
+  "license": "MIT",
+  "author": "ibb2",
+  "private": true,
+  "peerDependencies": {
+    "expo": "*",
+    "react": "*",
+    "react-native": "*"
+  }
+}

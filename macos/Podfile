@@ -14,8 +14,8 @@ target 'Miwa-macOS' do
   use_expo_modules!
 
   config_command = [
-    'npx',
-    'expo-modules-autolinking',
+    'node',
+    File.join(__dir__, '..', 'node_modules', 'expo', 'bin', 'autolinking'),
     'react-native-config',
     '--json',
     '--platform',
