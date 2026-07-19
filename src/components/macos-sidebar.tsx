@@ -166,6 +166,7 @@ const styles = StyleSheet.create({
   sidebar: {
     flex: 1,
     minWidth: 180,
+    overflow: 'hidden',
     backgroundColor: 'transparent',
   },
   toolbar: {

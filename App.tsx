@@ -56,6 +56,7 @@ const CONTENT: Record<
 export default function App() {
   const [selection, setSelection] = useState<SidebarItemId>('inbox');
   const [saveCount, setSaveCount] = useState(0);
+  const [leadingPaneOffset, setLeadingPaneOffset] = useState(PANE_SIZES[0]);
   const current = CONTENT[selection];
 
   return (
@@ -64,41 +65,53 @@ export default function App() {
       orientation="horizontal"
       dividerStyle="thin"
       initialPaneSizes={PANE_SIZES}
+      onDividerPositionsChange={({ nativeEvent }) => {
+        setLeadingPaneOffset(Math.max(nativeEvent.positions[0] ?? 0, 0));
+      }}
     >
-      <MacOSSidebar onSelect={setSelection} selection={selection} />
+      <View style={styles.sidebarPane}>
+        <MacOSSidebar onSelect={setSelection} selection={selection} />
+      </View>
 
       <View style={styles.listPane}>
-        <View style={styles.toolbar}>
-          <View style={styles.toolbarSpacer} />
-          <Text style={styles.toolbarTitle}>{current.title}</Text>
-          <View style={styles.toolbarSpacer} />
-        </View>
-
-        <ScrollView contentContainerStyle={styles.listContent} style={styles.scrollView}>
-          <Text style={styles.heading}>{current.title}</Text>
-          <Text style={styles.description}>{current.description}</Text>
-
-          <View style={styles.noteList}>
-            {current.items.map((item, index) => (
-              <Pressable
-                key={item}
-                accessibilityRole="button"
-                style={({ pressed }) => [
-                  styles.noteRow,
-                  index === 0 && styles.activeNoteRow,
-                  pressed && styles.pressed,
-                ]}
-              >
-                <Text style={styles.noteTitle}>{item}</Text>
-                <Text numberOfLines={1} style={styles.notePreview}>
-                  {index === 0
-                    ? 'A native macOS workspace built with Expo and React Native.'
-                    : 'A short preview of this note appears here.'}
-                </Text>
-              </Pressable>
-            ))}
+        <View
+          style={[
+            styles.listPaneCoordinateSpace,
+            { transform: [{ translateX: leadingPaneOffset }] },
+          ]}
+        >
+          <View style={styles.toolbar}>
+            <View style={styles.toolbarSpacer} />
+            <Text style={styles.toolbarTitle}>{current.title}</Text>
+            <View style={styles.toolbarSpacer} />
           </View>
-        </ScrollView>
+
+          <ScrollView contentContainerStyle={styles.listContent} style={styles.scrollView}>
+            <Text style={styles.heading}>{current.title}</Text>
+            <Text style={styles.description}>{current.description}</Text>
+
+            <View style={styles.noteList}>
+              {current.items.map((item, index) => (
+                <Pressable
+                  key={item}
+                  accessibilityRole="button"
+                  style={({ pressed }) => [
+                    styles.noteRow,
+                    index === 0 && styles.activeNoteRow,
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <Text style={styles.noteTitle}>{item}</Text>
+                  <Text numberOfLines={1} style={styles.notePreview}>
+                    {index === 0
+                      ? 'A native macOS workspace built with Expo and React Native.'
+                      : 'A short preview of this note appears here.'}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+          </ScrollView>
+        </View>
       </View>
 
       <View style={styles.detailPane}>
@@ -131,13 +144,28 @@ const styles = StyleSheet.create({
     backgroundColor: PlatformColor('windowBackgroundColor'),
   },
   listPane: {
-    flex: 1,
+    width: PANE_SIZES[1],
+    flexGrow: 0,
+    flexShrink: 0,
     minWidth: 300,
+    overflow: 'hidden',
     backgroundColor: PlatformColor('windowBackgroundColor'),
+  },
+  sidebarPane: {
+    width: PANE_SIZES[0],
+    flexGrow: 0,
+    flexShrink: 0,
+    overflow: 'hidden',
+    backgroundColor: 'transparent',
+  },
+  listPaneCoordinateSpace: {
+    width: PANE_SIZES[1],
+    flex: 1,
   },
   detailPane: {
     flex: 1,
     minWidth: 340,
+    overflow: 'hidden',
     backgroundColor: PlatformColor('textBackgroundColor'),
   },
   toolbar: {

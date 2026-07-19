@@ -1,6 +1,37 @@
 import AppKit
 import ExpoModulesCore
 
+private final class SplitPaneContainerView: NSView {
+  private let contentView: NSView
+
+  init(contentView: NSView) {
+    self.contentView = contentView
+    super.init(frame: .zero)
+
+    wantsLayer = true
+    layer?.masksToBounds = true
+    contentView.translatesAutoresizingMaskIntoConstraints = false
+    addSubview(contentView)
+
+    NSLayoutConstraint.activate([
+      contentView.leadingAnchor.constraint(equalTo: leadingAnchor),
+      contentView.trailingAnchor.constraint(equalTo: trailingAnchor),
+      contentView.topAnchor.constraint(equalTo: topAnchor),
+      contentView.bottomAnchor.constraint(equalTo: bottomAnchor),
+    ])
+  }
+
+  override func layout() {
+    super.layout()
+    contentView.bounds.origin = .zero
+  }
+
+  @available(*, unavailable)
+  required init?(coder: NSCoder) {
+    fatalError("init(coder:) has not been implemented")
+  }
+}
+
 public final class NativeSplitView: ExpoView, NSToolbarDelegate {
   private static let toolbarIdentifier = NSToolbar.Identifier("MiwaWorkspaceToolbar")
 
@@ -106,10 +137,11 @@ public final class NativeSplitView: ExpoView, NSToolbarDelegate {
   }
 
   public override func mountChildComponentView(_ childComponentView: UIView, index: Int) {
-    childComponentView.autoresizingMask = [.width, .height]
+    childComponentView.wantsLayer = true
+    childComponentView.layer?.masksToBounds = true
 
     let paneController = NSViewController()
-    paneController.view = childComponentView
+    paneController.view = SplitPaneContainerView(contentView: childComponentView)
     paneControllers[ObjectIdentifier(childComponentView)] = paneController
 
     let splitItem = makeSplitItem(for: paneController, index: index)
@@ -165,10 +197,16 @@ public final class NativeSplitView: ExpoView, NSToolbarDelegate {
     var positions: [CGFloat] = []
     var position: CGFloat = 0
 
-    for pane in splitView.arrangedSubviews.dropLast() {
-      position += splitView.isVertical ? pane.frame.width : pane.frame.height
+    for (index, pane) in splitView.arrangedSubviews.dropLast().enumerated() {
+      let splitItem = splitViewController.splitViewItems[index]
+      let paneLength: CGFloat = splitItem.isCollapsed
+        ? 0
+        : (splitView.isVertical ? pane.frame.width : pane.frame.height)
+      position += paneLength
       positions.append(position)
-      position += splitView.dividerThickness
+      if !splitItem.isCollapsed {
+        position += splitView.dividerThickness
+      }
     }
 
     onDividerPositionsChange(["positions": positions])
