@@ -36,6 +36,22 @@ public final class ExpoUIMacOSModule: Module {
 
       Events("onButtonPressed")
     }
+
+    View(MacOSExpoUIImage.self) {
+      ViewName("ImageView")
+
+      Prop("systemName") { (view: MacOSExpoUIImage, systemName: String) in
+        view.systemName = systemName
+      }
+
+      Prop("size") { (view: MacOSExpoUIImage, size: Double?) in
+        view.size = size.map { CGFloat($0) } ?? 16
+      }
+
+      Prop("color") { (view: MacOSExpoUIImage, color: String?) in
+        view.color = color
+      }
+    }
   }
 }
 
@@ -156,5 +172,88 @@ private final class MacOSExpoUIButton: ExpoView {
 
   @objc private func buttonPressed() {
     onButtonPressed()
+  }
+}
+
+private final class MacOSExpoUIImage: ExpoView {
+  private let imageView = NSImageView()
+
+  var systemName = "questionmark.circle" {
+    didSet {
+      updateImage()
+    }
+  }
+
+  var size: CGFloat = 16 {
+    didSet {
+      updateImage()
+    }
+  }
+
+  var color: String? {
+    didSet {
+      imageView.contentTintColor = color.flatMap(NSColor.fromExpoColor) ?? .controlAccentColor
+    }
+  }
+
+  required init(appContext: AppContext? = nil) {
+    super.init(appContext: appContext)
+
+    imageView.imageAlignment = .alignCenter
+    imageView.imageScaling = .scaleProportionallyDown
+    imageView.contentTintColor = .controlAccentColor
+    imageView.autoresizingMask = [.width, .height]
+    addSubview(imageView)
+    updateImage()
+  }
+
+  override func layoutSubviews() {
+    super.layoutSubviews()
+    imageView.frame = bounds
+  }
+
+  private func updateImage() {
+    let configuration = NSImage.SymbolConfiguration(pointSize: size, weight: .regular)
+    let image = NSImage(
+      systemSymbolName: systemName,
+      accessibilityDescription: systemName
+    )?.withSymbolConfiguration(configuration)
+    image?.isTemplate = true
+    imageView.image = image
+  }
+}
+
+private extension NSColor {
+  static func fromExpoColor(_ value: String) -> NSColor? {
+    switch value.lowercased() {
+    case "accent", "blue":
+      return .controlAccentColor
+    case "red":
+      return .systemRed
+    case "orange":
+      return .systemOrange
+    case "yellow":
+      return .systemYellow
+    case "green":
+      return .systemGreen
+    case "gray", "grey":
+      return .secondaryLabelColor
+    case "white":
+      return .white
+    default:
+      break
+    }
+
+    let hex = value.trimmingCharacters(in: CharacterSet(charactersIn: "#"))
+    guard hex.count == 6, let number = UInt64(hex, radix: 16) else {
+      return nil
+    }
+
+    return NSColor(
+      red: CGFloat((number >> 16) & 0xff) / 255,
+      green: CGFloat((number >> 8) & 0xff) / 255,
+      blue: CGFloat(number & 0xff) / 255,
+      alpha: 1
+    )
   }
 }

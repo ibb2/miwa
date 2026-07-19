@@ -16,11 +16,19 @@ public final class NativeSplitViewModule: Module {
         view.dividerStyle = dividerStyle
       }
 
+      Prop("initialPaneSizes") { (view: NativeSplitView, initialPaneSizes: [Double]) in
+        view.initialPaneSizes = initialPaneSizes.map { CGFloat($0) }
+      }
+
       Events("onDividerPositionsChange")
 
       AsyncFunction("setDividerPosition") {
         (view: NativeSplitView, position: Double, dividerIndex: Int) in
         view.setDividerPosition(CGFloat(position), dividerIndex: dividerIndex)
+      }
+
+      AsyncFunction("toggleSidebar") { (view: NativeSplitView) in
+        view.toggleSidebar()
       }
     }
   }

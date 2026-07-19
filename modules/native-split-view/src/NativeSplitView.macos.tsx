@@ -9,7 +9,23 @@ const NativeView = requireNativeView<NativeSplitViewProps>(
 ) as ComponentType<NativeSplitViewProps & RefAttributes<NativeSplitViewRef>>;
 
 export const NativeSplitView = forwardRef<NativeSplitViewRef, NativeSplitViewProps>(
-  function NativeSplitView(props, ref) {
-    return <NativeView {...props} ref={ref} />;
+  function NativeSplitView(
+    { orientation = 'horizontal', style, ...props },
+    ref
+  ) {
+    return (
+      <NativeView
+        {...props}
+        orientation={orientation}
+        ref={ref}
+        style={[
+          {
+            flex: 1,
+            flexDirection: orientation === 'horizontal' ? 'row' : 'column',
+          },
+          style,
+        ]}
+      />
+    );
   }
 );

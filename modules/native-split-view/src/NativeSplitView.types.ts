@@ -12,9 +12,11 @@ export type NativeSplitViewProps = ViewProps & {
   children: ReactNode;
   orientation?: SplitOrientation;
   dividerStyle?: DividerStyle;
+  initialPaneSizes?: number[];
   onDividerPositionsChange?: (event: DividerPositionsChangeEvent) => void;
 };
 
 export type NativeSplitViewRef = {
   setDividerPosition(position: number, dividerIndex: number): Promise<void>;
+  toggleSidebar(): Promise<void>;
 };
