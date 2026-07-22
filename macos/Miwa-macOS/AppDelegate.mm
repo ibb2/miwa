@@ -2,6 +2,7 @@
 
 #import <React/RCTBundleURLProvider.h>
 #import <ReactAppDependencyProvider/RCTAppDependencyProvider.h>
+#import <GoogleSignIn/GoogleSignIn.h>
 
 @implementation AppDelegate
 
@@ -14,9 +15,23 @@
   self.dependencyProvider = [RCTAppDependencyProvider new];
   
   [super applicationDidFinishLaunching:notification];
+  [[NSAppleEventManager sharedAppleEventManager]
+      setEventHandler:self
+           andSelector:@selector(handleGetURLEvent:withReplyEvent:)
+         forEventClass:kInternetEventClass
+            andEventID:kAEGetURL];
 // @generated begin expo-desktop-window-title - expo prebuild (DO NOT MODIFY) sync-c2a281b36b3f7a4b8a52c96610319725ba0ae5cc
   self.window.title = @"Miwa";
 // @generated end expo-desktop-window-title
+}
+
+- (void)handleGetURLEvent:(NSAppleEventDescriptor *)event
+            withReplyEvent:(NSAppleEventDescriptor *)replyEvent
+{
+  NSString *URLString = [[event paramDescriptorForKeyword:keyDirectObject] stringValue];
+  if (URLString != nil) {
+    [[GIDSignIn sharedInstance] handleURL:[NSURL URLWithString:URLString]];
+  }
 }
 
 - (NSURL *)sourceURLForBridge:(RCTBridge *)bridge

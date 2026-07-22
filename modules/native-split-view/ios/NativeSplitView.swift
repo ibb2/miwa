@@ -32,9 +32,7 @@ private final class SplitPaneContainerView: NSView {
   }
 }
 
-public final class NativeSplitView: ExpoView, NSToolbarDelegate {
-  private static let toolbarIdentifier = NSToolbar.Identifier("MiwaWorkspaceToolbar")
-
+public final class NativeSplitView: ExpoView {
   private let splitViewController = NSSplitViewController()
   private let onDividerPositionsChange = EventDispatcher()
   private var paneControllers: [ObjectIdentifier: NSViewController] = [:]
@@ -89,9 +87,6 @@ public final class NativeSplitView: ExpoView, NSToolbarDelegate {
 
   deinit {
     NotificationCenter.default.removeObserver(self)
-    if window?.toolbar?.identifier == Self.toolbarIdentifier {
-      window?.toolbar?.delegate = nil
-    }
     splitViewController.removeFromParent()
   }
 
@@ -166,32 +161,6 @@ public final class NativeSplitView: ExpoView, NSToolbarDelegate {
     setNeedsLayout()
   }
 
-  public func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-    [.toggleSidebar, .flexibleSpace]
-  }
-
-  public func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-    [.toggleSidebar, .flexibleSpace, .space]
-  }
-
-  public func toolbar(
-    _ toolbar: NSToolbar,
-    itemForItemIdentifier itemIdentifier: NSToolbarItem.Identifier,
-    willBeInsertedIntoToolbar flag: Bool
-  ) -> NSToolbarItem? {
-    guard itemIdentifier == .toggleSidebar else {
-      return nil
-    }
-
-    let item = NSToolbarItem(itemIdentifier: .toggleSidebar)
-    item.label = "Toggle Sidebar"
-    item.paletteLabel = "Toggle Sidebar"
-    item.toolTip = "Show or hide the sidebar"
-    item.target = splitViewController
-    item.action = #selector(NSSplitViewController.toggleSidebar(_:))
-    return item
-  }
-
   @objc private func splitViewDidResize() {
     let splitView = splitViewController.splitView
     var positions: [CGFloat] = []
@@ -250,18 +219,6 @@ public final class NativeSplitView: ExpoView, NSToolbarDelegate {
     window.titlebarSeparatorStyle = .none
     window.backgroundColor = .clear
     window.isOpaque = false
-
-    guard window.toolbar?.identifier != Self.toolbarIdentifier else {
-      return
-    }
-
-    let toolbar = NSToolbar(identifier: Self.toolbarIdentifier)
-    toolbar.delegate = self
-    toolbar.displayMode = .iconOnly
-    toolbar.allowsUserCustomization = false
-    toolbar.autosavesConfiguration = false
-    window.toolbarStyle = .unified
-    window.toolbar = toolbar
   }
 
   private func distributePanes() {

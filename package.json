@@ -9,7 +9,9 @@
     "web": "expo start --web",
     "macos": "rnc-cli run-macos",
     "windows": "rnc-cli run-windows",
-    "autolink-windows": "react-native autolink-windows"
+    "autolink-windows": "react-native autolink-windows",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test"
   },
   "dependencies": {
     "@expo/ui": "0.2.0-beta.9",
@@ -21,6 +23,8 @@
     "react": "19.1.4",
     "react-native": "0.81.6",
     "react-native-macos": "0.81.8",
+    "react-native-nitro-modules": "0.36.1",
+    "react-native-sensitive-info": "6.1.5",
     "react-native-windows": "0.81.31"
   },
   "devDependencies": {

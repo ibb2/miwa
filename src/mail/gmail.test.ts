@@ -1,0 +1,78 @@
+import { describe, expect, test } from 'bun:test';
+
+import {
+  decodeBase64Url,
+  extractMailBody,
+  mergeAccountThreads,
+  sanitizeEmailHtml,
+} from './gmail-utils';
+import type { AccountInboxPage, MailThreadSummary } from './types';
+
+function summary(accountId: string, threadId: string, receivedAt: number): MailThreadSummary {
+  return {
+    provider: 'gmail',
+    accountId,
+    threadId,
+    sender: 'Sender',
+    subject: threadId,
+    snippet: '',
+    receivedAt,
+    unread: false,
+    messageCount: 1,
+  };
+}
+
+describe('Gmail mail utilities', () => {
+  test('decodes UTF-8 base64url bodies', () => {
+    expect(decodeBase64Url('SGVsbG8sIE1pd2Eh')).toBe('Hello, Miwa!');
+  });
+
+  test('traverses nested MIME parts and separates attachments', () => {
+    const body = extractMailBody({
+      mimeType: 'multipart/mixed',
+      parts: [
+        {
+          mimeType: 'multipart/alternative',
+          parts: [
+            { mimeType: 'text/plain', body: { data: 'UGxhaW4gdGV4dA' } },
+            { mimeType: 'text/html', body: { data: 'PGI-SGVsbG88L2I-' } },
+          ],
+        },
+        {
+          mimeType: 'application/pdf',
+          filename: 'report.pdf',
+          body: { attachmentId: 'attachment-1', size: 42 },
+        },
+      ],
+    });
+
+    expect(body.plain).toEqual(['Plain text']);
+    expect(body.html).toEqual(['<b>Hello</b>']);
+    expect(body.attachments).toEqual([
+      { id: 'attachment-1', filename: 'report.pdf', mimeType: 'application/pdf', size: 42 },
+    ]);
+  });
+
+  test('removes active and remotely loaded HTML content', () => {
+    const safe = sanitizeEmailHtml(
+      '<script>alert(1)</script><img src="https://tracker.test/pixel"><a onclick="steal()" href="javascript:bad()">Open</a><b>Safe</b>'
+    );
+    expect(safe).not.toContain('<script');
+    expect(safe).not.toContain('https://tracker.test');
+    expect(safe).not.toContain('onclick');
+    expect(safe).not.toContain('javascript:');
+    expect(safe).toContain('<b>Safe</b>');
+  });
+
+  test('merges account pages by date without cross-account deduplication', () => {
+    const pages: AccountInboxPage[] = [
+      { accountId: 'one', threads: [summary('one', 'shared', 10), summary('one', 'old', 1)] },
+      { accountId: 'two', threads: [summary('two', 'shared', 20)] },
+    ];
+    expect(mergeAccountThreads(pages).map((thread) => `${thread.accountId}:${thread.threadId}`)).toEqual([
+      'two:shared',
+      'one:shared',
+      'one:old',
+    ]);
+  });
+});
