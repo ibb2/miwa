@@ -4,6 +4,7 @@ import {
   decodeBase64Url,
   extractMailBody,
   mergeAccountThreads,
+  mergeThreadSummaries,
   sanitizeEmailHtml,
 } from './gmail-utils';
 import type { AccountInboxPage, MailThreadSummary } from './types';
@@ -73,6 +74,17 @@ describe('Gmail mail utilities', () => {
       'two:shared',
       'one:shared',
       'one:old',
+    ]);
+  });
+
+  test('merges refreshed and paginated threads by account and thread ID', () => {
+    const existing = [summary('one', 'older', 1), summary('one', 'updated', 2)];
+    const incoming = [summary('one', 'newer', 3), summary('one', 'updated', 4)];
+
+    expect(mergeThreadSummaries(existing, incoming).map((thread) => `${thread.threadId}:${thread.receivedAt}`)).toEqual([
+      'updated:4',
+      'newer:3',
+      'older:1',
     ]);
   });
 });

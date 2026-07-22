@@ -75,6 +75,16 @@ export function compareThreads(a: MailThreadSummary, b: MailThreadSummary): numb
   return b.receivedAt - a.receivedAt || a.accountId.localeCompare(b.accountId) || a.threadId.localeCompare(b.threadId);
 }
 
+export function mergeThreadSummaries(
+  existing: readonly MailThreadSummary[],
+  incoming: readonly MailThreadSummary[]
+): MailThreadSummary[] {
+  const threadsById = new Map<string, MailThreadSummary>();
+  existing.forEach((thread) => threadsById.set(`${thread.accountId}:${thread.threadId}`, thread));
+  incoming.forEach((thread) => threadsById.set(`${thread.accountId}:${thread.threadId}`, thread));
+  return Array.from(threadsById.values()).sort(compareThreads);
+}
+
 export function mergeAccountThreads(pages: Iterable<AccountInboxPage>): MailThreadSummary[] {
   return Array.from(pages).flatMap((page) => page.threads).sort(compareThreads);
 }

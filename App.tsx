@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { LegendList, type LegendListRenderItemProps } from '@legendapp/list/react-native';
 import {
   Alert,
   Image,
@@ -23,7 +24,7 @@ import {
   fetchThreadDetail,
   GmailApiError,
 } from './src/mail/gmail';
-import { mergeAccountThreads } from './src/mail/gmail-utils';
+import { mergeAccountThreads, mergeThreadSummaries } from './src/mail/gmail-utils';
 import type {
   AccountInboxPage,
   AccountLoadError,
@@ -98,6 +99,39 @@ function AccountAvatar({ account, size = 24 }: { account: ConnectedAccount; size
   );
 }
 
+const InboxThreadRow = memo(function InboxThreadRow({
+  account,
+  showAccount,
+  thread,
+  onPress,
+}: {
+  account?: ConnectedAccount;
+  showAccount: boolean;
+  thread: MailThreadSummary;
+  onPress: (thread: MailThreadSummary) => void;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      onPress={() => onPress(thread)}
+      style={({ pressed }) => [styles.threadRow, pressed && styles.pressed]}
+    >
+      <View style={styles.threadTopLine}>
+        {showAccount && account ? <AccountAvatar account={account} size={19} /> : null}
+        <Text numberOfLines={1} style={[styles.threadSender, thread.unread && styles.unreadText]}>{thread.sender}</Text>
+        <Text style={styles.threadDate}>{formatDate(thread.receivedAt)}</Text>
+      </View>
+      <View style={styles.subjectLine}>
+        <Text numberOfLines={1} style={[styles.threadSubject, thread.unread && styles.unreadText]}>{thread.subject}</Text>
+        {thread.messageCount > 1 ? <Text style={styles.messageCount}>{thread.messageCount}</Text> : null}
+      </View>
+      <Text numberOfLines={2} style={styles.threadSnippet}>{thread.snippet}</Text>
+    </Pressable>
+  );
+});
+
+type InboxLoadMode = 'append' | 'refresh' | 'replace';
+
 export default function App() {
   const toolbarRef = useRef<NativeWindowToolbarRef>(null);
   const [accounts, setAccounts] = useState<ConnectedAccount[]>([]);
@@ -113,12 +147,21 @@ export default function App() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailRequest, setDetailRequest] = useState(0);
   const [avatarData, setAvatarData] = useState<Record<string, string>>({});
+  const pagesRef = useRef<Record<string, AccountInboxPage>>({});
+  const loadingIdsRef = useRef<Set<string>>(new Set());
+  const skipNextStartRefreshForAccountIdsRef = useRef<Set<string>>(new Set());
   const accountsById = useMemo(
     () => new Map(accounts.map((account) => [account.id, account])),
     [accounts]
   );
 
-  const loadPage = useCallback(async (accountId: string, append = false) => {
+  const loadPage = useCallback(async (accountId: string, mode: InboxLoadMode = 'replace') => {
+    if (loadingIdsRef.current.has(accountId)) return;
+    const currentPage = pagesRef.current[accountId];
+    if (mode === 'append' && !currentPage?.nextPageToken) return;
+
+    if (mode === 'replace') skipNextStartRefreshForAccountIdsRef.current.add(accountId);
+    loadingIdsRef.current.add(accountId);
     setLoadingIds((current) => new Set(current).add(accountId));
     setErrors((current) => {
       const next = { ...current };
@@ -126,20 +169,21 @@ export default function App() {
       return next;
     });
     try {
-      const currentPage = append ? pages[accountId] : undefined;
-      const page = await fetchInboxPage(accountId, currentPage?.nextPageToken);
-      setPages((current) => {
-        if (!append || !current[accountId]) return { ...current, [accountId]: page };
-        const previous = current[accountId];
-        const seen = new Set(previous.threads.map((thread) => thread.threadId));
-        return {
-          ...current,
-          [accountId]: {
-            ...page,
-            threads: [...previous.threads, ...page.threads.filter((thread) => !seen.has(thread.threadId))],
-          },
-        };
-      });
+      const page = await fetchInboxPage(accountId, mode === 'append' ? currentPage?.nextPageToken : undefined);
+      const previous = pagesRef.current[accountId];
+      const nextPage = mode === 'append' && previous
+        ? { ...page, threads: mergeThreadSummaries(previous.threads, page.threads) }
+        : mode === 'refresh' && previous
+          ? {
+              ...page,
+              threads: mergeThreadSummaries(previous.threads, page.threads),
+              // Keep the cursor after the oldest loaded page so refreshing does not discard history.
+              nextPageToken: previous.nextPageToken,
+            }
+          : page;
+      const nextPages = { ...pagesRef.current, [accountId]: nextPage };
+      pagesRef.current = nextPages;
+      setPages(nextPages);
     } catch (error) {
       const message = messageFor(error);
       const requiresReauthentication =
@@ -153,13 +197,14 @@ export default function App() {
         },
       }));
     } finally {
+      loadingIdsRef.current.delete(accountId);
       setLoadingIds((current) => {
         const next = new Set(current);
         next.delete(accountId);
         return next;
       });
     }
-  }, [pages]);
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -236,7 +281,7 @@ export default function App() {
     [accounts, mailboxView]
   );
   const isLoadingMail = visibleAccountIds.some((id) => loadingIds.has(id));
-  const visibleErrors = visibleAccountIds.map((id) => errors[id]).filter(Boolean);
+  const visibleErrors = visibleAccountIds.flatMap((id) => errors[id] ? [errors[id]] : []);
 
   const connectAccount = useCallback(async () => {
     setConnectError(undefined);
@@ -281,8 +326,10 @@ export default function App() {
               setPages((current) => {
                 const next = { ...current };
                 delete next[account.id];
+                pagesRef.current = next;
                 return next;
               });
+              skipNextStartRefreshForAccountIdsRef.current.delete(account.id);
               setMailboxView({ kind: 'all' });
               if (selectedThread?.accountId === account.id) setSelectedThread(undefined);
             }).catch((error) => Alert.alert('Could not disconnect Gmail', messageFor(error)));
@@ -335,6 +382,59 @@ export default function App() {
   const inboxTitle = mailboxView.kind === 'all'
     ? 'All Inboxes'
     : accountsById.get(mailboxView.accountId)?.email ?? 'Inbox';
+  const handleEndReached = useCallback(() => {
+    visibleAccountIds.forEach((accountId) => void loadPage(accountId, 'append'));
+  }, [loadPage, visibleAccountIds]);
+  const handleStartReached = useCallback(() => {
+    const accountIdsToRefresh = visibleAccountIds.filter((accountId) => {
+      if (skipNextStartRefreshForAccountIdsRef.current.delete(accountId)) return false;
+      return Boolean(pagesRef.current[accountId]);
+    });
+    accountIdsToRefresh.forEach((accountId) => void loadPage(accountId, 'refresh'));
+  }, [loadPage, visibleAccountIds]);
+  const renderThread = useCallback(({ item }: LegendListRenderItemProps<MailThreadSummary>) => (
+    <InboxThreadRow
+      account={accountsById.get(item.accountId)}
+      showAccount={mailboxView.kind === 'all'}
+      thread={item}
+      onPress={setSelectedThread}
+    />
+  ), [accountsById, mailboxView.kind]);
+  const inboxHeader = useMemo(() => (
+    <>
+      {loadingAccounts ? <Text style={styles.stateText}>Loading accounts…</Text> : null}
+      {visibleErrors.map((error) => (
+        <View key={error.accountId} style={styles.errorCard}>
+          <Text style={styles.errorTitle}>{accountsById.get(error.accountId)?.email ?? 'Gmail'}</Text>
+          <Text style={styles.errorCopy}>{error.message}</Text>
+          <Pressable onPress={() => void (error.requiresReauthentication ? reauthorize(error.accountId) : loadPage(error.accountId, 'refresh'))}>
+            <Text style={styles.linkText}>{error.requiresReauthentication ? 'Reconnect' : 'Retry'}</Text>
+          </Pressable>
+        </View>
+      ))}
+    </>
+  ), [accountsById, loadPage, loadingAccounts, reauthorize, visibleErrors]);
+  const inboxEmpty = useMemo(() => {
+    if (loadingAccounts || isLoadingMail) return null;
+    if (!accounts.length) {
+      return (
+        <View style={styles.emptyState}>
+          <Text style={styles.emptyTitle}>Bring your inboxes together.</Text>
+          <Text style={styles.emptyCopy}>Connect a Gmail account to read conversations in Miwa.</Text>
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => void connectAccount()}
+            style={({ pressed }) => [styles.connectButton, pressed && styles.connectButtonPressed]}
+          >
+            <Text style={styles.connectButtonText}>Connect Gmail</Text>
+          </Pressable>
+          {connectError ? <Text style={styles.connectError}>{connectError}</Text> : null}
+        </View>
+      );
+    }
+    return <Text style={styles.stateText}>No conversations in this inbox.</Text>;
+  }, [accounts.length, connectAccount, connectError, isLoadingMail, loadingAccounts]);
+  const inboxFooter = isLoadingMail ? <Text style={styles.stateText}>Loading mail…</Text> : null;
 
   return (
     <View style={styles.appRoot}>
@@ -350,7 +450,7 @@ export default function App() {
         onItemPress={({ nativeEvent }) => {
           if (nativeEvent.id === 'connect-account') void connectAccount();
           if (nativeEvent.id === 'refresh') {
-            visibleAccountIds.forEach((id) => void loadPage(id));
+            visibleAccountIds.forEach((id) => void loadPage(id, 'refresh'));
           }
         }}
         onSegmentChange={({ nativeEvent }) => {
@@ -425,66 +525,22 @@ export default function App() {
           </>
         ) : (
           <>
-            <ScrollView contentContainerStyle={styles.listContent} style={styles.scrollView}>
-              {loadingAccounts ? <Text style={styles.stateText}>Loading accounts…</Text> : null}
-              {!loadingAccounts && !accounts.length ? (
-                <View style={styles.emptyState}>
-                  <Text style={styles.emptyTitle}>Bring your inboxes together.</Text>
-                  <Text style={styles.emptyCopy}>Connect a Gmail account to read conversations in Miwa.</Text>
-                  <Pressable
-                    accessibilityRole="button"
-                    onPress={() => void connectAccount()}
-                    style={({ pressed }) => [styles.connectButton, pressed && styles.connectButtonPressed]}
-                  >
-                    <Text style={styles.connectButtonText}>Connect Gmail</Text>
-                  </Pressable>
-                  {connectError ? <Text style={styles.connectError}>{connectError}</Text> : null}
-                </View>
-              ) : null}
-              {visibleErrors.map((error) => (
-                <View key={error.accountId} style={styles.errorCard}>
-                  <Text style={styles.errorTitle}>{accountsById.get(error.accountId)?.email ?? 'Gmail'}</Text>
-                  <Text style={styles.errorCopy}>{error.message}</Text>
-                  <Pressable onPress={() => void (error.requiresReauthentication ? reauthorize(error.accountId) : loadPage(error.accountId))}>
-                    <Text style={styles.linkText}>{error.requiresReauthentication ? 'Reconnect' : 'Retry'}</Text>
-                  </Pressable>
-                </View>
-              ))}
-              {!visibleThreads.length && accounts.length && !isLoadingMail ? (
-                <Text style={styles.stateText}>No conversations in this inbox.</Text>
-              ) : null}
-              {visibleThreads.map((thread) => {
-                const account = accountsById.get(thread.accountId);
-                return (
-                  <Pressable
-                    key={`${thread.accountId}:${thread.threadId}`}
-                    accessibilityRole="button"
-                    onPress={() => setSelectedThread(thread)}
-                    style={({ pressed }) => [styles.threadRow, pressed && styles.pressed]}
-                  >
-                    <View style={styles.threadTopLine}>
-                      {mailboxView.kind === 'all' && account ? <AccountAvatar account={account} size={19} /> : null}
-                      <Text numberOfLines={1} style={[styles.threadSender, thread.unread && styles.unreadText]}>{thread.sender}</Text>
-                      <Text style={styles.threadDate}>{formatDate(thread.receivedAt)}</Text>
-                    </View>
-                    <View style={styles.subjectLine}>
-                      <Text numberOfLines={1} style={[styles.threadSubject, thread.unread && styles.unreadText]}>{thread.subject}</Text>
-                      {thread.messageCount > 1 ? <Text style={styles.messageCount}>{thread.messageCount}</Text> : null}
-                    </View>
-                    <Text numberOfLines={2} style={styles.threadSnippet}>{thread.snippet}</Text>
-                  </Pressable>
-                );
-              })}
-              {isLoadingMail ? <Text style={styles.stateText}>Loading mail…</Text> : null}
-              {visibleAccountIds.some((id) => pages[id]?.nextPageToken) && !isLoadingMail ? (
-                <Pressable
-                  onPress={() => visibleAccountIds.filter((id) => pages[id]?.nextPageToken).forEach((id) => void loadPage(id, true))}
-                  style={styles.loadMoreButton}
-                >
-                  <Text style={styles.linkText}>Load more</Text>
-                </Pressable>
-              ) : null}
-            </ScrollView>
+            <LegendList
+              contentContainerStyle={styles.listContent}
+              contentInsetAdjustmentBehavior="automatic"
+              data={visibleThreads}
+              estimatedItemSize={80}
+              keyExtractor={(thread) => `${thread.accountId}:${thread.threadId}`}
+              ListEmptyComponent={inboxEmpty}
+              ListFooterComponent={inboxFooter}
+              ListHeaderComponent={inboxHeader}
+              onEndReached={handleEndReached}
+              onEndReachedThreshold={0.5}
+              onStartReached={handleStartReached}
+              onStartReachedThreshold={0.25}
+              renderItem={renderThread}
+              style={styles.scrollView}
+            />
           </>
         )}
       </View>
@@ -526,7 +582,6 @@ const styles = StyleSheet.create({
   errorTitle: { color: PlatformColor('labelColor'), fontSize: 12, fontWeight: '600' },
   errorCopy: { color: PlatformColor('systemRedColor'), fontSize: 11, lineHeight: 15 },
   linkText: { color: PlatformColor('linkColor'), fontSize: 12, fontWeight: '600' },
-  loadMoreButton: { alignItems: 'center', padding: 14 },
   detailContent: { padding: 24, gap: 14 },
   detailSubject: { color: PlatformColor('labelColor'), fontSize: 24, fontWeight: '700', marginBottom: 4 },
   messageCard: { padding: 16, borderRadius: 12, backgroundColor: PlatformColor('controlBackgroundColor'), gap: 7 },
