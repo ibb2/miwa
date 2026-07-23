@@ -16,6 +16,7 @@
   "dependencies": {
     "@expo/ui": "0.2.0-beta.9",
     "@legendapp/list": "^3.3.3",
+    "@tanstack/react-query": "^5.101.4",
     "expo": "~54.0.34",
     "expo-desktop-modules-core": "^54.0.0",
     "expo-desktop-prebuild-config": "^1.0.0",

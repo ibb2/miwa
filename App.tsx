@@ -1,5 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { LegendList, type LegendListRenderItemProps } from '@legendapp/list/react-native';
+import { QueryClient, QueryClientProvider, useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Alert,
   Image,
@@ -24,7 +25,7 @@ import {
   fetchThreadDetail,
   GmailApiError,
 } from './src/mail/gmail';
-import { mergeAccountThreads, mergeThreadSummaries } from './src/mail/gmail-utils';
+import { mergeThreadSummaries } from './src/mail/gmail-utils';
 import type {
   AccountInboxPage,
   AccountLoadError,
@@ -130,81 +131,74 @@ const InboxThreadRow = memo(function InboxThreadRow({
   );
 });
 
-type InboxLoadMode = 'append' | 'refresh' | 'replace';
+type InboxPageParam = null | Record<string, string>;
+
+type InboxQueryPage = {
+  accountPages: Record<string, AccountInboxPage>;
+  errors: Record<string, AccountLoadError>;
+};
+
+async function fetchMailboxPage(
+  accountIds: readonly string[],
+  pageParam: InboxPageParam,
+  signal: AbortSignal
+): Promise<InboxQueryPage> {
+  const targets = pageParam === null
+    ? accountIds.map((accountId) => [accountId, undefined] as const)
+    : Object.entries(pageParam);
+  const accountPages: Record<string, AccountInboxPage> = {};
+  const errors: Record<string, AccountLoadError> = {};
+
+  await Promise.all(targets.map(async ([accountId, pageToken]) => {
+    try {
+      accountPages[accountId] = await fetchInboxPage(accountId, pageToken, signal);
+    } catch (error) {
+      if (signal.aborted) throw error;
+      errors[accountId] = {
+        accountId,
+        message: messageFor(error),
+        requiresReauthentication:
+          error instanceof GmailApiError && error.requiresReauthentication,
+      };
+    }
+  }));
+
+  return { accountPages, errors };
+}
+
+const appQueryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 30_000,
+    },
+  },
+});
 
 export default function App() {
+  return (
+    <QueryClientProvider client={appQueryClient}>
+      <MiwaApp />
+    </QueryClientProvider>
+  );
+}
+
+function MiwaApp() {
+  const queryClient = useQueryClient();
   const toolbarRef = useRef<NativeWindowToolbarRef>(null);
   const [accounts, setAccounts] = useState<ConnectedAccount[]>([]);
   const [mailboxView, setMailboxView] = useState<MailboxView>({ kind: 'all' });
-  const [pages, setPages] = useState<Record<string, AccountInboxPage>>({});
-  const [errors, setErrors] = useState<Record<string, AccountLoadError>>({});
   const [loadingAccounts, setLoadingAccounts] = useState(true);
   const [connectError, setConnectError] = useState<string>();
-  const [loadingIds, setLoadingIds] = useState<Set<string>>(new Set());
   const [selectedThread, setSelectedThread] = useState<MailThreadSummary>();
   const [threadDetail, setThreadDetail] = useState<MailThreadDetail>();
   const [detailError, setDetailError] = useState<string>();
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailRequest, setDetailRequest] = useState(0);
   const [avatarData, setAvatarData] = useState<Record<string, string>>({});
-  const pagesRef = useRef<Record<string, AccountInboxPage>>({});
-  const loadingIdsRef = useRef<Set<string>>(new Set());
-  const skipNextStartRefreshForAccountIdsRef = useRef<Set<string>>(new Set());
   const accountsById = useMemo(
     () => new Map(accounts.map((account) => [account.id, account])),
     [accounts]
   );
-
-  const loadPage = useCallback(async (accountId: string, mode: InboxLoadMode = 'replace') => {
-    if (loadingIdsRef.current.has(accountId)) return;
-    const currentPage = pagesRef.current[accountId];
-    if (mode === 'append' && !currentPage?.nextPageToken) return;
-
-    if (mode === 'replace') skipNextStartRefreshForAccountIdsRef.current.add(accountId);
-    loadingIdsRef.current.add(accountId);
-    setLoadingIds((current) => new Set(current).add(accountId));
-    setErrors((current) => {
-      const next = { ...current };
-      delete next[accountId];
-      return next;
-    });
-    try {
-      const page = await fetchInboxPage(accountId, mode === 'append' ? currentPage?.nextPageToken : undefined);
-      const previous = pagesRef.current[accountId];
-      const nextPage = mode === 'append' && previous
-        ? { ...page, threads: mergeThreadSummaries(previous.threads, page.threads) }
-        : mode === 'refresh' && previous
-          ? {
-              ...page,
-              threads: mergeThreadSummaries(previous.threads, page.threads),
-              // Keep the cursor after the oldest loaded page so refreshing does not discard history.
-              nextPageToken: previous.nextPageToken,
-            }
-          : page;
-      const nextPages = { ...pagesRef.current, [accountId]: nextPage };
-      pagesRef.current = nextPages;
-      setPages(nextPages);
-    } catch (error) {
-      const message = messageFor(error);
-      const requiresReauthentication =
-        error instanceof GmailApiError && error.requiresReauthentication;
-      setErrors((current) => ({
-        ...current,
-        [accountId]: {
-          accountId,
-          message,
-          requiresReauthentication,
-        },
-      }));
-    } finally {
-      loadingIdsRef.current.delete(accountId);
-      setLoadingIds((current) => {
-        const next = new Set(current);
-        next.delete(accountId);
-        return next;
-      });
-    }
-  }, []);
 
   useEffect(() => {
     let active = true;
@@ -213,7 +207,6 @@ export default function App() {
       .then((connected) => {
         if (!active) return;
         setAccounts(connected);
-        return Promise.allSettled(connected.map((account) => loadPage(account.id)));
       })
       .catch((error) => {
         if (active) Alert.alert('Unable to load Gmail accounts', messageFor(error));
@@ -271,17 +264,55 @@ export default function App() {
     };
   }, [selectedThread?.accountId, selectedThread?.threadId, detailRequest]);
 
-  const visibleThreads = useMemo(() => {
-    if (mailboxView.kind === 'account') return pages[mailboxView.accountId]?.threads ?? [];
-    return mergeAccountThreads(Object.values(pages));
-  }, [mailboxView, pages]);
-
   const visibleAccountIds = useMemo(
     () => mailboxView.kind === 'account' ? [mailboxView.accountId] : accounts.map((account) => account.id),
     [accounts, mailboxView]
   );
-  const isLoadingMail = visibleAccountIds.some((id) => loadingIds.has(id));
-  const visibleErrors = visibleAccountIds.flatMap((id) => errors[id] ? [errors[id]] : []);
+  const inboxQueryKey = useMemo(
+    () => ['inbox', ...visibleAccountIds] as const,
+    [visibleAccountIds]
+  );
+  const inboxKeySignature = JSON.stringify(visibleAccountIds);
+  const previousInboxKeySignatureRef = useRef(inboxKeySignature);
+  const skipNextStartRefreshKeyRef = useRef<string | undefined>(inboxKeySignature);
+  if (previousInboxKeySignatureRef.current !== inboxKeySignature) {
+    previousInboxKeySignatureRef.current = inboxKeySignature;
+    skipNextStartRefreshKeyRef.current = inboxKeySignature;
+  }
+  const inboxQuery = useInfiniteQuery({
+    queryKey: inboxQueryKey,
+    queryFn: ({ pageParam, signal }) => fetchMailboxPage(visibleAccountIds, pageParam, signal),
+    initialPageParam: null as InboxPageParam,
+    getNextPageParam: (lastPage) => {
+      const nextPageParam = Object.fromEntries(
+        Object.values(lastPage.accountPages).flatMap((page) =>
+          page.nextPageToken ? [[page.accountId, page.nextPageToken]] : []
+        )
+      );
+      return Object.keys(nextPageParam).length ? nextPageParam : undefined;
+    },
+    enabled: !loadingAccounts && visibleAccountIds.length > 0,
+    retry: false,
+  });
+  const visibleThreads = useMemo(() => mergeThreadSummaries(
+    [],
+    inboxQuery.data?.pages.flatMap((page) =>
+      Object.values(page.accountPages).flatMap((accountPage) => accountPage.threads)
+    ) ?? []
+  ), [inboxQuery.data]);
+  const visibleErrors = useMemo(() => {
+    const errorsByAccount = new Map<string, AccountLoadError>();
+    inboxQuery.data?.pages.forEach((page) => {
+      Object.values(page.errors).forEach((error) => errorsByAccount.set(error.accountId, error));
+    });
+    return Array.from(errorsByAccount.values());
+  }, [inboxQuery.data]);
+  const isLoadingMail = visibleAccountIds.length > 0 && inboxQuery.isFetching;
+  const refreshInbox = useCallback(() => {
+    if (!visibleAccountIds.length) return Promise.resolve();
+    skipNextStartRefreshKeyRef.current = inboxKeySignature;
+    return queryClient.resetQueries({ queryKey: inboxQueryKey, exact: true });
+  }, [inboxKeySignature, inboxQueryKey, queryClient, visibleAccountIds.length]);
 
   const connectAccount = useCallback(async () => {
     setConnectError(undefined);
@@ -293,23 +324,22 @@ export default function App() {
       });
       setSelectedThread(undefined);
       setMailboxView({ kind: 'account', accountId: account.id });
-      await loadPage(account.id);
     } catch (error) {
       const message = messageFor(error);
       setConnectError(message);
       Alert.alert('Could not connect Gmail', message);
     }
-  }, [loadPage]);
+  }, []);
 
   const reauthorize = useCallback(async (accountId: string) => {
     try {
       const account = await gmailAccountAuth.reauthorizeAccount(accountId);
       setAccounts((current) => current.map((item) => item.id === account.id ? account : item));
-      await loadPage(accountId);
+      await refreshInbox();
     } catch (error) {
       Alert.alert('Could not reconnect Gmail', messageFor(error));
     }
-  }, [loadPage]);
+  }, [refreshInbox]);
 
   const disconnect = useCallback((account: ConnectedAccount) => {
     Alert.alert(
@@ -323,13 +353,9 @@ export default function App() {
           onPress: () => {
             void gmailAccountAuth.disconnectAccount(account.id).then(() => {
               setAccounts((current) => current.filter((item) => item.id !== account.id));
-              setPages((current) => {
-                const next = { ...current };
-                delete next[account.id];
-                pagesRef.current = next;
-                return next;
+              queryClient.removeQueries({
+                predicate: (query) => query.queryKey[0] === 'inbox' && query.queryKey.includes(account.id),
               });
-              skipNextStartRefreshForAccountIdsRef.current.delete(account.id);
               setMailboxView({ kind: 'all' });
               if (selectedThread?.accountId === account.id) setSelectedThread(undefined);
             }).catch((error) => Alert.alert('Could not disconnect Gmail', messageFor(error)));
@@ -337,7 +363,7 @@ export default function App() {
         },
       ]
     );
-  }, [selectedThread]);
+  }, [queryClient, selectedThread]);
 
   const accountSegments = useMemo<ToolbarSegment[]>(() => [
     { id: 'all', label: 'All inboxes', systemImage: 'tray.full' },
@@ -383,15 +409,17 @@ export default function App() {
     ? 'All Inboxes'
     : accountsById.get(mailboxView.accountId)?.email ?? 'Inbox';
   const handleEndReached = useCallback(() => {
-    visibleAccountIds.forEach((accountId) => void loadPage(accountId, 'append'));
-  }, [loadPage, visibleAccountIds]);
+    if (inboxQuery.hasNextPage && !inboxQuery.isFetching) {
+      void inboxQuery.fetchNextPage();
+    }
+  }, [inboxQuery.fetchNextPage, inboxQuery.hasNextPage, inboxQuery.isFetching]);
   const handleStartReached = useCallback(() => {
-    const accountIdsToRefresh = visibleAccountIds.filter((accountId) => {
-      if (skipNextStartRefreshForAccountIdsRef.current.delete(accountId)) return false;
-      return Boolean(pagesRef.current[accountId]);
-    });
-    accountIdsToRefresh.forEach((accountId) => void loadPage(accountId, 'refresh'));
-  }, [loadPage, visibleAccountIds]);
+    if (skipNextStartRefreshKeyRef.current === inboxKeySignature) {
+      skipNextStartRefreshKeyRef.current = undefined;
+      return;
+    }
+    void refreshInbox();
+  }, [inboxKeySignature, refreshInbox]);
   const renderThread = useCallback(({ item }: LegendListRenderItemProps<MailThreadSummary>) => (
     <InboxThreadRow
       account={accountsById.get(item.accountId)}
@@ -407,13 +435,13 @@ export default function App() {
         <View key={error.accountId} style={styles.errorCard}>
           <Text style={styles.errorTitle}>{accountsById.get(error.accountId)?.email ?? 'Gmail'}</Text>
           <Text style={styles.errorCopy}>{error.message}</Text>
-          <Pressable onPress={() => void (error.requiresReauthentication ? reauthorize(error.accountId) : loadPage(error.accountId, 'refresh'))}>
+          <Pressable onPress={() => void (error.requiresReauthentication ? reauthorize(error.accountId) : refreshInbox())}>
             <Text style={styles.linkText}>{error.requiresReauthentication ? 'Reconnect' : 'Retry'}</Text>
           </Pressable>
         </View>
       ))}
     </>
-  ), [accountsById, loadPage, loadingAccounts, reauthorize, visibleErrors]);
+  ), [accountsById, loadingAccounts, reauthorize, refreshInbox, visibleErrors]);
   const inboxEmpty = useMemo(() => {
     if (loadingAccounts || isLoadingMail) return null;
     if (!accounts.length) {
@@ -450,7 +478,7 @@ export default function App() {
         onItemPress={({ nativeEvent }) => {
           if (nativeEvent.id === 'connect-account') void connectAccount();
           if (nativeEvent.id === 'refresh') {
-            visibleAccountIds.forEach((id) => void loadPage(id, 'refresh'));
+            void refreshInbox();
           }
         }}
         onSegmentChange={({ nativeEvent }) => {
