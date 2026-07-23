@@ -36,6 +36,8 @@ public struct ToolbarItemRecord: Record {
   @Field public var value: String?
   @Field public var preferredWidth: Double = 240
   @Field public var options: [ToolbarMenuOptionRecord] = []
+  @Field public var progress: Double = 0
+  @Field public var indeterminate: Bool = false
   @Field public var segments: [ToolbarSegmentRecord] = []
   @Field public var selectedIndex: Int = -1
   @Field public var selectionMode: String = "momentary"
@@ -183,6 +185,8 @@ public final class NativeWindowToolbarView: ExpoView, NSToolbarDelegate, NSSearc
       return makeSearchItem(definition: definition, identifier: itemIdentifier)
     case "menu":
       return makeMenuItem(definition: definition, identifier: itemIdentifier)
+    case "progress":
+      return makeProgressItem(definition: definition, identifier: itemIdentifier)
     case "segmented":
       return makeSegmentedItem(definition: definition, identifier: itemIdentifier)
     case "sidebarTrackingSeparator":
@@ -398,6 +402,31 @@ public final class NativeWindowToolbarView: ExpoView, NSToolbarDelegate, NSSearc
 
     item.menu = menu
     configure(item, from: definition, defaultLabel: "Menu")
+    return item
+  }
+
+  private func makeProgressItem(
+    definition: ToolbarItemRecord,
+    identifier: NSToolbarItem.Identifier
+  ) -> NSToolbarItem {
+    let item = NSToolbarItem(itemIdentifier: identifier)
+    let indicator = NSProgressIndicator(
+      frame: NSRect(x: 0, y: 0, width: 18, height: 18)
+    )
+    indicator.style = .spinning
+    indicator.controlSize = .small
+    indicator.minValue = 0
+    indicator.maxValue = 1
+    indicator.doubleValue = min(max(definition.progress, 0), 1)
+    indicator.isIndeterminate = definition.indeterminate
+    indicator.isDisplayedWhenStopped = true
+    if definition.indeterminate {
+      indicator.startAnimation(nil)
+    } else {
+      indicator.stopAnimation(nil)
+    }
+    item.view = indicator
+    configure(item, from: definition, defaultLabel: "Progress", includeImage: false)
     return item
   }
 

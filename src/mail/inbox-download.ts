@@ -94,6 +94,19 @@ export type InboxDownloadOptions = {
   signal?: AbortSignal;
   threadConcurrency?: number;
   attachmentConcurrency?: number;
+  onProgress?: (progress: InboxDownloadProgress) => void;
+};
+
+export type InboxDownloadProgress = {
+  accountId: string;
+  phase: "listing" | "downloading" | "complete";
+  fraction: number;
+  inboxEmailsSelected: number;
+  targetInboxEmails: number;
+  threadsDownloaded: number;
+  totalThreads: number;
+  messagesStored: number;
+  attachmentsStored: number;
 };
 
 export type InboxDownloadResult = {
@@ -651,9 +664,23 @@ export async function downloadInbox(
   let pageToken: string | undefined;
   let nextPageToken: string | undefined;
   let entireInboxDownloaded = false;
-  const processedThreadIds = new Set<string>();
 
   try {
+    const messageReferences: GmailMessageReference[] = [];
+    let targetInboxEmails = maxEmails;
+
+    options.onProgress?.({
+      accountId,
+      phase: "listing",
+      fraction: 0,
+      inboxEmailsSelected: 0,
+      targetInboxEmails,
+      threadsDownloaded: 0,
+      totalThreads: 0,
+      messagesStored: 0,
+      attachmentsStored: 0,
+    });
+
     while (inboxEmailsSelected < maxEmails) {
       throwIfAborted(options.signal);
       const remaining = maxEmails - inboxEmailsSelected;
@@ -668,48 +695,27 @@ export async function downloadInbox(
         options.signal,
       );
       const references = (page.messages ?? []).slice(0, remaining);
+      messageReferences.push(...references);
       inboxEmailsSelected += references.length;
       nextPageToken = page.nextPageToken;
-
-      const threadIds = Array.from(
-        new Set(references.map((message) => message.threadId)),
-      ).filter((threadId) => !processedThreadIds.has(threadId));
-
-      for (
-        let offset = 0;
-        offset < threadIds.length;
-        offset += threadConcurrency
-      ) {
-        const batchIds = threadIds.slice(offset, offset + threadConcurrency);
-        const batch = await Promise.all(
-          batchIds.map((threadId) =>
-            downloadThread(
-              accountId,
-              threadId,
-              attachmentConcurrency,
-              options.signal,
-            ),
-          ),
-        );
-        for (const thread of batch) {
-          await persistThread(accountId, thread);
-          processedThreadIds.add(thread.providerThreadId);
-          threadsDownloaded += 1;
-          messagesStored += thread.messages.length;
-          attachmentsStored += thread.messages.reduce(
-            (total, message) => total + message.attachments.length,
-            0,
-          );
-        }
+      if (page.resultSizeEstimate !== undefined) {
+        targetInboxEmails = Math.min(maxEmails, page.resultSizeEstimate);
       }
 
-      await db
-        .update(mailboxSyncState)
-        .set({
-          nextPageToken,
-          lastError: null,
-        })
-        .where(eq(mailboxSyncState.accountId, accountId));
+      options.onProgress?.({
+        accountId,
+        phase: "listing",
+        fraction:
+          targetInboxEmails > 0
+            ? Math.min(0.1, (inboxEmailsSelected / targetInboxEmails) * 0.1)
+            : 0.1,
+        inboxEmailsSelected,
+        targetInboxEmails,
+        threadsDownloaded: 0,
+        totalThreads: 0,
+        messagesStored: 0,
+        attachmentsStored: 0,
+      });
 
       if (!nextPageToken) {
         entireInboxDownloaded = true;
@@ -717,6 +723,52 @@ export async function downloadInbox(
       }
       if (!references.length) break;
       pageToken = nextPageToken;
+    }
+
+    const threadIds = Array.from(
+      new Set(messageReferences.map((message) => message.threadId)),
+    );
+    const totalThreads = threadIds.length;
+
+    for (
+      let offset = 0;
+      offset < threadIds.length;
+      offset += threadConcurrency
+    ) {
+      const batchIds = threadIds.slice(offset, offset + threadConcurrency);
+      const batch = await Promise.all(
+        batchIds.map((threadId) =>
+          downloadThread(
+            accountId,
+            threadId,
+            attachmentConcurrency,
+            options.signal,
+          ),
+        ),
+      );
+      for (const thread of batch) {
+        await persistThread(accountId, thread);
+        threadsDownloaded += 1;
+        messagesStored += thread.messages.length;
+        attachmentsStored += thread.messages.reduce(
+          (total, message) => total + message.attachments.length,
+          0,
+        );
+        options.onProgress?.({
+          accountId,
+          phase: "downloading",
+          fraction:
+            totalThreads > 0
+              ? 0.1 + (threadsDownloaded / totalThreads) * 0.9
+              : 1,
+          inboxEmailsSelected,
+          targetInboxEmails,
+          threadsDownloaded,
+          totalThreads,
+          messagesStored,
+          attachmentsStored,
+        });
+      }
     }
 
     const completedAt = Date.now();
@@ -729,6 +781,18 @@ export async function downloadInbox(
         lastError: null,
       })
       .where(eq(mailboxSyncState.accountId, accountId));
+
+    options.onProgress?.({
+      accountId,
+      phase: "complete",
+      fraction: 1,
+      inboxEmailsSelected,
+      targetInboxEmails,
+      threadsDownloaded,
+      totalThreads,
+      messagesStored,
+      attachmentsStored,
+    });
 
     return {
       accountId,

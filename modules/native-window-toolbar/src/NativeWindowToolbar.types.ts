@@ -48,6 +48,12 @@ export type ToolbarMenuItem = ToolbarItemBase & {
   options: ToolbarMenuOption[];
 };
 
+export type ToolbarProgressItem = ToolbarItemBase & {
+  kind: 'progress';
+  progress?: number;
+  indeterminate?: boolean;
+};
+
 export type ToolbarSegment = {
   id: string;
   label?: string;
@@ -69,6 +75,7 @@ export type NativeToolbarItem =
   | ToolbarSpaceItem
   | ToolbarSearchItem
   | ToolbarMenuItem
+  | ToolbarProgressItem
   | ToolbarSegmentedItem;
 
 export type ToolbarItemPressEvent = NativeSyntheticEvent<{ id: string }>;

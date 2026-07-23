@@ -83,6 +83,8 @@ PODS:
     - ReactCommon/turbomodule/core
     - SocketRocket
     - Yoga
+  - ExpoSQLite (16.0.10):
+    - ExpoModulesCore
   - ExpoUIMacOS (1.0.0):
     - ExpoModulesCore
   - fast_float (8.0.0)
@@ -2440,6 +2442,7 @@ DEPENDENCIES:
   - ExpoFont (from `../node_modules/expo-font/ios`)
   - ExpoKeepAwake (from `../node_modules/expo-keep-awake/ios`)
   - ExpoModulesCore (from `../node_modules/expo-modules-core`)
+  - ExpoSQLite (from `../node_modules/expo-sqlite/ios`)
   - ExpoUIMacOS (from `../modules/expo-ui-macos/ios`)
   - fast_float (from `../node_modules/react-native-macos/third-party-podspecs/fast_float.podspec`)
   - FBLazyVector (from `../node_modules/react-native-macos/Libraries/FBLazyVector`)
@@ -2550,6 +2553,8 @@ EXTERNAL SOURCES:
     :path: "../node_modules/expo-keep-awake/ios"
   ExpoModulesCore:
     :path: "../node_modules/expo-modules-core"
+  ExpoSQLite:
+    :path: "../node_modules/expo-sqlite/ios"
   ExpoUIMacOS:
     :path: "../modules/expo-ui-macos/ios"
   fast_float:
@@ -2716,6 +2721,7 @@ SPEC CHECKSUMS:
   ExpoFont: dfb7c572372b610da45b41e3b436321fd6a97215
   ExpoKeepAwake: 55f75eca6499bb9e4231ebad6f3e9cb8f99c0296
   ExpoModulesCore: 20899b4dd703e10a543ff4c50ee1543e47d90082
+  ExpoSQLite: 7eedbe476870a5f18d6b89c817c4ac6f299830ad
   ExpoUIMacOS: 6d465682d5acdc2ca46b4a9eab4353f7c094d852
   fast_float: 20817c22759af6ac8d4d67e6e059b8b499953656
   FBLazyVector: 3b2a51be15bc2f31a5e38d1bb4c007eef833372b

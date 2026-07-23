@@ -26,6 +26,11 @@ import {
   GmailApiError,
 } from './src/mail/gmail';
 import { mergeThreadSummaries } from './src/mail/gmail-utils';
+import {
+  DEFAULT_INBOX_DOWNLOAD_LIMIT,
+  downloadInbox,
+  type InboxDownloadProgress,
+} from './src/mail/inbox-download';
 import type {
   AccountInboxPage,
   AccountLoadError,
@@ -57,6 +62,29 @@ function formatDate(milliseconds: number): string {
   }
   return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
 }
+
+type ToolbarDownloadState = {
+  status: 'idle' | 'running' | 'complete' | 'failed';
+  fraction: number;
+  accountCount: number;
+  completedAccountCount: number;
+  currentAccountId?: string;
+  currentProgress?: InboxDownloadProgress;
+  inboxEmailsSelected: number;
+  messagesStored: number;
+  attachmentsStored: number;
+  error?: string;
+};
+
+const idleDownloadState: ToolbarDownloadState = {
+  status: 'idle',
+  fraction: 0,
+  accountCount: 0,
+  completedAccountCount: 0,
+  inboxEmailsSelected: 0,
+  messagesStored: 0,
+  attachmentsStored: 0,
+};
 
 function bytesToBase64(buffer: ArrayBuffer): string {
   const bytes = new Uint8Array(buffer);
@@ -185,6 +213,8 @@ export default function App() {
 function MiwaApp() {
   const queryClient = useQueryClient();
   const toolbarRef = useRef<NativeWindowToolbarRef>(null);
+  const downloadActiveRef = useRef(false);
+  const lastDownloadProgressUpdateRef = useRef(0);
   const [accounts, setAccounts] = useState<ConnectedAccount[]>([]);
   const [mailboxView, setMailboxView] = useState<MailboxView>({ kind: 'all' });
   const [loadingAccounts, setLoadingAccounts] = useState(true);
@@ -195,6 +225,7 @@ function MiwaApp() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailRequest, setDetailRequest] = useState(0);
   const [avatarData, setAvatarData] = useState<Record<string, string>>({});
+  const [downloadState, setDownloadState] = useState<ToolbarDownloadState>(idleDownloadState);
   const accountsById = useMemo(
     () => new Map(accounts.map((account) => [account.id, account])),
     [accounts]
@@ -365,6 +396,88 @@ function MiwaApp() {
     );
   }, [queryClient, selectedThread]);
 
+  const downloadAccounts = useCallback(async (targets: readonly ConnectedAccount[]) => {
+    if (downloadActiveRef.current || targets.length === 0) return;
+    downloadActiveRef.current = true;
+    lastDownloadProgressUpdateRef.current = 0;
+    let completedAccountCount = 0;
+    let inboxEmailsSelected = 0;
+    let messagesStored = 0;
+    let attachmentsStored = 0;
+
+    setDownloadState({
+      ...idleDownloadState,
+      status: 'running',
+      accountCount: targets.length,
+    });
+
+    try {
+      for (const account of targets) {
+        const result = await downloadInbox(account.id, {
+          maxEmails: DEFAULT_INBOX_DOWNLOAD_LIMIT,
+          onProgress: (progress) => {
+            const now = Date.now();
+            if (
+              progress.phase !== 'complete' &&
+              now - lastDownloadProgressUpdateRef.current < 500
+            ) {
+              return;
+            }
+            lastDownloadProgressUpdateRef.current = now;
+            setDownloadState({
+              status: 'running',
+              fraction: (completedAccountCount + progress.fraction) / targets.length,
+              accountCount: targets.length,
+              completedAccountCount,
+              currentAccountId: account.id,
+              currentProgress: progress,
+              inboxEmailsSelected: inboxEmailsSelected + progress.inboxEmailsSelected,
+              messagesStored: messagesStored + progress.messagesStored,
+              attachmentsStored: attachmentsStored + progress.attachmentsStored,
+            });
+          },
+        });
+        completedAccountCount += 1;
+        inboxEmailsSelected += result.inboxEmailsSelected;
+        messagesStored += result.messagesStored;
+        attachmentsStored += result.attachmentsStored;
+        setDownloadState({
+          status: 'running',
+          fraction: completedAccountCount / targets.length,
+          accountCount: targets.length,
+          completedAccountCount,
+          inboxEmailsSelected,
+          messagesStored,
+          attachmentsStored,
+        });
+      }
+
+      setDownloadState({
+        status: 'complete',
+        fraction: 1,
+        accountCount: targets.length,
+        completedAccountCount,
+        inboxEmailsSelected,
+        messagesStored,
+        attachmentsStored,
+      });
+      Alert.alert(
+        'Inbox download complete',
+        `${inboxEmailsSelected.toLocaleString()} INBOX emails selected across ${targets.length.toLocaleString()} ${targets.length === 1 ? 'inbox' : 'inboxes'}. ${messagesStored.toLocaleString()} conversation messages and ${attachmentsStored.toLocaleString()} attachments are available offline.`
+      );
+    } catch (error) {
+      const failure = messageFor(error);
+      setDownloadState((current) => ({
+        ...current,
+        status: 'failed',
+        error: failure,
+      }));
+      Alert.alert('Inbox download failed', failure);
+    } finally {
+      downloadActiveRef.current = false;
+    }
+  }, []);
+
   const accountSegments = useMemo<ToolbarSegment[]>(() => [
     { id: 'all', label: 'All inboxes', systemImage: 'tray.full' },
     ...accounts.map((account) => ({
@@ -377,6 +490,30 @@ function MiwaApp() {
   const selectedAccountIndex = mailboxView.kind === 'all'
     ? 0
     : Math.max(0, accounts.findIndex((account) => account.id === mailboxView.accountId) + 1);
+  const downloadStatusLabel = useMemo(() => {
+    if (downloadState.status === 'idle') return 'No inbox download running';
+    if (downloadState.status === 'failed') {
+      return `Inbox download failed${downloadState.error ? `: ${downloadState.error}` : ''}`;
+    }
+    if (downloadState.status === 'complete') {
+      return `Download complete: ${downloadState.inboxEmailsSelected.toLocaleString()} INBOX emails selected, ${downloadState.messagesStored.toLocaleString()} messages stored`;
+    }
+    const account = downloadState.currentAccountId
+      ? accountsById.get(downloadState.currentAccountId)
+      : undefined;
+    const progress = downloadState.currentProgress;
+    const accountPosition = Math.min(
+      downloadState.completedAccountCount + 1,
+      downloadState.accountCount
+    );
+    if (!progress) {
+      return `Preparing inbox ${accountPosition} of ${downloadState.accountCount}`;
+    }
+    if (progress.phase === 'listing') {
+      return `Scanning ${account?.email ?? 'inbox'} (${accountPosition} of ${downloadState.accountCount}): ${progress.inboxEmailsSelected.toLocaleString()} of up to ${progress.targetInboxEmails.toLocaleString()} emails`;
+    }
+    return `Downloading ${account?.email ?? 'inbox'} (${accountPosition} of ${downloadState.accountCount}): ${progress.threadsDownloaded.toLocaleString()} of ${progress.totalThreads.toLocaleString()} conversations`;
+  }, [accountsById, downloadState]);
 
   const toolbarItems = useMemo<NativeToolbarItem[]>(() => [
     { id: 'refresh', kind: 'button', label: 'Refresh', systemImage: 'arrow.clockwise', toolTip: 'Refresh inbox', navigational: true },
@@ -391,19 +528,69 @@ function MiwaApp() {
       navigational: true,
     },
     { id: 'toolbar-spacer', kind: 'flexibleSpace' },
-    { id: 'connect-account', kind: 'button', label: 'Connect Gmail', systemImage: 'plus', toolTip: 'Connect another Gmail account', immovable: true },
+    {
+      id: 'download-inbox',
+      kind: 'menu',
+      label: 'Download Inbox',
+      systemImage: 'arrow.down.circle',
+      toolTip: `Download up to ${DEFAULT_INBOX_DOWNLOAD_LIMIT.toLocaleString()} emails per inbox`,
+      enabled: accounts.length > 0 && downloadState.status !== 'running',
+      immovable: true,
+      options: [
+        {
+          id: 'download:all',
+          label: `All inboxes — up to ${DEFAULT_INBOX_DOWNLOAD_LIMIT.toLocaleString()} each`,
+          systemImage: 'tray.full',
+          enabled: accounts.length > 0 && downloadState.status !== 'running',
+        },
+        ...accounts.map((account) => ({
+          id: `download:${account.id}`,
+          label: account.email,
+          systemImage: 'tray',
+          enabled: downloadState.status !== 'running',
+        })),
+      ],
+    },
+    downloadState.status === 'running'
+      ? {
+          id: 'download-progress',
+          kind: 'progress',
+          label: 'Download Progress',
+          toolTip: downloadStatusLabel,
+          progress: downloadState.fraction,
+          indeterminate: !downloadState.currentProgress,
+          immovable: true,
+        }
+      : {
+          id: 'download-progress',
+          kind: 'button',
+          label: 'Download Status',
+          systemImage: downloadState.status === 'complete'
+            ? 'checkmark.circle'
+            : downloadState.status === 'failed'
+              ? 'exclamationmark.triangle'
+              : 'circle.dotted',
+          toolTip: downloadStatusLabel,
+          enabled: false,
+          immovable: true,
+        },
+    { id: 'connect-account', kind: 'button', label: 'Connect Gmail', systemImage: 'plus', toolTip: 'Connect another Gmail account', enabled: downloadState.status !== 'running', immovable: true },
     {
       id: 'more',
       kind: 'menu',
       label: 'More',
       systemImage: 'ellipsis.circle',
       options: [
-        ...accounts.map((account) => ({ id: `disconnect:${account.id}`, label: `Disconnect ${account.email}` })),
+        ...accounts.map((account) => ({
+          id: `disconnect:${account.id}`,
+          label: `Disconnect ${account.email}`,
+          enabled: downloadState.status !== 'running',
+        })),
         { id: 'customize', label: 'Customize Toolbar…' },
         { id: 'reset', label: 'Reset Toolbar' },
       ],
     },
-  ], [accountSegments, accounts, selectedAccountIndex]);
+  ], [accountSegments, accounts, downloadState, downloadStatusLabel, selectedAccountIndex]);
 
   const inboxTitle = mailboxView.kind === 'all'
     ? 'All Inboxes'
@@ -490,6 +677,13 @@ function MiwaApp() {
         onMenuItemPress={({ nativeEvent }) => {
           if (nativeEvent.optionId === 'customize') void toolbarRef.current?.showCustomizationPalette();
           else if (nativeEvent.optionId === 'reset') void toolbarRef.current?.resetConfiguration();
+          else if (nativeEvent.optionId === 'download:all') {
+            void downloadAccounts(accounts);
+          }
+          else if (nativeEvent.optionId.startsWith('download:')) {
+            const account = accountsById.get(nativeEvent.optionId.replace('download:', ''));
+            if (account) void downloadAccounts([account]);
+          }
           else if (nativeEvent.optionId.startsWith('disconnect:')) {
             const account = accountsById.get(nativeEvent.optionId.replace('disconnect:', ''));
             if (account) disconnect(account);
