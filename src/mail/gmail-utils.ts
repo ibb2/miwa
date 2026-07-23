@@ -1,6 +1,7 @@
 import type { AccountInboxPage, MailAttachment, MailThreadSummary } from './types';
 
 export type GmailPart = {
+  partId?: string;
   mimeType?: string;
   filename?: string;
   headers?: Array<{ name: string; value: string }>;
@@ -8,13 +9,16 @@ export type GmailPart = {
   parts?: GmailPart[];
 };
 
-export function decodeBase64Url(value?: string): string {
-  if (!value) return '';
+export function decodeBase64UrlBytes(value?: string): Uint8Array {
+  if (!value) return new Uint8Array();
   const normalized = value.replace(/-/g, '+').replace(/_/g, '/');
   const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=');
   const binary = globalThis.atob(padded);
-  const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
-  return new TextDecoder().decode(bytes);
+  return Uint8Array.from(binary, (character) => character.charCodeAt(0));
+}
+
+export function decodeBase64Url(value?: string): string {
+  return new TextDecoder().decode(decodeBase64UrlBytes(value));
 }
 
 export function stripHtml(html: string): string {
@@ -36,10 +40,10 @@ export function stripHtml(html: string): string {
 export function sanitizeEmailHtml(html: string): string {
   return html
     .replace(/<!--[\s\S]*?-->/g, '')
-    .replace(/<(script|iframe|object|embed|form|input|button|video|audio|source|link|meta|base)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, '')
-    .replace(/<(script|iframe|object|embed|form|input|button|video|audio|source|link|meta|base)\b[^>]*\/?>/gi, '')
+    .replace(/<(script|style|iframe|object|embed|form|input|button|video|audio|source|link|meta|base)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, '')
+    .replace(/<(script|style|iframe|object|embed|form|input|button|video|audio|source|link|meta|base)\b[^>]*\/?>/gi, '')
     .replace(/\s+on[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '')
-    .replace(/\s+(src|poster|background)\s*=\s*("https?:[^"]*"|'https?:[^']*'|https?:[^\s>]+)/gi, '')
+    .replace(/\s+(src|srcset|poster|background|xlink:href)\s*=\s*("https?:[^"]*"|'https?:[^']*'|https?:[^\s>]+)/gi, '')
     .replace(/\s+style\s*=\s*("[^"]*url\([^)]*\)[^"]*"|'[^']*url\([^)]*\)[^']*')/gi, '')
     .replace(/javascript\s*:/gi, '');
 }

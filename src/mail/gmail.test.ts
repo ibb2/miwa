@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 
 import {
   decodeBase64Url,
+  decodeBase64UrlBytes,
   extractMailBody,
   mergeAccountThreads,
   mergeThreadSummaries,
@@ -26,6 +27,10 @@ function summary(accountId: string, threadId: string, receivedAt: number): MailT
 describe('Gmail mail utilities', () => {
   test('decodes UTF-8 base64url bodies', () => {
     expect(decodeBase64Url('SGVsbG8sIE1pd2Eh')).toBe('Hello, Miwa!');
+  });
+
+  test('decodes binary base64url without converting it to text', () => {
+    expect(Array.from(decodeBase64UrlBytes('_wAB-g'))).toEqual([255, 0, 1, 250]);
   });
 
   test('traverses nested MIME parts and separates attachments', () => {
@@ -56,10 +61,12 @@ describe('Gmail mail utilities', () => {
 
   test('removes active and remotely loaded HTML content', () => {
     const safe = sanitizeEmailHtml(
-      '<script>alert(1)</script><img src="https://tracker.test/pixel"><a onclick="steal()" href="javascript:bad()">Open</a><b>Safe</b>'
+      '<style>@import "https://tracker.test/style.css"</style><script>alert(1)</script><img src="https://tracker.test/pixel" srcset="https://tracker.test/large 2x"><a onclick="steal()" href="javascript:bad()">Open</a><b>Safe</b>'
     );
+    expect(safe).not.toContain('<style');
     expect(safe).not.toContain('<script');
     expect(safe).not.toContain('https://tracker.test');
+    expect(safe).not.toContain('srcset');
     expect(safe).not.toContain('onclick');
     expect(safe).not.toContain('javascript:');
     expect(safe).toContain('<b>Safe</b>');

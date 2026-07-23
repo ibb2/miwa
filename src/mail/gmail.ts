@@ -86,7 +86,13 @@ function gmailRequest(
   });
 }
 
-async function gmailFetch<T>(
+/**
+ * Performs an authenticated, read-only Gmail API GET request.
+ *
+ * Keep mutation endpoints out of this helper so download/sync services cannot
+ * accidentally alter labels, read state, or delete server-side mail.
+ */
+export async function gmailGet<T>(
   accountId: string,
   path: string,
   signal?: AbortSignal,
@@ -104,12 +110,12 @@ async function gmailFetch<T>(
   }
 
   if (response.status === 401 && !forceRefresh) {
-    return gmailFetch(accountId, path, signal, attempt, true);
+    return gmailGet(accountId, path, signal, attempt, true);
   }
 
   if (TRANSIENT_STATUSES.has(response.status) && attempt < 2) {
     await wait(400 * 2 ** attempt);
-    return gmailFetch(accountId, path, signal, attempt + 1, forceRefresh);
+    return gmailGet(accountId, path, signal, attempt + 1, forceRefresh);
   }
 
   if (response.status < 200 || response.status >= 300) {
@@ -179,11 +185,11 @@ export async function fetchInboxPage(
 ): Promise<AccountInboxPage> {
   const query = new URLSearchParams({ maxResults: String(PAGE_SIZE), labelIds: 'INBOX' });
   if (pageToken) query.set('pageToken', pageToken);
-  const list = await gmailFetch<GmailThreadList>(accountId, `/threads?${query}`, signal);
+  const list = await gmailGet<GmailThreadList>(accountId, `/threads?${query}`, signal);
   const threads = await mapWithConcurrency(list.threads ?? [], 5, async ({ id }) => {
     const params = new URLSearchParams({ format: 'metadata' });
     ['From', 'Subject', 'Date'].forEach((name) => params.append('metadataHeaders', name));
-    const thread = await gmailFetch<GmailThread>(
+    const thread = await gmailGet<GmailThread>(
       accountId,
       `/threads/${encodeURIComponent(id)}?${params}`,
       signal
@@ -219,7 +225,7 @@ export async function fetchThreadDetail(
   threadId: string,
   signal?: AbortSignal
 ): Promise<MailThreadDetail> {
-  const thread = await gmailFetch<GmailThread>(
+  const thread = await gmailGet<GmailThread>(
     accountId,
     `/threads/${encodeURIComponent(threadId)}?format=full`,
     signal
