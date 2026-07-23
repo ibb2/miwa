@@ -44,7 +44,8 @@
           "displayName": "Miwa",
           "bundleIdentifier": "com.ib.miwa"
         }
-      ]
+      ],
+      "expo-sqlite"
     ]
   }
 }
