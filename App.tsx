@@ -1,13 +1,18 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { LegendList, type LegendListRenderItemProps } from '@legendapp/list/react-native';
 import {
   Alert,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
   PlatformColor,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
 
+import { NativeMailViewer } from './modules/native-mail-viewer/src';
 import {
   NativeWindowToolbar,
   type NativeToolbarItem,
@@ -21,10 +26,18 @@ import {
   downloadInbox,
   type InboxDownloadProgress,
 } from './src/mail/inbox-download';
+import {
+  loadDownloadedThreadDetail,
+  loadDownloadedThreads,
+} from './src/mail/offline-mail';
 import type {
   ConnectedAccount,
   MailboxView,
+  MailThreadDetail,
+  MailThreadSummary,
 } from './src/mail/types';
+
+const appModuleStartedAt = globalThis.performance.now();
 
 function messageFor(error: unknown): string {
   return error instanceof Error ? error.message : 'Something went wrong.';
@@ -89,6 +102,66 @@ function fetchArrayBuffer(url: string): Promise<ArrayBuffer> {
   });
 }
 
+function formatDate(milliseconds: number): string {
+  const date = new Date(milliseconds);
+  const today = new Date();
+  if (date.toDateString() === today.toDateString()) {
+    return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  }
+  return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+}
+
+const InboxThreadRow = memo(function InboxThreadRow({
+  account,
+  showAccount,
+  thread,
+  onPress,
+}: {
+  account?: ConnectedAccount;
+  showAccount: boolean;
+  thread: MailThreadSummary;
+  onPress: (thread: MailThreadSummary) => void;
+}) {
+  return (
+    <Pressable
+      accessibilityLabel={`${thread.sender}, ${thread.subject}`}
+      accessibilityRole="button"
+      onPress={() => onPress(thread)}
+      style={({ pressed }) => [styles.threadRow, pressed && styles.pressed]}
+    >
+      <View style={styles.threadTopLine}>
+        <Text numberOfLines={1} selectable style={[styles.threadSender, thread.unread && styles.unreadText]}>
+          {thread.sender}
+        </Text>
+        <Text selectable style={styles.threadDate}>{formatDate(thread.receivedAt)}</Text>
+      </View>
+      <View style={styles.subjectLine}>
+        <Text numberOfLines={1} selectable style={[styles.threadSubject, thread.unread && styles.unreadText]}>
+          {thread.subject}
+        </Text>
+        {thread.messageCount > 1 ? <Text selectable style={styles.messageCount}>{thread.messageCount}</Text> : null}
+      </View>
+      <Text numberOfLines={2} selectable style={styles.threadSnippet}>{thread.snippet}</Text>
+      {showAccount && account ? (
+        <Text numberOfLines={1} selectable style={styles.threadAccount}>{account.email}</Text>
+      ) : null}
+    </Pressable>
+  );
+});
+
+type MailLoadPerformance = {
+  threadCount: number;
+  databaseFetchMs: number;
+};
+
+type ScrollPerformanceState = {
+  lastTimestamp?: number;
+  lastOffset?: number;
+  intervals: number[];
+  distance: number;
+  completionTimer?: ReturnType<typeof setTimeout>;
+};
+
 export default function App() {
   const toolbarRef = useRef<NativeWindowToolbarRef>(null);
   const downloadActiveRef = useRef(false);
@@ -99,10 +172,51 @@ export default function App() {
   const [connectError, setConnectError] = useState<string>();
   const [avatarData, setAvatarData] = useState<Record<string, string>>({});
   const [downloadState, setDownloadState] = useState<ToolbarDownloadState>(idleDownloadState);
+  const [downloadedThreads, setDownloadedThreads] = useState<MailThreadSummary[]>();
+  const [mailLoadError, setMailLoadError] = useState<string>();
+  const [mailLoadPerformance, setMailLoadPerformance] = useState<MailLoadPerformance>();
+  const [selectedThread, setSelectedThread] = useState<MailThreadSummary>();
+  const [threadDetail, setThreadDetail] = useState<MailThreadDetail>();
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState<string>();
+  const listPerformanceLoggedRef = useRef(false);
+  const scrollPerformanceRef = useRef<ScrollPerformanceState>({
+    intervals: [],
+    distance: 0,
+  });
   const accountsById = useMemo(
     () => new Map(accounts.map((account) => [account.id, account])),
     [accounts]
   );
+
+  const loadAllDownloadedMail = useCallback(async (showLoading = true) => {
+    if (showLoading) setDownloadedThreads(undefined);
+    setMailLoadError(undefined);
+    const startedAt = globalThis.performance.now();
+    try {
+      const threads = await loadDownloadedThreads();
+      const databaseFetchMs = globalThis.performance.now() - startedAt;
+      setMailLoadPerformance({
+        threadCount: threads.length,
+        databaseFetchMs,
+      });
+      setDownloadedThreads(threads);
+      listPerformanceLoggedRef.current = false;
+      if (__DEV__) {
+        console.info('[MiwaPerformance] database-fetch', JSON.stringify({
+          threadCount: threads.length,
+          durationMs: Number(databaseFetchMs.toFixed(2)),
+        }));
+      }
+    } catch (error) {
+      setDownloadedThreads([]);
+      setMailLoadError(messageFor(error));
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadAllDownloadedMail();
+  }, [loadAllDownloadedMail]);
 
   useEffect(() => {
     let active = true;
@@ -141,6 +255,33 @@ export default function App() {
     };
   }, [accounts]);
 
+  useEffect(() => {
+    if (!selectedThread) {
+      setThreadDetail(undefined);
+      setDetailError(undefined);
+      return;
+    }
+
+    let active = true;
+    setThreadDetail(undefined);
+    setDetailError(undefined);
+    setDetailLoading(true);
+    loadDownloadedThreadDetail(selectedThread.accountId, selectedThread.threadId)
+      .then((detail) => {
+        if (active) setThreadDetail(detail);
+      })
+      .catch((error) => {
+        if (active) setDetailError(messageFor(error));
+      })
+      .finally(() => {
+        if (active) setDetailLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [selectedThread]);
+
   const connectAccount = useCallback(async () => {
     setConnectError(undefined);
     try {
@@ -170,12 +311,13 @@ export default function App() {
             void gmailAccountAuth.disconnectAccount(account.id).then(() => {
               setAccounts((current) => current.filter((item) => item.id !== account.id));
               setMailboxView({ kind: 'all' });
+              if (selectedThread?.accountId === account.id) setSelectedThread(undefined);
             }).catch((error) => Alert.alert('Could not disconnect Gmail', messageFor(error)));
           },
         },
       ]
     );
-  }, []);
+  }, [selectedThread]);
 
   const downloadAccounts = useCallback(async (targets: readonly ConnectedAccount[]) => {
     if (downloadActiveRef.current || targets.length === 0) return;
@@ -233,6 +375,7 @@ export default function App() {
         });
       }
 
+      await loadAllDownloadedMail(false);
       setDownloadState({
         status: 'complete',
         fraction: 1,
@@ -257,7 +400,7 @@ export default function App() {
     } finally {
       downloadActiveRef.current = false;
     }
-  }, []);
+  }, [loadAllDownloadedMail]);
 
   const accountSegments = useMemo<ToolbarSegment[]>(() => [
     { id: 'all', label: 'All inboxes', systemImage: 'tray.full' },
@@ -375,11 +518,101 @@ export default function App() {
   const mailboxName = mailboxView.kind === 'account'
     ? accountsById.get(mailboxView.accountId)?.email
     : undefined;
-  const mainContent = useMemo(() => {
-    if (loadingAccounts) {
-      return <Text selectable style={styles.stateText}>Loading accounts…</Text>;
+  const visibleThreads = useMemo(
+    () => (downloadedThreads ?? []).filter((thread) =>
+      mailboxView.kind === 'all' || thread.accountId === mailboxView.accountId
+    ),
+    [downloadedThreads, mailboxView],
+  );
+  const inboxTitle = mailboxView.kind === 'all'
+    ? 'All Inboxes'
+    : mailboxName ?? 'Inbox';
+  const renderThread = useCallback(({ item }: LegendListRenderItemProps<MailThreadSummary>) => (
+    <InboxThreadRow
+      account={accountsById.get(item.accountId)}
+      showAccount={mailboxView.kind === 'all'}
+      thread={item}
+      onPress={setSelectedThread}
+    />
+  ), [accountsById, mailboxView.kind]);
+  const handleListLoad = useCallback(({ elapsedTimeInMs }: { elapsedTimeInMs: number }) => {
+    if (!__DEV__ || listPerformanceLoggedRef.current || !mailLoadPerformance) return;
+    listPerformanceLoggedRef.current = true;
+    console.info('[MiwaPerformance] list-ready', JSON.stringify({
+      threadCount: mailLoadPerformance.threadCount,
+      databaseFetchMs: Number(mailLoadPerformance.databaseFetchMs.toFixed(2)),
+      legendInitialRenderMs: Number(elapsedTimeInMs.toFixed(2)),
+      appModuleToListMs: Number(
+        (globalThis.performance.now() - appModuleStartedAt).toFixed(2)
+      ),
+    }));
+  }, [mailLoadPerformance]);
+  const handleScroll = useCallback((
+    event: NativeSyntheticEvent<NativeScrollEvent>,
+  ) => {
+    if (!__DEV__) return;
+    const timestamp = globalThis.performance.now();
+    const offset = event.nativeEvent.contentOffset.y;
+    const sample = scrollPerformanceRef.current;
+    if (
+      sample.lastTimestamp !== undefined &&
+      timestamp - sample.lastTimestamp < 250
+    ) {
+      sample.intervals.push(timestamp - sample.lastTimestamp);
     }
-    if (!accounts.length) {
+    if (sample.lastOffset !== undefined) {
+      sample.distance += Math.abs(offset - sample.lastOffset);
+    }
+    sample.lastTimestamp = timestamp;
+    sample.lastOffset = offset;
+
+    if (sample.completionTimer) clearTimeout(sample.completionTimer);
+    sample.completionTimer = setTimeout(() => {
+      const completed = scrollPerformanceRef.current;
+      if (completed.intervals.length >= 3) {
+        const sorted = [...completed.intervals].sort((left, right) => left - right);
+        const average = completed.intervals.reduce((total, interval) => total + interval, 0)
+          / completed.intervals.length;
+        const percentileIndex = Math.min(
+          sorted.length - 1,
+          Math.ceil(sorted.length * 0.95) - 1,
+        );
+        console.info('[MiwaPerformance] scroll', JSON.stringify({
+          eventCount: completed.intervals.length + 1,
+          distancePoints: Number(completed.distance.toFixed(1)),
+          averageIntervalMs: Number(average.toFixed(2)),
+          p95IntervalMs: Number(sorted[percentileIndex].toFixed(2)),
+          maxIntervalMs: Number(sorted.at(-1)!.toFixed(2)),
+          intervalsOver20Ms: completed.intervals.filter((interval) => interval > 20).length,
+          estimatedEventFps: Number((1000 / average).toFixed(1)),
+        }));
+      }
+      scrollPerformanceRef.current = {
+        intervals: [],
+        distance: 0,
+      };
+    }, 500);
+  }, []);
+  const mainContent = useMemo(() => {
+    if (loadingAccounts || downloadedThreads === undefined) {
+      return <Text selectable style={styles.stateText}>Loading downloaded mail…</Text>;
+    }
+    if (mailLoadError) {
+      return (
+        <View style={styles.emptyState}>
+          <Text selectable style={styles.emptyTitle}>The mail drawer is stuck.</Text>
+          <Text selectable style={styles.connectError}>{mailLoadError}</Text>
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => void loadAllDownloadedMail()}
+            style={({ pressed }) => [styles.connectButton, pressed && styles.connectButtonPressed]}
+          >
+            <Text style={styles.connectButtonText}>Try Again</Text>
+          </Pressable>
+        </View>
+      );
+    }
+    if (!accounts.length && downloadedThreads.length === 0) {
       return (
         <View style={styles.emptyState}>
           <Text selectable style={styles.emptyTitle}>No mailbox has wandered in yet.</Text>
@@ -395,8 +628,38 @@ export default function App() {
         </View>
       );
     }
-    return <EmptyMailboxState mailboxName={mailboxName} />;
-  }, [accounts.length, connectAccount, connectError, loadingAccounts, mailboxName]);
+    if (visibleThreads.length === 0) {
+      return <EmptyMailboxState mailboxName={mailboxName} />;
+    }
+    return (
+      <LegendList
+        contentContainerStyle={styles.listContent}
+        contentInsetAdjustmentBehavior="automatic"
+        data={visibleThreads}
+        estimatedItemSize={94}
+        keyExtractor={(thread) => `${thread.accountId}:${thread.threadId}`}
+        onLoad={handleListLoad}
+        onScroll={handleScroll}
+        recycleItems
+        renderItem={renderThread}
+        scrollEventThrottle={16}
+        style={styles.scrollView}
+      />
+    );
+  }, [
+    accounts.length,
+    connectAccount,
+    connectError,
+    downloadedThreads,
+    handleListLoad,
+    handleScroll,
+    loadAllDownloadedMail,
+    loadingAccounts,
+    mailLoadError,
+    mailboxName,
+    renderThread,
+    visibleThreads,
+  ]);
 
   return (
     <View style={styles.appRoot}>
@@ -413,6 +676,7 @@ export default function App() {
           if (nativeEvent.id === 'connect-account') void connectAccount();
         }}
         onSegmentChange={({ nativeEvent }) => {
+          setSelectedThread(undefined);
           setMailboxView(nativeEvent.segmentId === 'all'
             ? { kind: 'all' }
             : { kind: 'account', accountId: nativeEvent.segmentId.replace('account:', '') });
@@ -435,7 +699,65 @@ export default function App() {
       />
 
       <View style={styles.mainPane}>
-        {mainContent}
+        {selectedThread ? (
+          <>
+            <View style={styles.contentHeader}>
+              <Pressable
+                accessibilityLabel={`Back to ${inboxTitle}`}
+                accessibilityRole="button"
+                onPress={() => setSelectedThread(undefined)}
+                style={({ pressed }) => [styles.backButton, pressed && styles.pressed]}
+              >
+                <Text style={styles.backButtonText}>‹</Text>
+                <Text numberOfLines={1} style={styles.backButtonLabel}>{inboxTitle}</Text>
+              </Pressable>
+            </View>
+            <ScrollView
+              contentContainerStyle={styles.detailContent}
+              contentInsetAdjustmentBehavior="automatic"
+              style={styles.scrollView}
+            >
+              {detailLoading ? <Text selectable style={styles.stateText}>Opening downloaded conversation…</Text> : null}
+              {detailError ? <Text selectable style={styles.connectError}>{detailError}</Text> : null}
+              {threadDetail ? (
+                <>
+                  <Text selectable style={styles.detailSubject}>{threadDetail.subject}</Text>
+                  {threadDetail.messages.map((message) => (
+                    <View key={message.id} style={styles.messageCard}>
+                      <View style={styles.messageHeader}>
+                        <Text selectable style={styles.messageSender}>{message.sender}</Text>
+                        <Text selectable style={styles.messageDate}>
+                          {new Date(message.sentAt).toLocaleString()}
+                        </Text>
+                      </View>
+                      {message.recipients ? (
+                        <Text selectable style={styles.recipients}>To: {message.recipients}</Text>
+                      ) : null}
+                      <NativeMailViewer
+                        html={message.safeHtml}
+                        plainText={message.plainText || 'This message has no readable body.'}
+                        style={styles.mailViewer}
+                      />
+                      {message.attachments.length ? (
+                        <View style={styles.attachmentList}>
+                          {message.attachments.map((attachment) => (
+                            <Text
+                              key={attachment.id ?? attachment.filename}
+                              selectable
+                              style={styles.attachmentText}
+                            >
+                              📎 {attachment.filename || 'Attachment'}
+                            </Text>
+                          ))}
+                        </View>
+                      ) : null}
+                    </View>
+                  ))}
+                </>
+              ) : null}
+            </ScrollView>
+          </>
+        ) : mainContent}
       </View>
     </View>
   );
@@ -451,6 +773,99 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: PlatformColor('windowBackgroundColor'),
   },
+  scrollView: { flex: 1 },
+  listContent: { padding: 10, gap: 7 },
+  threadRow: {
+    padding: 11,
+    borderRadius: 10,
+    borderCurve: 'continuous',
+    gap: 4,
+  },
+  pressed: { backgroundColor: PlatformColor('quaternaryLabelColor') },
+  threadTopLine: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  threadSender: { flex: 1, color: PlatformColor('labelColor'), fontSize: 13 },
+  threadDate: {
+    color: PlatformColor('secondaryLabelColor'),
+    fontSize: 11,
+    fontVariant: ['tabular-nums'],
+  },
+  subjectLine: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  threadSubject: { flex: 1, color: PlatformColor('labelColor'), fontSize: 12 },
+  unreadText: { fontWeight: '700' },
+  messageCount: {
+    color: PlatformColor('secondaryLabelColor'),
+    fontSize: 10,
+    fontVariant: ['tabular-nums'],
+  },
+  threadSnippet: {
+    color: PlatformColor('secondaryLabelColor'),
+    fontSize: 11,
+    lineHeight: 15,
+  },
+  threadAccount: {
+    color: PlatformColor('tertiaryLabelColor'),
+    fontSize: 9,
+    paddingTop: 2,
+  },
+  contentHeader: {
+    height: 52,
+    justifyContent: 'center',
+    paddingHorizontal: 18,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: PlatformColor('separatorColor'),
+  },
+  backButton: {
+    maxWidth: '100%',
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 7,
+    paddingHorizontal: 6,
+    paddingVertical: 4,
+    gap: 5,
+  },
+  backButtonText: { color: PlatformColor('linkColor'), fontSize: 26, lineHeight: 20 },
+  backButtonLabel: {
+    flexShrink: 1,
+    color: PlatformColor('linkColor'),
+    fontSize: 13,
+    fontWeight: '500',
+  },
+  detailContent: { padding: 24, gap: 14 },
+  detailSubject: {
+    color: PlatformColor('labelColor'),
+    fontSize: 24,
+    fontWeight: '700',
+    paddingBottom: 4,
+  },
+  messageCard: {
+    padding: 16,
+    borderRadius: 12,
+    borderCurve: 'continuous',
+    backgroundColor: PlatformColor('controlBackgroundColor'),
+    gap: 7,
+  },
+  messageHeader: { flexDirection: 'row', alignItems: 'baseline', gap: 12 },
+  messageSender: {
+    flex: 1,
+    color: PlatformColor('labelColor'),
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  messageDate: {
+    color: PlatformColor('secondaryLabelColor'),
+    fontSize: 10,
+    fontVariant: ['tabular-nums'],
+  },
+  recipients: { color: PlatformColor('secondaryLabelColor'), fontSize: 10 },
+  mailViewer: { width: '100%', height: 260, paddingTop: 8 },
+  attachmentList: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: PlatformColor('separatorColor'),
+    paddingTop: 8,
+    gap: 4,
+  },
+  attachmentText: { color: PlatformColor('secondaryLabelColor'), fontSize: 11 },
   emptyState: { flex: 1, minHeight: 360, alignItems: 'center', justifyContent: 'center', padding: 28, gap: 9 },
   emptyTitle: { color: PlatformColor('labelColor'), fontSize: 18, fontWeight: '600', textAlign: 'center' },
   emptyCopy: { maxWidth: 320, color: PlatformColor('secondaryLabelColor'), fontSize: 13, lineHeight: 18, textAlign: 'center' },
