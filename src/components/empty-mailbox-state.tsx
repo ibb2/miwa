@@ -17,21 +17,19 @@ export function EmptyMailboxState({ mailboxName }: EmptyMailboxStateProps) {
       style={styles.container}
     >
       <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={styles.illustration}>
-        <Text style={[styles.sparkle, styles.sparkleLeft]}>✦</Text>
-        <Text style={[styles.sparkle, styles.sparkleRight]}>✧</Text>
         <View style={styles.envelope}>
           <View style={styles.envelopeFlap} />
-          <Text style={styles.sleepyFace}>• ᴗ •</Text>
+          <View style={styles.postmark} />
         </View>
       </View>
 
       <Text selectable style={styles.title}>
-        {mailboxSpecific ? 'This mailbox is taking a tiny nap.' : 'Your mailboxes are taking a tiny nap.'}
+        {mailboxSpecific ? 'Nothing has arrived here yet.' : 'Your reading desk is clear.'}
       </Text>
       <Text selectable style={styles.copy}>
         {mailboxSpecific
-          ? `No mail has been downloaded for ${mailboxName} yet. Use the download button in the toolbar when you are ready.`
-          : 'No mail has been downloaded yet. Choose one inbox—or all of them—from the download button in the toolbar.'}
+          ? `Download ${mailboxName} from the toolbar to make its conversations available offline.`
+          : 'Choose one inbox—or all of them—from the download button in the toolbar.'}
       </Text>
     </View>
   );
@@ -47,55 +45,41 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   illustration: {
-    width: 132,
-    height: 106,
+    width: 112,
+    height: 88,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 8,
+    marginBottom: 6,
   },
   envelope: {
-    width: 94,
-    height: 64,
-    alignItems: 'center',
-    justifyContent: 'flex-end',
-    paddingBottom: 12,
-    borderRadius: 16,
+    width: 88,
+    height: 58,
+    borderRadius: 14,
     borderCurve: 'continuous',
-    backgroundColor: PlatformColor('controlAccentColor'),
-    boxShadow: '0 8px 22px rgba(0, 0, 0, 0.12)',
+    backgroundColor: '#E86E5A',
+    boxShadow: '0 10px 26px rgba(92, 44, 36, 0.18)',
     overflow: 'hidden',
   },
   envelopeFlap: {
     position: 'absolute',
-    top: -31,
-    width: 68,
-    height: 68,
-    borderRadius: 12,
+    top: -34,
+    left: 12,
+    width: 64,
+    height: 64,
+    borderRadius: 11,
     borderCurve: 'continuous',
     backgroundColor: 'rgba(255, 255, 255, 0.22)',
     transform: [{ rotate: '45deg' }],
   },
-  sleepyFace: {
-    color: '#fff',
-    fontSize: 17,
-    fontWeight: '700',
-    letterSpacing: 1,
-  },
-  sparkle: {
+  postmark: {
     position: 'absolute',
-    color: PlatformColor('controlAccentColor'),
-    fontSize: 22,
-    fontWeight: '700',
-  },
-  sparkleLeft: {
-    left: 3,
-    top: 18,
-    transform: [{ rotate: '-14deg' }],
-  },
-  sparkleRight: {
-    right: 2,
-    top: 4,
-    transform: [{ rotate: '12deg' }],
+    right: 12,
+    bottom: 11,
+    width: 16,
+    height: 16,
+    borderWidth: 2,
+    borderColor: 'rgba(255, 255, 255, 0.75)',
+    borderRadius: 999,
   },
   title: {
     color: PlatformColor('labelColor'),

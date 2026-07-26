@@ -20,6 +20,7 @@ import {
   type ToolbarSegment,
 } from './modules/native-window-toolbar/src';
 import { EmptyMailboxState } from './src/components/empty-mailbox-state';
+import { SettingsView } from './src/components/settings-view';
 import { gmailAccountAuth } from './src/mail/account-auth';
 import {
   DEFAULT_INBOX_DOWNLOAD_LIMIT,
@@ -40,6 +41,11 @@ import type {
   MailThreadDetail,
   MailThreadSummary,
 } from './src/mail/types';
+import {
+  loadMailPreferences,
+  saveMailPreference,
+  type MailPreferences,
+} from './src/settings/mail-preferences';
 
 const appModuleStartedAt = globalThis.performance.now();
 
@@ -80,6 +86,8 @@ const idleDownloadState: ToolbarDownloadState = {
   attachmentsStored: 0,
 };
 
+type AppSurface = 'mail' | 'settings';
+
 function bytesToBase64(buffer: ArrayBuffer): string {
   const bytes = new Uint8Array(buffer);
   let binary = '';
@@ -117,12 +125,16 @@ function formatDate(milliseconds: number): string {
 
 const InboxThreadRow = memo(function InboxThreadRow({
   account,
+  comfortable,
   showAccount,
+  showPreview,
   thread,
   onPress,
 }: {
   account?: ConnectedAccount;
+  comfortable: boolean;
   showAccount: boolean;
+  showPreview: boolean;
   thread: MailThreadSummary;
   onPress: (thread: MailThreadSummary) => void;
 }) {
@@ -131,24 +143,48 @@ const InboxThreadRow = memo(function InboxThreadRow({
       accessibilityLabel={`${thread.sender}, ${thread.subject}`}
       accessibilityRole="button"
       onPress={() => onPress(thread)}
-      style={({ pressed }) => [styles.threadRow, pressed && styles.pressed]}
+      style={({ pressed }) => [
+        styles.threadRow,
+        comfortable && styles.comfortableThreadRow,
+        pressed && styles.pressed,
+      ]}
     >
-      <View style={styles.threadTopLine}>
-        <Text numberOfLines={1} selectable style={[styles.threadSender, thread.unread && styles.unreadText]}>
-          {thread.sender}
+      <View
+        accessibilityElementsHidden
+        importantForAccessibility="no-hide-descendants"
+        style={[styles.unreadMark, !thread.unread && styles.readMark]}
+      />
+      <Text
+        numberOfLines={1}
+        selectable
+        style={[styles.threadSender, thread.unread && styles.unreadText]}
+      >
+        {thread.sender}
+      </Text>
+      <View style={styles.threadCopy}>
+        <Text
+          numberOfLines={1}
+          selectable
+          style={[styles.threadSubject, thread.unread && styles.unreadText]}
+        >
+          {thread.subject || '(No subject)'}
         </Text>
-        <Text selectable style={styles.threadDate}>{formatDate(thread.receivedAt)}</Text>
+        {showPreview && thread.snippet ? (
+          <Text numberOfLines={1} selectable style={styles.threadSnippet}>
+            <Text style={styles.snippetDivider}> — </Text>
+            {thread.snippet}
+          </Text>
+        ) : null}
       </View>
-      <View style={styles.subjectLine}>
-        <Text numberOfLines={1} selectable style={[styles.threadSubject, thread.unread && styles.unreadText]}>
-          {thread.subject}
-        </Text>
-        {thread.messageCount > 1 ? <Text selectable style={styles.messageCount}>{thread.messageCount}</Text> : null}
-      </View>
-      <Text numberOfLines={2} selectable style={styles.threadSnippet}>{thread.snippet}</Text>
-      {showAccount && account ? (
-        <Text numberOfLines={1} selectable style={styles.threadAccount}>{account.email}</Text>
+      {thread.messageCount > 1 ? (
+        <Text selectable style={styles.messageCount}>{thread.messageCount}</Text>
       ) : null}
+      {showAccount && account ? (
+        <Text numberOfLines={1} selectable style={styles.threadAccount}>
+          {account.email}
+        </Text>
+      ) : null}
+      <Text selectable style={styles.threadDate}>{formatDate(thread.receivedAt)}</Text>
     </Pressable>
   );
 });
@@ -160,6 +196,7 @@ const MailboxThreadList = memo(function MailboxThreadList({
   onListLoad,
   onOpenThread,
   onScroll,
+  preferences,
   showAccount,
   threads,
 }: {
@@ -169,6 +206,7 @@ const MailboxThreadList = memo(function MailboxThreadList({
   onListLoad: (event: { elapsedTimeInMs: number }) => void;
   onOpenThread: (thread: MailThreadSummary) => void;
   onScroll: (event: NativeSyntheticEvent<NativeScrollEvent>) => void;
+  preferences: MailPreferences;
   showAccount: boolean;
   threads: MailThreadSummary[];
 }) {
@@ -176,12 +214,14 @@ const MailboxThreadList = memo(function MailboxThreadList({
     ({ item }: LegendListRenderItemProps<MailThreadSummary>) => (
       <InboxThreadRow
         account={accountsById.get(item.accountId)}
-        showAccount={showAccount}
+        comfortable={preferences.comfortableRows}
+        showAccount={showAccount && preferences.showAccountLabels}
+        showPreview={preferences.showPreviews}
         thread={item}
         onPress={onOpenThread}
       />
     ),
-    [accountsById, onOpenThread, showAccount],
+    [accountsById, onOpenThread, preferences, showAccount],
   );
 
   return (
@@ -196,7 +236,7 @@ const MailboxThreadList = memo(function MailboxThreadList({
         contentContainerStyle={styles.listContent}
         contentInsetAdjustmentBehavior="automatic"
         data={threads}
-        estimatedItemSize={94}
+        estimatedItemSize={preferences.comfortableRows ? 72 : 60}
         keyExtractor={(thread) => `${thread.accountId}:${thread.threadId}`}
         onLoad={onListLoad}
         onScroll={onScroll}
@@ -228,6 +268,10 @@ export default function App() {
   const downloadActiveRef = useRef(false);
   const lastDownloadProgressUpdateRef = useRef(0);
   const [accounts, setAccounts] = useState<ConnectedAccount[]>([]);
+  const [surface, setSurface] = useState<AppSurface>('mail');
+  const [preferences, setPreferences] = useState<MailPreferences>(
+    loadMailPreferences,
+  );
   const [mailboxView, setMailboxView] = useState<MailboxView>({ kind: 'all' });
   const [loadingAccounts, setLoadingAccounts] = useState(true);
   const [connectError, setConnectError] = useState<string>();
@@ -251,6 +295,14 @@ export default function App() {
   const accountsById = useMemo(
     () => new Map(accounts.map((account) => [account.id, account])),
     [accounts]
+  );
+
+  const changePreference = useCallback(
+    (key: keyof MailPreferences, value: boolean) => {
+      setPreferences((current) => ({ ...current, [key]: value }));
+      saveMailPreference(key, value);
+    },
+    [],
   );
 
   const loadAllDownloadedMail = useCallback(async (showLoading = true) => {
@@ -571,32 +623,34 @@ export default function App() {
     : mailboxName ?? 'Inbox';
 
   const toolbarItems = useMemo<NativeToolbarItem[]>(() => [
-    ...(selectedThread
+    ...(selectedThread || surface === 'settings'
       ? [{
           id: 'back',
           kind: 'button' as const,
-          label: `Back to ${inboxTitle}`,
+          label: surface === 'settings' ? 'Back to inbox' : `Back to ${inboxTitle}`,
           systemImage: 'chevron.left',
-          toolTip: `Back to ${inboxTitle}`,
+          toolTip: surface === 'settings' ? 'Back to inbox' : `Back to ${inboxTitle}`,
           immovable: true,
           navigational: true,
         }]
       : []),
-    {
-      id: 'accounts',
-      kind: 'segmented',
-      label: 'Inbox account',
-      selectionMode: 'selectOne',
-      selectedIndex: selectedAccountIndex,
-      segments: accountSegments,
-      immovable: true,
-      navigational: true,
-    },
+    ...(surface === 'mail'
+      ? [{
+          id: 'accounts',
+          kind: 'segmented' as const,
+          label: 'Inbox account',
+          selectionMode: 'selectOne' as const,
+          selectedIndex: selectedAccountIndex,
+          segments: accountSegments,
+          immovable: true,
+          navigational: true,
+        }]
+      : []),
     { id: 'toolbar-spacer', kind: 'flexibleSpace' },
-    syncingInbox
+    ...(surface === 'mail' ? [syncingInbox
       ? {
           id: 'sync-inbox',
-          kind: 'progress',
+          kind: 'progress' as const,
           label: 'Syncing Mail',
           toolTip: syncStatusLabel,
           indeterminate: true,
@@ -604,7 +658,7 @@ export default function App() {
         }
       : {
           id: 'sync-inbox',
-          kind: 'button',
+          kind: 'button' as const,
           label: 'Sync Mail',
           systemImage: 'arrow.clockwise',
           toolTip: syncStatusLabel,
@@ -613,7 +667,7 @@ export default function App() {
         },
     {
       id: 'download-inbox',
-      kind: 'menu',
+      kind: 'menu' as const,
       label: 'Download Inbox',
       systemImage: 'arrow.down.circle',
       toolTip: `Download up to ${DEFAULT_INBOX_DOWNLOAD_LIMIT.toLocaleString()} emails per inbox`,
@@ -637,7 +691,7 @@ export default function App() {
     downloadState.status === 'running'
       ? {
           id: 'download-progress',
-          kind: 'progress',
+          kind: 'progress' as const,
           label: 'Download Progress',
           toolTip: downloadStatusLabel,
           progress: downloadState.fraction,
@@ -646,7 +700,7 @@ export default function App() {
         }
       : {
           id: 'download-progress',
-          kind: 'button',
+          kind: 'button' as const,
           label: 'Download Status',
           systemImage: downloadState.status === 'complete'
             ? 'checkmark.circle'
@@ -656,8 +710,18 @@ export default function App() {
           toolTip: downloadStatusLabel,
           enabled: false,
           immovable: true,
-        },
+        }] : []),
     { id: 'connect-account', kind: 'button', label: 'Connect Gmail', systemImage: 'plus', toolTip: 'Connect another Gmail account', enabled: downloadState.status !== 'running', immovable: true },
+    ...(surface === 'mail'
+      ? [{
+          id: 'settings',
+          kind: 'button' as const,
+          label: 'Settings',
+          systemImage: 'gearshape',
+          toolTip: 'Open Miwa settings',
+          immovable: true,
+        }]
+      : []),
     {
       id: 'more',
       kind: 'menu',
@@ -681,6 +745,7 @@ export default function App() {
     inboxTitle,
     selectedAccountIndex,
     selectedThread,
+    surface,
     syncingInbox,
     syncStatusLabel,
   ]);
@@ -704,6 +769,11 @@ export default function App() {
   const activeMailboxKey = mailboxView.kind === 'all'
     ? 'all'
     : `account:${mailboxView.accountId}`;
+  const activeThreads = mailboxLists.find((list) => list.key === activeMailboxKey)?.threads ?? [];
+  const unreadCount = activeThreads.reduce(
+    (count, thread) => count + (thread.unread ? 1 : 0),
+    0,
+  );
   const selectMailboxSegment = useCallback((segmentId: string) => {
     if (mailboxSelectionFrameRef.current !== null) {
       cancelAnimationFrame(mailboxSelectionFrameRef.current);
@@ -711,6 +781,7 @@ export default function App() {
     mailboxSelectionFrameRef.current = requestAnimationFrame(() => {
       mailboxSelectionFrameRef.current = null;
       setSelectedThread(undefined);
+      setSurface('mail');
       setMailboxView(segmentId === 'all'
         ? { kind: 'all' }
         : { kind: 'account', accountId: segmentId.replace('account:', '') });
@@ -809,21 +880,23 @@ export default function App() {
         </View>
       );
     }
+    const activeList = mailboxLists.find((list) => list.key === activeMailboxKey);
+    if (!activeList) return null;
+
     return (
       <View style={styles.mailboxListStack}>
-        {mailboxLists.map((list) => (
-          <MailboxThreadList
-            key={list.key}
-            accountsById={accountsById}
-            active={list.key === activeMailboxKey}
-            emptyMailboxName={list.mailboxName}
-            onListLoad={handleListLoad}
-            onOpenThread={setSelectedThread}
-            onScroll={handleScroll}
-            showAccount={list.showAccount}
-            threads={list.threads}
-          />
-        ))}
+        <MailboxThreadList
+          key={activeList.key}
+          accountsById={accountsById}
+          active
+          emptyMailboxName={activeList.mailboxName}
+          onListLoad={handleListLoad}
+          onOpenThread={setSelectedThread}
+          onScroll={handleScroll}
+          preferences={preferences}
+          showAccount={activeList.showAccount}
+          threads={activeList.threads}
+        />
       </View>
     );
   }, [
@@ -839,6 +912,7 @@ export default function App() {
     loadingAccounts,
     mailboxLists,
     mailLoadError,
+    preferences,
   ]);
 
   return (
@@ -846,16 +920,29 @@ export default function App() {
       <NativeWindowToolbar
         ref={toolbarRef}
         style={styles.nativeToolbarBridge}
-        identifier={selectedThread ? "MiwaMessageToolbar" : "MiwaLeadingInboxToolbar"}
+        identifier={
+          surface === 'settings'
+            ? 'MiwaSettingsToolbar'
+            : selectedThread
+              ? 'MiwaMessageToolbar'
+              : 'MiwaLeadingInboxToolbar'
+        }
         items={toolbarItems}
         customizable
         autosavesConfiguration
         displayMode="iconOnly"
         toolbarStyle="unified"
         onItemPress={({ nativeEvent }) => {
-          if (nativeEvent.id === 'back') setSelectedThread(undefined);
+          if (nativeEvent.id === 'back') {
+            setSelectedThread(undefined);
+            setSurface('mail');
+          }
           else if (nativeEvent.id === 'sync-inbox') reconciliationRef.current?.runNow();
           else if (nativeEvent.id === 'connect-account') void connectAccount();
+          else if (nativeEvent.id === 'settings') {
+            setSelectedThread(undefined);
+            setSurface('settings');
+          }
         }}
         onSegmentChange={({ nativeEvent }) => {
           selectMailboxSegment(nativeEvent.segmentId);
@@ -878,15 +965,46 @@ export default function App() {
       />
 
       <View style={styles.mainPane}>
-        <View
-          accessibilityElementsHidden={Boolean(selectedThread)}
-          importantForAccessibility={selectedThread ? 'no-hide-descendants' : 'auto'}
-          pointerEvents={selectedThread ? 'none' : 'auto'}
-          style={[styles.contentLayer, selectedThread && styles.inactiveMailboxList]}
-        >
-          {mainContent}
-        </View>
-        {selectedThread ? (
+        {surface === 'settings' ? (
+          <View style={styles.contentLayer}>
+            <SettingsView
+              accounts={accounts}
+              onChangePreference={changePreference}
+              onConnectAccount={() => void connectAccount()}
+              onDisconnectAccount={disconnect}
+              preferences={preferences}
+            />
+          </View>
+        ) : null}
+        {surface === 'mail' && !selectedThread ? (
+          <View style={styles.contentLayer}>
+            <View style={styles.mailHeader}>
+              <View style={styles.mailTitleBlock}>
+                <Text selectable style={styles.mailEyebrow}>
+                  {mailboxView.kind === 'all' ? 'UNIFIED MAIL' : 'GMAIL'}
+                </Text>
+                <Text numberOfLines={1} selectable style={styles.mailTitle}>
+                  {inboxTitle}
+                </Text>
+              </View>
+              <View style={styles.mailStats}>
+                {unreadCount > 0 ? (
+                  <View style={styles.unreadPill}>
+                    <Text selectable style={styles.unreadPillText}>
+                      {unreadCount.toLocaleString()} unread
+                    </Text>
+                  </View>
+                ) : null}
+                <Text selectable style={styles.threadTotal}>
+                  {activeThreads.length.toLocaleString()}{' '}
+                  {activeThreads.length === 1 ? 'conversation' : 'conversations'}
+                </Text>
+              </View>
+            </View>
+            <View style={styles.mailBody}>{mainContent}</View>
+          </View>
+        ) : null}
+        {selectedThread && surface === 'mail' ? (
           <View style={styles.contentLayer}>
             <ScrollView
               contentContainerStyle={styles.detailContent}
@@ -897,18 +1015,50 @@ export default function App() {
               {detailError ? <Text selectable style={styles.connectError}>{detailError}</Text> : null}
               {threadDetail ? (
                 <>
-                  <Text selectable style={styles.detailSubject}>{threadDetail.subject}</Text>
+                  <View style={styles.detailHero}>
+                    <Pressable
+                      accessibilityLabel={`Back to ${inboxTitle}`}
+                      accessibilityRole="button"
+                      onPress={() => setSelectedThread(undefined)}
+                      style={({ pressed }) => [
+                        styles.inlineBackButton,
+                        pressed && styles.buttonPressed,
+                      ]}
+                    >
+                      <Text style={styles.inlineBackGlyph}>‹</Text>
+                      <Text style={styles.inlineBackText}>{inboxTitle}</Text>
+                    </Pressable>
+                    <Text selectable style={styles.detailEyebrow}>
+                      {threadDetail.messages.length.toLocaleString()}{' '}
+                      {threadDetail.messages.length === 1 ? 'MESSAGE' : 'MESSAGES'}
+                    </Text>
+                    <Text selectable style={styles.detailSubject}>
+                      {threadDetail.subject || '(No subject)'}
+                    </Text>
+                  </View>
                   {threadDetail.messages.map((message) => (
                     <View key={message.id} style={styles.messageCard}>
                       <View style={styles.messageHeader}>
-                        <Text selectable style={styles.messageSender}>{message.sender}</Text>
+                        <View style={styles.senderMonogram}>
+                          <Text selectable style={styles.senderMonogramText}>
+                            {message.sender.slice(0, 1).toUpperCase()}
+                          </Text>
+                        </View>
+                        <View style={styles.messageIdentity}>
+                          <Text selectable style={styles.messageSender}>
+                            {message.sender}
+                          </Text>
+                          {message.recipients ? (
+                            <Text numberOfLines={1} selectable style={styles.recipients}>
+                              to {message.recipients}
+                            </Text>
+                          ) : null}
+                        </View>
                         <Text selectable style={styles.messageDate}>
                           {new Date(message.sentAt).toLocaleString()}
                         </Text>
                       </View>
-                      {message.recipients ? (
-                        <Text selectable style={styles.recipients}>To: {message.recipients}</Text>
-                      ) : null}
+                      <View style={styles.messageRule} />
                       <NativeMailViewer
                         html={message.safeHtml}
                         plainText={message.plainText || 'This message has no readable body.'}
@@ -922,7 +1072,7 @@ export default function App() {
                               selectable
                               style={styles.attachmentText}
                             >
-                              📎 {attachment.filename || 'Attachment'}
+                              {attachment.filename || 'Attachment'}
                             </Text>
                           ))}
                         </View>
@@ -950,60 +1100,179 @@ const styles = StyleSheet.create({
     backgroundColor: PlatformColor('windowBackgroundColor'),
   },
   scrollView: { flex: 1 },
-  mailboxListStack: { flex: 1, position: 'relative' },
-  contentLayer: { ...StyleSheet.absoluteFillObject },
-  mailboxListLayer: { ...StyleSheet.absoluteFillObject },
-  inactiveMailboxList: { opacity: 0 },
-  listContent: { padding: 10, gap: 7 },
-  threadRow: {
-    padding: 11,
-    borderRadius: 10,
-    borderCurve: 'continuous',
-    gap: 4,
+  mailHeader: {
+    minHeight: 92,
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'space-between',
+    paddingHorizontal: 28,
+    paddingTop: 22,
+    paddingBottom: 17,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: PlatformColor('separatorColor'),
+    gap: 24,
   },
-  pressed: { backgroundColor: PlatformColor('quaternaryLabelColor') },
-  threadTopLine: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  threadSender: { flex: 1, color: PlatformColor('labelColor'), fontSize: 13 },
-  threadDate: {
-    color: PlatformColor('secondaryLabelColor'),
-    fontSize: 11,
+  mailTitleBlock: { flex: 1, gap: 2 },
+  mailEyebrow: {
+    color: '#E86E5A',
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 1.4,
+  },
+  mailTitle: {
+    color: PlatformColor('labelColor'),
+    fontSize: 28,
+    fontWeight: '700',
+    letterSpacing: -0.7,
+  },
+  mailStats: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingBottom: 4,
+    gap: 10,
+  },
+  unreadPill: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 999,
+    backgroundColor: 'rgba(232, 110, 90, 0.12)',
+  },
+  unreadPillText: {
+    color: '#C95243',
+    fontSize: 10,
+    fontWeight: '700',
     fontVariant: ['tabular-nums'],
   },
-  subjectLine: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  threadSubject: { flex: 1, color: PlatformColor('labelColor'), fontSize: 12 },
-  unreadText: { fontWeight: '700' },
-  messageCount: {
+  threadTotal: {
     color: PlatformColor('secondaryLabelColor'),
     fontSize: 10,
     fontVariant: ['tabular-nums'],
   },
+  mailBody: { flex: 1 },
+  mailboxListStack: { flex: 1, position: 'relative' },
+  contentLayer: { ...StyleSheet.absoluteFillObject },
+  mailboxListLayer: { ...StyleSheet.absoluteFillObject },
+  inactiveMailboxList: { opacity: 0 },
+  listContent: { paddingHorizontal: 20, paddingBottom: 22 },
+  threadRow: {
+    minHeight: 60,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: PlatformColor('separatorColor'),
+    gap: 11,
+  },
+  comfortableThreadRow: { minHeight: 72 },
+  pressed: {
+    backgroundColor: PlatformColor('selectedContentBackgroundColor'),
+  },
+  buttonPressed: { opacity: 0.58 },
+  unreadMark: {
+    width: 3,
+    height: 26,
+    borderRadius: 999,
+    backgroundColor: '#E86E5A',
+  },
+  readMark: { opacity: 0 },
+  threadSender: {
+    width: 160,
+    color: PlatformColor('labelColor'),
+    fontSize: 12,
+  },
+  threadCopy: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: 'row',
+    alignItems: 'baseline',
+  },
+  threadSubject: {
+    maxWidth: '52%',
+    flexShrink: 1,
+    color: PlatformColor('labelColor'),
+    fontSize: 12,
+  },
   threadSnippet: {
+    flex: 1,
     color: PlatformColor('secondaryLabelColor'),
     fontSize: 11,
-    lineHeight: 15,
+  },
+  snippetDivider: { color: PlatformColor('tertiaryLabelColor') },
+  threadDate: {
+    width: 58,
+    color: PlatformColor('secondaryLabelColor'),
+    fontSize: 10,
+    fontVariant: ['tabular-nums'],
+    textAlign: 'right',
+  },
+  unreadText: { fontWeight: '700' },
+  messageCount: {
+    color: PlatformColor('secondaryLabelColor'),
+    fontSize: 9,
+    fontVariant: ['tabular-nums'],
   },
   threadAccount: {
+    width: 150,
     color: PlatformColor('tertiaryLabelColor'),
     fontSize: 9,
-    paddingTop: 2,
+    textAlign: 'right',
   },
-  detailContent: { padding: 24, gap: 14 },
+  detailContent: {
+    width: '100%',
+    maxWidth: 940,
+    alignSelf: 'center',
+    paddingHorizontal: 38,
+    paddingTop: 34,
+    paddingBottom: 64,
+    gap: 16,
+  },
+  detailHero: { paddingBottom: 12, gap: 8 },
+  inlineBackButton: {
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 3,
+    paddingRight: 8,
+    gap: 4,
+  },
+  inlineBackGlyph: { color: '#C95243', fontSize: 24, lineHeight: 18 },
+  inlineBackText: { color: '#C95243', fontSize: 11, fontWeight: '600' },
+  detailEyebrow: {
+    color: '#E86E5A',
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 1.3,
+    paddingTop: 6,
+  },
   detailSubject: {
     color: PlatformColor('labelColor'),
-    fontSize: 24,
+    fontSize: 30,
     fontWeight: '700',
-    paddingBottom: 4,
+    letterSpacing: -0.8,
   },
   messageCard: {
-    padding: 16,
-    borderRadius: 12,
+    padding: 20,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: PlatformColor('separatorColor'),
+    borderRadius: 14,
     borderCurve: 'continuous',
     backgroundColor: PlatformColor('controlBackgroundColor'),
-    gap: 7,
+    boxShadow: '0 8px 26px rgba(0, 0, 0, 0.055)',
+    gap: 12,
   },
-  messageHeader: { flexDirection: 'row', alignItems: 'baseline', gap: 12 },
+  messageHeader: { flexDirection: 'row', alignItems: 'center', gap: 11 },
+  senderMonogram: {
+    width: 34,
+    height: 34,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 11,
+    borderCurve: 'continuous',
+    backgroundColor: '#E86E5A',
+  },
+  senderMonogramText: { color: '#fff', fontSize: 13, fontWeight: '700' },
+  messageIdentity: { flex: 1, minWidth: 0, gap: 2 },
   messageSender: {
-    flex: 1,
     color: PlatformColor('labelColor'),
     fontSize: 13,
     fontWeight: '600',
@@ -1014,18 +1283,32 @@ const styles = StyleSheet.create({
     fontVariant: ['tabular-nums'],
   },
   recipients: { color: PlatformColor('secondaryLabelColor'), fontSize: 10 },
-  mailViewer: { width: '100%', height: 260, paddingTop: 8 },
+  messageRule: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: PlatformColor('separatorColor'),
+  },
+  mailViewer: { width: '100%', height: 300 },
   attachmentList: {
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: PlatformColor('separatorColor'),
-    paddingTop: 8,
-    gap: 4,
+    paddingTop: 10,
+    gap: 5,
   },
-  attachmentText: { color: PlatformColor('secondaryLabelColor'), fontSize: 11 },
+  attachmentText: {
+    alignSelf: 'flex-start',
+    color: '#C95243',
+    fontSize: 11,
+    fontWeight: '600',
+    paddingHorizontal: 9,
+    paddingVertical: 6,
+    borderRadius: 7,
+    borderCurve: 'continuous',
+    backgroundColor: 'rgba(232, 110, 90, 0.09)',
+  },
   emptyState: { flex: 1, minHeight: 360, alignItems: 'center', justifyContent: 'center', padding: 28, gap: 9 },
   emptyTitle: { color: PlatformColor('labelColor'), fontSize: 18, fontWeight: '600', textAlign: 'center' },
   emptyCopy: { maxWidth: 320, color: PlatformColor('secondaryLabelColor'), fontSize: 13, lineHeight: 18, textAlign: 'center' },
-  connectButton: { width: 150, height: 32, marginTop: 8, borderRadius: 7, alignItems: 'center', justifyContent: 'center', backgroundColor: PlatformColor('controlAccentColor') },
+  connectButton: { width: 150, height: 32, marginTop: 8, borderRadius: 7, borderCurve: 'continuous', alignItems: 'center', justifyContent: 'center', backgroundColor: '#E86E5A' },
   connectButtonPressed: { opacity: 0.72 },
   connectButtonText: { color: '#fff', fontSize: 13, fontWeight: '600' },
   connectError: { maxWidth: 460, marginTop: 6, color: PlatformColor('systemRedColor'), fontSize: 11, lineHeight: 15, textAlign: 'center' },

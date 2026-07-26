@@ -132,6 +132,24 @@ const migrations = [
       );
     `,
   },
+  {
+    version: 2,
+    sql: `
+      CREATE TABLE IF NOT EXISTS "app_preferences" (
+        "id" integer PRIMARY KEY NOT NULL CHECK ("id" = 1),
+        "show_previews" integer DEFAULT 1 NOT NULL,
+        "comfortable_rows" integer DEFAULT 0 NOT NULL,
+        "show_account_labels" integer DEFAULT 1 NOT NULL
+      );
+
+      INSERT OR IGNORE INTO "app_preferences" (
+        "id",
+        "show_previews",
+        "comfortable_rows",
+        "show_account_labels"
+      ) VALUES (1, 1, 0, 1);
+    `,
+  },
 ] as const;
 
 export function migrateDatabase(database: SQLiteDatabase): void {
