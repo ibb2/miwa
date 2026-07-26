@@ -11,6 +11,7 @@ const PatchedButton = Button as ComponentType<PatchedButtonProps>;
 
 export function NativeActionButton({
   accessibilityLabel,
+  disabled = false,
   label,
   onPress,
   role = 'default',
@@ -27,6 +28,7 @@ export function NativeActionButton({
         accessibilityLabel={accessibilityLabel ?? label}
         color={role === 'destructive' ? 'red' : '#E86E5A'}
         controlSize="small"
+        disabled={disabled}
         onPress={onPress}
         role={role}
         systemImage={systemImage as never}

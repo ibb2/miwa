@@ -16,9 +16,14 @@ import type { MailPreferences } from '../settings/mail-preferences';
 
 type SettingsViewProps = {
   accounts: ConnectedAccount[];
+  downloadEnabled: boolean;
+  downloadLimit: number;
+  downloadStatus: string;
+  isDownloading: boolean;
   preferences: MailPreferences;
   onChangePreference: (key: keyof MailPreferences, value: boolean) => void;
   onConnectAccount: () => void;
+  onDownloadMail: () => void;
   onDisconnectAccount: (account: ConnectedAccount) => void;
 };
 
@@ -50,9 +55,14 @@ function PreferenceRow({
 
 export function SettingsView({
   accounts,
+  downloadEnabled,
+  downloadLimit,
+  downloadStatus,
+  isDownloading,
   preferences,
   onChangePreference,
   onConnectAccount,
+  onDownloadMail,
   onDisconnectAccount,
 }: SettingsViewProps) {
   return (
@@ -67,6 +77,30 @@ export function SettingsView({
         <Text selectable style={styles.subtitle}>
           Shape the reading desk around the way you work.
         </Text>
+      </View>
+
+      <View style={styles.section}>
+        <NativeSectionLabel label="OFFLINE MAIL" systemImage="arrow.down.circle" />
+        <View style={styles.group}>
+          <View style={styles.downloadRow}>
+            <View style={styles.preferenceCopy}>
+              <Text selectable style={styles.preferenceLabel}>Initial mail download</Text>
+              <Text selectable style={styles.preferenceDescription}>
+                Download up to {downloadLimit.toLocaleString()} inbox emails per account.
+                New mail will be synced incrementally afterwards.
+              </Text>
+              {isDownloading ? (
+                <Text selectable style={styles.downloadStatus}>{downloadStatus}</Text>
+              ) : null}
+            </View>
+            <NativeActionButton
+              disabled={!downloadEnabled || isDownloading}
+              label={isDownloading ? 'Downloading…' : 'Download mail'}
+              onPress={onDownloadMail}
+              variant="glassProminent"
+            />
+          </View>
+        </View>
       </View>
 
       <View style={styles.section}>
@@ -218,6 +252,20 @@ const styles = StyleSheet.create({
     color: PlatformColor('secondaryLabelColor'),
     fontSize: 11,
     lineHeight: 15,
+  },
+  downloadRow: {
+    minHeight: 84,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 13,
+    gap: 18,
+  },
+  downloadStatus: {
+    color: '#C95243',
+    fontSize: 10,
+    lineHeight: 14,
+    paddingTop: 3,
   },
   accountRow: {
     minHeight: 66,

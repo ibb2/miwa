@@ -28,8 +28,8 @@ export function EmptyMailboxState({ mailboxName }: EmptyMailboxStateProps) {
       </Text>
       <Text selectable style={styles.copy}>
         {mailboxSpecific
-          ? `Download ${mailboxName} from the toolbar to make its conversations available offline.`
-          : 'Choose one inbox—or all of them—from the download button in the toolbar.'}
+          ? `Open Settings to download ${mailboxName} for offline reading.`
+          : 'Open Settings to download your connected inboxes for offline reading.'}
       </Text>
     </View>
   );

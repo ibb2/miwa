@@ -477,12 +477,12 @@ export default function App() {
 
   const disconnect = useCallback((account: ConnectedAccount) => {
     Alert.alert(
-      'Disconnect Gmail account?',
+      'Remove Gmail account?',
       `${account.email} will be removed from Miwa. Your Gmail data will not be deleted.`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Disconnect',
+          text: 'Remove',
           style: 'destructive',
           onPress: () => {
             void gmailAccountAuth.disconnectAccount(account.id).then(() => {
@@ -647,49 +647,18 @@ export default function App() {
         }]
       : []),
     { id: 'toolbar-spacer', kind: 'flexibleSpace' },
-    ...(surface === 'mail' ? [syncingInbox
-      ? {
+    ...(syncingInbox
+      ? [{
           id: 'sync-inbox',
           kind: 'progress' as const,
           label: 'Syncing Mail',
           toolTip: syncStatusLabel,
           indeterminate: true,
           immovable: true,
-        }
-      : {
-          id: 'sync-inbox',
-          kind: 'button' as const,
-          label: 'Sync Mail',
-          systemImage: 'arrow.clockwise',
-          toolTip: syncStatusLabel,
-          enabled: accounts.length > 0,
-          immovable: true,
-        },
-    {
-      id: 'download-inbox',
-      kind: 'menu' as const,
-      label: 'Download Inbox',
-      systemImage: 'arrow.down.circle',
-      toolTip: `Download up to ${DEFAULT_INBOX_DOWNLOAD_LIMIT.toLocaleString()} emails per inbox`,
-      enabled: accounts.length > 0 && downloadState.status !== 'running',
-      immovable: true,
-      options: [
-        {
-          id: 'download:all',
-          label: `All inboxes — up to ${DEFAULT_INBOX_DOWNLOAD_LIMIT.toLocaleString()} each`,
-          systemImage: 'tray.full',
-          enabled: accounts.length > 0 && downloadState.status !== 'running',
-        },
-        ...accounts.map((account) => ({
-          id: `download:${account.id}`,
-          label: account.email,
-          systemImage: 'tray',
-          enabled: downloadState.status !== 'running',
-        })),
-      ],
-    },
-    downloadState.status === 'running'
-      ? {
+        }]
+      : []),
+    ...(downloadState.status === 'running'
+      ? [{
           id: 'download-progress',
           kind: 'progress' as const,
           label: 'Download Progress',
@@ -697,20 +666,8 @@ export default function App() {
           progress: downloadState.fraction,
           indeterminate: !downloadState.currentProgress,
           immovable: true,
-        }
-      : {
-          id: 'download-progress',
-          kind: 'button' as const,
-          label: 'Download Status',
-          systemImage: downloadState.status === 'complete'
-            ? 'checkmark.circle'
-            : downloadState.status === 'failed'
-              ? 'exclamationmark.triangle'
-              : 'circle.dotted',
-          toolTip: downloadStatusLabel,
-          enabled: false,
-          immovable: true,
-        }] : []),
+        }]
+      : []),
     { id: 'connect-account', kind: 'button', label: 'Connect Gmail', systemImage: 'plus', toolTip: 'Connect another Gmail account', enabled: downloadState.status !== 'running', immovable: true },
     ...(surface === 'mail'
       ? [{
@@ -932,7 +889,6 @@ export default function App() {
             setSelectedThread(undefined);
             setSurface('mail');
           }
-          else if (nativeEvent.id === 'sync-inbox') reconciliationRef.current?.runNow();
           else if (nativeEvent.id === 'connect-account') void connectAccount();
           else if (nativeEvent.id === 'settings') {
             setSelectedThread(undefined);
@@ -945,13 +901,6 @@ export default function App() {
         onMenuItemPress={({ nativeEvent }) => {
           if (nativeEvent.optionId === 'customize') void toolbarRef.current?.showCustomizationPalette();
           else if (nativeEvent.optionId === 'reset') void toolbarRef.current?.resetConfiguration();
-          else if (nativeEvent.optionId === 'download:all') {
-            void downloadAccounts(accounts);
-          }
-          else if (nativeEvent.optionId.startsWith('download:')) {
-            const account = accountsById.get(nativeEvent.optionId.replace('download:', ''));
-            if (account) void downloadAccounts([account]);
-          }
           else if (nativeEvent.optionId.startsWith('disconnect:')) {
             const account = accountsById.get(nativeEvent.optionId.replace('disconnect:', ''));
             if (account) disconnect(account);
@@ -964,8 +913,13 @@ export default function App() {
           <View style={styles.contentLayer}>
             <SettingsView
               accounts={accounts}
+              downloadEnabled={accounts.length > 0}
+              downloadLimit={DEFAULT_INBOX_DOWNLOAD_LIMIT}
+              downloadStatus={downloadStatusLabel}
+              isDownloading={downloadState.status === 'running'}
               onChangePreference={changePreference}
               onConnectAccount={() => void connectAccount()}
+              onDownloadMail={() => void downloadAccounts(accounts)}
               onDisconnectAccount={disconnect}
               preferences={preferences}
             />
@@ -996,49 +950,51 @@ export default function App() {
                       {threadDetail.subject || '(No subject)'}
                     </Text>
                   </View>
-                  {threadDetail.messages.map((message) => (
-                    <View key={message.id} style={styles.messageCard}>
-                      <View style={styles.messageHeader}>
-                        <View style={styles.senderMonogram}>
-                          <Text selectable style={styles.senderMonogramText}>
-                            {message.sender.slice(0, 1).toUpperCase()}
-                          </Text>
-                        </View>
-                        <View style={styles.messageIdentity}>
-                          <Text selectable style={styles.messageSender}>
-                            {message.sender}
-                          </Text>
-                          {message.recipients ? (
-                            <Text numberOfLines={1} selectable style={styles.recipients}>
-                              to {message.recipients}
+                  <View style={styles.messageStack}>
+                    {threadDetail.messages.map((message) => (
+                      <View key={message.id} style={styles.messageCard}>
+                        <View style={styles.messageHeader}>
+                          <View style={styles.senderMonogram}>
+                            <Text selectable style={styles.senderMonogramText}>
+                              {message.sender.slice(0, 1).toUpperCase()}
                             </Text>
-                          ) : null}
+                          </View>
+                          <View style={styles.messageIdentity}>
+                            <Text selectable style={styles.messageSender}>
+                              {message.sender}
+                            </Text>
+                            {message.recipients ? (
+                              <Text numberOfLines={1} selectable style={styles.recipients}>
+                                to {message.recipients}
+                              </Text>
+                            ) : null}
+                          </View>
+                          <Text selectable style={styles.messageDate}>
+                            {new Date(message.sentAt).toLocaleString()}
+                          </Text>
                         </View>
-                        <Text selectable style={styles.messageDate}>
-                          {new Date(message.sentAt).toLocaleString()}
-                        </Text>
+                        <View style={styles.messageRule} />
+                        <NativeMailViewer
+                          html={message.safeHtml}
+                          plainText={message.plainText || 'This message has no readable body.'}
+                          style={styles.mailViewer}
+                        />
+                        {message.attachments.length ? (
+                          <View style={styles.attachmentList}>
+                            {message.attachments.map((attachment) => (
+                              <Text
+                                key={attachment.id ?? attachment.filename}
+                                selectable
+                                style={styles.attachmentText}
+                              >
+                                {attachment.filename || 'Attachment'}
+                              </Text>
+                            ))}
+                          </View>
+                        ) : null}
                       </View>
-                      <View style={styles.messageRule} />
-                      <NativeMailViewer
-                        html={message.safeHtml}
-                        plainText={message.plainText || 'This message has no readable body.'}
-                        style={styles.mailViewer}
-                      />
-                      {message.attachments.length ? (
-                        <View style={styles.attachmentList}>
-                          {message.attachments.map((attachment) => (
-                            <Text
-                              key={attachment.id ?? attachment.filename}
-                              selectable
-                              style={styles.attachmentText}
-                            >
-                              {attachment.filename || 'Attachment'}
-                            </Text>
-                          ))}
-                        </View>
-                      ) : null}
-                    </View>
-                  ))}
+                    ))}
+                  </View>
                 </>
               ) : null}
             </ScrollView>
@@ -1139,12 +1095,13 @@ const styles = StyleSheet.create({
     textAlign: 'right',
   },
   detailContent: {
+    flexGrow: 1,
     width: '100%',
     maxWidth: 1080,
     alignSelf: 'center',
     paddingHorizontal: 38,
     paddingTop: 34,
-    paddingBottom: 64,
+    paddingBottom: 24,
     gap: 16,
   },
   detailHero: { paddingBottom: 12, gap: 8 },
@@ -1161,7 +1118,12 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     letterSpacing: -0.8,
   },
+  messageStack: {
+    flexGrow: 1,
+    gap: 16,
+  },
   messageCard: {
+    flexGrow: 1,
     padding: 20,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: PlatformColor('separatorColor'),
@@ -1198,7 +1160,11 @@ const styles = StyleSheet.create({
     height: StyleSheet.hairlineWidth,
     backgroundColor: PlatformColor('separatorColor'),
   },
-  mailViewer: { width: '100%', height: 520 },
+  mailViewer: {
+    flex: 1,
+    minHeight: 320,
+    width: '100%',
+  },
   attachmentList: {
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: PlatformColor('separatorColor'),

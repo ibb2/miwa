@@ -2,6 +2,7 @@ import { Pressable, StyleSheet, Text } from 'react-native';
 
 export type NativeActionButtonProps = {
   accessibilityLabel?: string;
+  disabled?: boolean;
   label: string;
   onPress: () => void;
   role?: 'default' | 'destructive';
@@ -11,6 +12,7 @@ export type NativeActionButtonProps = {
 
 export function NativeActionButton({
   accessibilityLabel,
+  disabled = false,
   label,
   onPress,
   role = 'default',
@@ -20,12 +22,14 @@ export function NativeActionButton({
     <Pressable
       accessibilityLabel={accessibilityLabel ?? label}
       accessibilityRole="button"
+      disabled={disabled}
       onPress={onPress}
       style={({ pressed }) => [
         styles.button,
         variant === 'plain' && styles.plainButton,
         (variant === 'glass' || variant === 'glassProminent') && styles.glassButton,
         role === 'destructive' && styles.destructiveButton,
+        disabled && styles.disabled,
         pressed && styles.pressed,
       ]}
     >
@@ -61,4 +65,5 @@ const styles = StyleSheet.create({
   label: { color: '#C95243', fontSize: 11, fontWeight: '600' },
   destructiveLabel: { color: '#C9342D' },
   pressed: { opacity: 0.58 },
+  disabled: { opacity: 0.42 },
 });
