@@ -19,6 +19,7 @@ import {
   type NativeWindowToolbarRef,
   type ToolbarSegment,
 } from './modules/native-window-toolbar/src';
+import { clearLocalDatabase } from './src/db/clear-database';
 import { EmptyMailboxState } from './src/components/empty-mailbox-state';
 import { SettingsView } from './src/components/settings-view';
 import { gmailAccountAuth } from './src/mail/account-auth';
@@ -277,6 +278,8 @@ export default function App() {
   const [connectError, setConnectError] = useState<string>();
   const [avatarData, setAvatarData] = useState<Record<string, string>>({});
   const [downloadState, setDownloadState] = useState<ToolbarDownloadState>(idleDownloadState);
+  const [isClearingData, setIsClearingData] = useState(false);
+  const [reconciliationRevision, setReconciliationRevision] = useState(0);
   const [syncingInbox, setSyncingInbox] = useState(false);
   const [syncStatusLabel, setSyncStatusLabel] = useState('Check Gmail for new mail');
   const [downloadedThreads, setDownloadedThreads] = useState<MailThreadSummary[]>();
@@ -393,7 +396,7 @@ export default function App() {
       }
       reconciliation.stop();
     };
-  }, [loadAllDownloadedMail]);
+  }, [loadAllDownloadedMail, reconciliationRevision]);
 
   useEffect(() => {
     let active = true;
@@ -578,6 +581,45 @@ export default function App() {
       downloadActiveRef.current = false;
     }
   }, [loadAllDownloadedMail]);
+
+  const clearDatabase = useCallback(() => {
+    Alert.alert(
+      'Clear all local data?',
+      'Every downloaded message and attachment, cached account record, sync cursor, and preference will be removed from Miwa. Your Gmail accounts and Gmail messages will not be changed.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Clear Everything',
+          style: 'destructive',
+          onPress: () => {
+            setIsClearingData(true);
+            reconciliationRef.current?.stop();
+            reconciliationRef.current = null;
+            try {
+              clearLocalDatabase();
+              setDownloadedThreads([]);
+              setMailLoadError(undefined);
+              setMailLoadPerformance(undefined);
+              setSelectedThread(undefined);
+              setThreadDetail(undefined);
+              setDetailError(undefined);
+              setMailboxView({ kind: 'all' });
+              setPreferences(loadMailPreferences());
+              setDownloadState(idleDownloadState);
+              setSyncStatusLabel('No downloaded mail to sync');
+              setReconciliationRevision((current) => current + 1);
+              Alert.alert('Local data cleared', 'Miwa is ready for a fresh download.');
+            } catch (error) {
+              Alert.alert('Could not clear local data', messageFor(error));
+              setReconciliationRevision((current) => current + 1);
+            } finally {
+              setIsClearingData(false);
+            }
+          },
+        },
+      ],
+    );
+  }, []);
 
   const accountSegments = useMemo<ToolbarSegment[]>(() => [
     { id: 'all', label: 'All inboxes', systemImage: 'tray.full' },
@@ -913,13 +955,18 @@ export default function App() {
           <View style={styles.contentLayer}>
             <SettingsView
               accounts={accounts}
+              clearEnabled={downloadState.status !== 'running' && !syncingInbox}
               downloadEnabled={accounts.length > 0}
               downloadLimit={DEFAULT_INBOX_DOWNLOAD_LIMIT}
               downloadStatus={downloadStatusLabel}
+              downloadingAccountId={downloadState.currentAccountId}
+              isClearingData={isClearingData}
               isDownloading={downloadState.status === 'running'}
               onChangePreference={changePreference}
+              onClearDatabase={clearDatabase}
               onConnectAccount={() => void connectAccount()}
               onDownloadMail={() => void downloadAccounts(accounts)}
+              onDownloadMailbox={(account) => void downloadAccounts([account])}
               onDisconnectAccount={disconnect}
               preferences={preferences}
             />

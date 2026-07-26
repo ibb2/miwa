@@ -16,14 +16,19 @@ import type { MailPreferences } from '../settings/mail-preferences';
 
 type SettingsViewProps = {
   accounts: ConnectedAccount[];
+  clearEnabled: boolean;
   downloadEnabled: boolean;
   downloadLimit: number;
   downloadStatus: string;
+  downloadingAccountId?: string;
+  isClearingData: boolean;
   isDownloading: boolean;
   preferences: MailPreferences;
   onChangePreference: (key: keyof MailPreferences, value: boolean) => void;
+  onClearDatabase: () => void;
   onConnectAccount: () => void;
   onDownloadMail: () => void;
+  onDownloadMailbox: (account: ConnectedAccount) => void;
   onDisconnectAccount: (account: ConnectedAccount) => void;
 };
 
@@ -55,14 +60,19 @@ function PreferenceRow({
 
 export function SettingsView({
   accounts,
+  clearEnabled,
   downloadEnabled,
   downloadLimit,
   downloadStatus,
+  downloadingAccountId,
+  isClearingData,
   isDownloading,
   preferences,
   onChangePreference,
+  onClearDatabase,
   onConnectAccount,
   onDownloadMail,
+  onDownloadMailbox,
   onDisconnectAccount,
 }: SettingsViewProps) {
   return (
@@ -95,11 +105,44 @@ export function SettingsView({
             </View>
             <NativeActionButton
               disabled={!downloadEnabled || isDownloading}
-              label={isDownloading ? 'Downloading…' : 'Download mail'}
+              label={isDownloading ? 'Downloading…' : 'Download all'}
               onPress={onDownloadMail}
               variant="glassProminent"
             />
           </View>
+          {accounts.map((account) => (
+            <View key={account.id}>
+              <NativeDivider />
+              <View style={styles.mailboxDownloadRow}>
+                <NativeSymbol
+                  fallback={(account.displayName || account.email).slice(0, 1).toUpperCase()}
+                  systemName="tray"
+                />
+                <View style={styles.accountCopy}>
+                  <Text numberOfLines={1} selectable style={styles.accountEmail}>
+                    {account.email}
+                  </Text>
+                  <Text selectable style={styles.preferenceDescription}>
+                    Download up to {downloadLimit.toLocaleString()} inbox emails.
+                  </Text>
+                  {isDownloading && downloadingAccountId === account.id ? (
+                    <Text selectable style={styles.downloadStatus}>{downloadStatus}</Text>
+                  ) : null}
+                </View>
+                <NativeActionButton
+                  accessibilityLabel={`Download mail for ${account.email}`}
+                  disabled={isDownloading}
+                  label={
+                    isDownloading && downloadingAccountId === account.id
+                      ? 'Downloading…'
+                      : 'Download'
+                  }
+                  onPress={() => onDownloadMailbox(account)}
+                  variant="glass"
+                />
+              </View>
+            </View>
+          ))}
         </View>
       </View>
 
@@ -170,6 +213,28 @@ export function SettingsView({
               label="Add account"
               onPress={onConnectAccount}
               variant="glassProminent"
+            />
+          </View>
+        </View>
+      </View>
+
+      <View style={styles.section}>
+        <NativeSectionLabel label="LOCAL DATA" systemImage="internaldrive" />
+        <View style={styles.group}>
+          <View style={styles.clearDataRow}>
+            <View style={styles.preferenceCopy}>
+              <Text selectable style={styles.preferenceLabel}>Clear local database</Text>
+              <Text selectable style={styles.preferenceDescription}>
+                Remove downloaded messages, attachments, account cache and sync history,
+                then reset preferences. Your Gmail accounts remain connected.
+              </Text>
+            </View>
+            <NativeActionButton
+              disabled={!clearEnabled || isClearingData}
+              label={isClearingData ? 'Clearing…' : 'Clear everything'}
+              onPress={onClearDatabase}
+              role="destructive"
+              variant="glass"
             />
           </View>
         </View>
@@ -261,6 +326,14 @@ const styles = StyleSheet.create({
     paddingVertical: 13,
     gap: 18,
   },
+  mailboxDownloadRow: {
+    minHeight: 68,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    gap: 11,
+  },
   downloadStatus: {
     color: '#C95243',
     fontSize: 10,
@@ -287,6 +360,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 12,
+  },
+  clearDataRow: {
+    minHeight: 84,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 13,
+    gap: 18,
   },
   aboutRow: { alignItems: 'center', gap: 3, paddingTop: 2 },
   aboutTitle: { color: PlatformColor('secondaryLabelColor'), fontSize: 11, fontWeight: '600' },
