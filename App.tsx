@@ -769,11 +769,6 @@ export default function App() {
   const activeMailboxKey = mailboxView.kind === 'all'
     ? 'all'
     : `account:${mailboxView.accountId}`;
-  const activeThreads = mailboxLists.find((list) => list.key === activeMailboxKey)?.threads ?? [];
-  const unreadCount = activeThreads.reduce(
-    (count, thread) => count + (thread.unread ? 1 : 0),
-    0,
-  );
   const selectMailboxSegment = useCallback((segmentId: string) => {
     if (mailboxSelectionFrameRef.current !== null) {
       cancelAnimationFrame(mailboxSelectionFrameRef.current);
@@ -978,30 +973,7 @@ export default function App() {
         ) : null}
         {surface === 'mail' && !selectedThread ? (
           <View style={styles.contentLayer}>
-            <View style={styles.mailHeader}>
-              <View style={styles.mailTitleBlock}>
-                <Text selectable style={styles.mailEyebrow}>
-                  {mailboxView.kind === 'all' ? 'UNIFIED MAIL' : 'GMAIL'}
-                </Text>
-                <Text numberOfLines={1} selectable style={styles.mailTitle}>
-                  {inboxTitle}
-                </Text>
-              </View>
-              <View style={styles.mailStats}>
-                {unreadCount > 0 ? (
-                  <View style={styles.unreadPill}>
-                    <Text selectable style={styles.unreadPillText}>
-                      {unreadCount.toLocaleString()} unread
-                    </Text>
-                  </View>
-                ) : null}
-                <Text selectable style={styles.threadTotal}>
-                  {activeThreads.length.toLocaleString()}{' '}
-                  {activeThreads.length === 1 ? 'conversation' : 'conversations'}
-                </Text>
-              </View>
-            </View>
-            <View style={styles.mailBody}>{mainContent}</View>
+            {mainContent}
           </View>
         ) : null}
         {selectedThread && surface === 'mail' ? (
@@ -1016,18 +988,6 @@ export default function App() {
               {threadDetail ? (
                 <>
                   <View style={styles.detailHero}>
-                    <Pressable
-                      accessibilityLabel={`Back to ${inboxTitle}`}
-                      accessibilityRole="button"
-                      onPress={() => setSelectedThread(undefined)}
-                      style={({ pressed }) => [
-                        styles.inlineBackButton,
-                        pressed && styles.buttonPressed,
-                      ]}
-                    >
-                      <Text style={styles.inlineBackGlyph}>‹</Text>
-                      <Text style={styles.inlineBackText}>{inboxTitle}</Text>
-                    </Pressable>
                     <Text selectable style={styles.detailEyebrow}>
                       {threadDetail.messages.length.toLocaleString()}{' '}
                       {threadDetail.messages.length === 1 ? 'MESSAGE' : 'MESSAGES'}
@@ -1100,61 +1060,22 @@ const styles = StyleSheet.create({
     backgroundColor: PlatformColor('windowBackgroundColor'),
   },
   scrollView: { flex: 1 },
-  mailHeader: {
-    minHeight: 92,
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    justifyContent: 'space-between',
-    paddingHorizontal: 28,
-    paddingTop: 22,
-    paddingBottom: 17,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: PlatformColor('separatorColor'),
-    gap: 24,
-  },
-  mailTitleBlock: { flex: 1, gap: 2 },
-  mailEyebrow: {
-    color: '#E86E5A',
-    fontSize: 9,
-    fontWeight: '800',
-    letterSpacing: 1.4,
-  },
-  mailTitle: {
-    color: PlatformColor('labelColor'),
-    fontSize: 28,
-    fontWeight: '700',
-    letterSpacing: -0.7,
-  },
-  mailStats: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingBottom: 4,
-    gap: 10,
-  },
-  unreadPill: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 999,
-    backgroundColor: 'rgba(232, 110, 90, 0.12)',
-  },
-  unreadPillText: {
-    color: '#C95243',
-    fontSize: 10,
-    fontWeight: '700',
-    fontVariant: ['tabular-nums'],
-  },
-  threadTotal: {
-    color: PlatformColor('secondaryLabelColor'),
-    fontSize: 10,
-    fontVariant: ['tabular-nums'],
-  },
-  mailBody: { flex: 1 },
   mailboxListStack: { flex: 1, position: 'relative' },
   contentLayer: { ...StyleSheet.absoluteFillObject },
   mailboxListLayer: { ...StyleSheet.absoluteFillObject },
   inactiveMailboxList: { opacity: 0 },
-  listContent: { paddingHorizontal: 20, paddingBottom: 22 },
+  listContent: {
+    width: '100%',
+    maxWidth: 1180,
+    alignSelf: 'center',
+    paddingHorizontal: 20,
+    paddingTop: 10,
+    paddingBottom: 22,
+  },
   threadRow: {
+    width: '100%',
+    maxWidth: 1140,
+    alignSelf: 'center',
     minHeight: 60,
     flexDirection: 'row',
     alignItems: 'center',
@@ -1219,7 +1140,7 @@ const styles = StyleSheet.create({
   },
   detailContent: {
     width: '100%',
-    maxWidth: 940,
+    maxWidth: 1080,
     alignSelf: 'center',
     paddingHorizontal: 38,
     paddingTop: 34,
@@ -1227,16 +1148,6 @@ const styles = StyleSheet.create({
     gap: 16,
   },
   detailHero: { paddingBottom: 12, gap: 8 },
-  inlineBackButton: {
-    alignSelf: 'flex-start',
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 3,
-    paddingRight: 8,
-    gap: 4,
-  },
-  inlineBackGlyph: { color: '#C95243', fontSize: 24, lineHeight: 18 },
-  inlineBackText: { color: '#C95243', fontSize: 11, fontWeight: '600' },
   detailEyebrow: {
     color: '#E86E5A',
     fontSize: 9,
@@ -1287,7 +1198,7 @@ const styles = StyleSheet.create({
     height: StyleSheet.hairlineWidth,
     backgroundColor: PlatformColor('separatorColor'),
   },
-  mailViewer: { width: '100%', height: 300 },
+  mailViewer: { width: '100%', height: 520 },
   attachmentList: {
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: PlatformColor('separatorColor'),

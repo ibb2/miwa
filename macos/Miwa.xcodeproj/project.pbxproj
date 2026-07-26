@@ -460,6 +460,7 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = E13B075957667F2F102E8307 /* Pods-Miwa-macOS.debug.xcconfig */;
 			buildSettings = {
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = "Miwa-macOS/Miwa.entitlements";
@@ -490,6 +491,7 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = E24CBBD05199B299A469C267 /* Pods-Miwa-macOS.release.xcconfig */;
 			buildSettings = {
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = "Miwa-macOS/Miwa.entitlements";

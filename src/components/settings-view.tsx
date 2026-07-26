@@ -1,13 +1,16 @@
 import {
   PlatformColor,
-  Pressable,
   ScrollView,
   StyleSheet,
-  Switch,
   Text,
   View,
 } from 'react-native';
 
+import { NativeActionButton } from './native-action-button';
+import { NativeDivider } from './native-divider';
+import { NativePreferenceSwitch } from './native-preference-switch';
+import { NativeSectionLabel } from './native-section-label';
+import { NativeSymbol } from './native-symbol';
 import type { ConnectedAccount } from '../mail/types';
 import type { MailPreferences } from '../settings/mail-preferences';
 
@@ -36,8 +39,8 @@ function PreferenceRow({
         <Text selectable style={styles.preferenceLabel}>{label}</Text>
         <Text selectable style={styles.preferenceDescription}>{description}</Text>
       </View>
-      <Switch
-        accessibilityLabel={label}
+      <NativePreferenceSwitch
+        label={label}
         onValueChange={onValueChange}
         value={value}
       />
@@ -67,7 +70,7 @@ export function SettingsView({
       </View>
 
       <View style={styles.section}>
-        <Text selectable style={styles.sectionTitle}>INBOX</Text>
+        <NativeSectionLabel label="INBOX" systemImage="tray.full" />
         <View style={styles.group}>
           <PreferenceRow
             description="Include a short excerpt in every email row."
@@ -75,14 +78,14 @@ export function SettingsView({
             onValueChange={(value) => onChangePreference('showPreviews', value)}
             value={preferences.showPreviews}
           />
-          <View style={styles.separator} />
+          <NativeDivider />
           <PreferenceRow
             description="Add more breathing room between messages."
             label="Comfortable row spacing"
             onValueChange={(value) => onChangePreference('comfortableRows', value)}
             value={preferences.comfortableRows}
           />
-          <View style={styles.separator} />
+          <NativeDivider />
           <PreferenceRow
             description="Show the destination inbox when viewing all accounts."
             label="Show account labels"
@@ -94,7 +97,7 @@ export function SettingsView({
 
       <View style={styles.section}>
         <View style={styles.sectionHeading}>
-          <Text selectable style={styles.sectionTitle}>ACCOUNTS</Text>
+          <NativeSectionLabel label="ACCOUNTS" systemImage="person.crop.circle" />
           <Text selectable style={styles.sectionCount}>
             {accounts.length.toLocaleString()}
           </Text>
@@ -102,13 +105,12 @@ export function SettingsView({
         <View style={styles.group}>
           {accounts.map((account, index) => (
             <View key={account.id}>
-              {index > 0 ? <View style={styles.separator} /> : null}
+              {index > 0 ? <NativeDivider /> : null}
               <View style={styles.accountRow}>
-                <View style={styles.accountMonogram}>
-                  <Text selectable style={styles.accountMonogramText}>
-                    {(account.displayName || account.email).slice(0, 1).toUpperCase()}
-                  </Text>
-                </View>
+                <NativeSymbol
+                  fallback={(account.displayName || account.email).slice(0, 1).toUpperCase()}
+                  systemName="envelope.fill"
+                />
                 <View style={styles.accountCopy}>
                   <Text numberOfLines={1} selectable style={styles.accountName}>
                     {account.displayName || 'Gmail'}
@@ -117,37 +119,30 @@ export function SettingsView({
                     {account.email}
                   </Text>
                 </View>
-                <Pressable
-                  accessibilityLabel={`Disconnect ${account.email}`}
-                  accessibilityRole="button"
+                <NativeActionButton
+                  accessibilityLabel={`Remove ${account.email}`}
+                  label="Remove"
                   onPress={() => onDisconnectAccount(account)}
-                  style={({ pressed }) => [
-                    styles.disconnectButton,
-                    pressed && styles.buttonPressed,
-                  ]}
-                >
-                  <Text style={styles.disconnectButtonText}>Disconnect</Text>
-                </Pressable>
+                  role="destructive"
+                  variant="glass"
+                />
               </View>
             </View>
           ))}
-          {accounts.length ? <View style={styles.separator} /> : null}
-          <Pressable
-            accessibilityRole="button"
-            onPress={onConnectAccount}
-            style={({ pressed }) => [
-              styles.connectRow,
-              pressed && styles.buttonPressed,
-            ]}
-          >
-            <Text style={styles.connectGlyph}>＋</Text>
-            <Text style={styles.connectText}>Connect another Gmail account</Text>
-          </Pressable>
+          {accounts.length ? <NativeDivider /> : null}
+          <View style={styles.connectRow}>
+            <NativeActionButton
+              accessibilityLabel="Add another Gmail account"
+              label="Add account"
+              onPress={onConnectAccount}
+              variant="glassProminent"
+            />
+          </View>
         </View>
       </View>
 
       <View style={styles.aboutRow}>
-        <Text selectable style={styles.aboutTitle}>Miwa 1.0</Text>
+        <Text selectable style={styles.aboutTitle}>Miwa 0.1.0</Text>
         <Text selectable style={styles.aboutCopy}>
           A quiet, offline-first place for all of your Gmail inboxes.
         </Text>
@@ -192,12 +187,6 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: 2,
   },
-  sectionTitle: {
-    color: PlatformColor('secondaryLabelColor'),
-    fontSize: 10,
-    fontWeight: '700',
-    letterSpacing: 0.8,
-  },
   sectionCount: {
     color: PlatformColor('tertiaryLabelColor'),
     fontSize: 10,
@@ -230,11 +219,6 @@ const styles = StyleSheet.create({
     fontSize: 11,
     lineHeight: 15,
   },
-  separator: {
-    height: StyleSheet.hairlineWidth,
-    backgroundColor: PlatformColor('separatorColor'),
-    marginLeft: 16,
-  },
   accountRow: {
     minHeight: 66,
     flexDirection: 'row',
@@ -243,16 +227,6 @@ const styles = StyleSheet.create({
     paddingVertical: 9,
     gap: 11,
   },
-  accountMonogram: {
-    width: 32,
-    height: 32,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 10,
-    borderCurve: 'continuous',
-    backgroundColor: '#E86E5A',
-  },
-  accountMonogramText: { color: '#fff', fontSize: 13, fontWeight: '700' },
   accountCopy: { flex: 1, gap: 2 },
   accountName: {
     color: PlatformColor('labelColor'),
@@ -260,24 +234,12 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   accountEmail: { color: PlatformColor('secondaryLabelColor'), fontSize: 11 },
-  disconnectButton: {
-    paddingHorizontal: 11,
-    paddingVertical: 6,
-    borderRadius: 7,
-    borderCurve: 'continuous',
-    backgroundColor: 'rgba(255, 59, 48, 0.09)',
-  },
-  disconnectButtonText: { color: '#C9342D', fontSize: 11, fontWeight: '600' },
   connectRow: {
     minHeight: 50,
-    flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    gap: 8,
+    justifyContent: 'center',
+    paddingHorizontal: 12,
   },
-  connectGlyph: { color: '#E86E5A', fontSize: 18, fontWeight: '500' },
-  connectText: { color: '#C95243', fontSize: 12, fontWeight: '600' },
-  buttonPressed: { opacity: 0.58 },
   aboutRow: { alignItems: 'center', gap: 3, paddingTop: 2 },
   aboutTitle: { color: PlatformColor('secondaryLabelColor'), fontSize: 11, fontWeight: '600' },
   aboutCopy: {
