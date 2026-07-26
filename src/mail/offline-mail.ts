@@ -1,8 +1,10 @@
-import { and, asc, desc, eq, inArray } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
 
 import db from '../db/db';
 import {
+  gatekeeperSenders,
   mailAttachments,
+  mailMessageAddresses,
   mailMessages,
   mailThreads,
 } from '../db/schema';
@@ -12,32 +14,60 @@ import type {
 } from './types';
 
 export async function loadDownloadedThreads(): Promise<MailThreadSummary[]> {
-  const rows = await db
-    .select({
-      accountId: mailThreads.accountId,
-      providerThreadId: mailThreads.providerThreadId,
-      sender: mailThreads.sender,
-      subject: mailThreads.subject,
-      snippet: mailThreads.snippet,
-      lastMessageAt: mailThreads.lastMessageAt,
-      unread: mailThreads.unread,
-      messageCount: mailThreads.messageCount,
-    })
-    .from(mailThreads)
-    .where(eq(mailThreads.fullyDownloaded, true))
-    .orderBy(desc(mailThreads.lastMessageAt), desc(mailThreads.id));
+  const [rows, blockedMessageRows] = await Promise.all([
+    db
+      .select({
+        id: mailThreads.id,
+        accountId: mailThreads.accountId,
+        providerThreadId: mailThreads.providerThreadId,
+        sender: mailThreads.sender,
+        subject: mailThreads.subject,
+        snippet: mailThreads.snippet,
+        lastMessageAt: mailThreads.lastMessageAt,
+        unread: mailThreads.unread,
+        messageCount: mailThreads.messageCount,
+      })
+      .from(mailThreads)
+      .where(eq(mailThreads.fullyDownloaded, true))
+      .orderBy(desc(mailThreads.lastMessageAt), desc(mailThreads.id)),
+    db
+      .select({
+        threadId: mailMessages.threadId,
+        labelIds: mailMessages.labelIds,
+      })
+      .from(mailMessages)
+      .innerJoin(
+        mailMessageAddresses,
+        eq(mailMessageAddresses.messageId, mailMessages.id),
+      )
+      .innerJoin(
+        gatekeeperSenders,
+        sql`lower(trim(${mailMessageAddresses.address})) = ${gatekeeperSenders.email}`,
+      )
+      .where(and(
+        eq(mailMessageAddresses.kind, 'from'),
+        eq(gatekeeperSenders.status, 'blocked'),
+      )),
+  ]);
+  const blockedThreadIds = new Set(
+    blockedMessageRows
+      .filter((message) => message.labelIds.includes('INBOX'))
+      .map((message) => message.threadId),
+  );
 
-  return rows.map((row) => ({
-    provider: 'gmail',
-    accountId: row.accountId,
-    threadId: row.providerThreadId,
-    sender: row.sender,
-    subject: row.subject,
-    snippet: row.snippet,
-    receivedAt: row.lastMessageAt,
-    unread: row.unread,
-    messageCount: row.messageCount,
-  }));
+  return rows
+    .filter((row) => !blockedThreadIds.has(row.id))
+    .map((row) => ({
+      provider: 'gmail',
+      accountId: row.accountId,
+      threadId: row.providerThreadId,
+      sender: row.sender,
+      subject: row.subject,
+      snippet: row.snippet,
+      receivedAt: row.lastMessageAt,
+      unread: row.unread,
+      messageCount: row.messageCount,
+    }));
 }
 
 export async function loadDownloadedThreadDetail(

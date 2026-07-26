@@ -16,7 +16,13 @@ export function clearLocalDatabase(): void {
       DELETE FROM mail_threads;
       DELETE FROM mailbox_sync_state;
       DELETE FROM mail_accounts;
+      DELETE FROM gatekeeper_senders;
+      DELETE FROM gatekeeper_settings;
       DELETE FROM app_preferences;
+      INSERT INTO gatekeeper_settings (
+        id,
+        activated_at
+      ) VALUES (1, unixepoch() * 1000);
       INSERT INTO app_preferences (
         id,
         show_previews,

@@ -150,6 +150,33 @@ const migrations = [
       ) VALUES (1, 1, 0, 1);
     `,
   },
+  {
+    version: 3,
+    sql: `
+      CREATE TABLE IF NOT EXISTS "gatekeeper_settings" (
+        "id" integer PRIMARY KEY NOT NULL CHECK ("id" = 1),
+        "activated_at" integer NOT NULL
+      );
+
+      INSERT OR IGNORE INTO "gatekeeper_settings" (
+        "id",
+        "activated_at"
+      ) VALUES (1, unixepoch() * 1000);
+
+      CREATE TABLE IF NOT EXISTS "gatekeeper_senders" (
+        "email" text PRIMARY KEY NOT NULL,
+        "display_name" text DEFAULT '' NOT NULL,
+        "status" text DEFAULT 'pending' NOT NULL,
+        "first_seen_at" integer NOT NULL,
+        "last_seen_at" integer NOT NULL,
+        "message_count" integer DEFAULT 1 NOT NULL,
+        "updated_at" integer DEFAULT (unixepoch() * 1000) NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS "gatekeeper_senders_status_last_seen_idx"
+        ON "gatekeeper_senders" ("status", "last_seen_at");
+    `,
+  },
 ] as const;
 
 export function migrateDatabase(database: SQLiteDatabase): void {

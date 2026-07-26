@@ -25,6 +25,7 @@ type ToolbarItemBase = {
 export type ToolbarButtonItem = ToolbarItemBase & {
   kind: 'button';
   systemImage: string;
+  badgeCount?: number;
 };
 
 export type ToolbarSidebarItem = ToolbarItemBase & {

@@ -21,8 +21,15 @@ import {
 } from './modules/native-window-toolbar/src';
 import { clearLocalDatabase } from './src/db/clear-database';
 import { EmptyMailboxState } from './src/components/empty-mailbox-state';
+import { GatekeeperView } from './src/components/gatekeeper-view';
 import { SettingsView } from './src/components/settings-view';
 import { gmailAccountAuth } from './src/mail/account-auth';
+import {
+  loadGatekeeperOverview,
+  setGatekeeperSenderStatus,
+  type GatekeeperOverview,
+  type GatekeeperStatus,
+} from './src/mail/gatekeeper';
 import {
   DEFAULT_INBOX_DOWNLOAD_LIMIT,
   downloadInbox,
@@ -87,7 +94,7 @@ const idleDownloadState: ToolbarDownloadState = {
   attachmentsStored: 0,
 };
 
-type AppSurface = 'mail' | 'settings';
+type AppSurface = 'mail' | 'gatekeeper' | 'settings';
 
 function bytesToBase64(buffer: ArrayBuffer): string {
   const bytes = new Uint8Array(buffer);
@@ -285,6 +292,10 @@ export default function App() {
   const [downloadedThreads, setDownloadedThreads] = useState<MailThreadSummary[]>();
   const [mailLoadError, setMailLoadError] = useState<string>();
   const [mailLoadPerformance, setMailLoadPerformance] = useState<MailLoadPerformance>();
+  const [gatekeeperOverview, setGatekeeperOverview] = useState<GatekeeperOverview>();
+  const [gatekeeperLoading, setGatekeeperLoading] = useState(true);
+  const [gatekeeperError, setGatekeeperError] = useState<string>();
+  const [gatekeeperActionEmail, setGatekeeperActionEmail] = useState<string>();
   const [selectedThread, setSelectedThread] = useState<MailThreadSummary>();
   const [threadDetail, setThreadDetail] = useState<MailThreadDetail>();
   const [detailLoading, setDetailLoading] = useState(false);
@@ -308,6 +319,18 @@ export default function App() {
     [],
   );
 
+  const refreshGatekeeper = useCallback(async (showLoading = true) => {
+    if (showLoading) setGatekeeperLoading(true);
+    setGatekeeperError(undefined);
+    try {
+      setGatekeeperOverview(await loadGatekeeperOverview());
+    } catch (error) {
+      setGatekeeperError(messageFor(error));
+    } finally {
+      setGatekeeperLoading(false);
+    }
+  }, []);
+
   const loadAllDownloadedMail = useCallback(async (showLoading = true) => {
     if (showLoading) setDownloadedThreads(undefined);
     setMailLoadError(undefined);
@@ -327,11 +350,12 @@ export default function App() {
           durationMs: Number(databaseFetchMs.toFixed(2)),
         }));
       }
+      void refreshGatekeeper(false);
     } catch (error) {
       setDownloadedThreads([]);
       setMailLoadError(messageFor(error));
     }
-  }, []);
+  }, [refreshGatekeeper]);
 
   useEffect(() => {
     void loadAllDownloadedMail();
@@ -607,6 +631,7 @@ export default function App() {
               setPreferences(loadMailPreferences());
               setDownloadState(idleDownloadState);
               setSyncStatusLabel('No downloaded mail to sync');
+              void refreshGatekeeper();
               setReconciliationRevision((current) => current + 1);
               Alert.alert('Local data cleared', 'Miwa is ready for a fresh download.');
             } catch (error) {
@@ -619,7 +644,28 @@ export default function App() {
         },
       ],
     );
-  }, []);
+  }, [refreshGatekeeper]);
+
+  const decideGatekeeperSender = useCallback(async (
+    email: string,
+    status: GatekeeperStatus,
+  ) => {
+    setGatekeeperActionEmail(email);
+    setGatekeeperError(undefined);
+    try {
+      await setGatekeeperSenderStatus(email, status);
+      await Promise.all([
+        refreshGatekeeper(false),
+        loadAllDownloadedMail(false),
+      ]);
+    } catch (error) {
+      const failure = messageFor(error);
+      setGatekeeperError(failure);
+      Alert.alert('Could not update Gatekeeper', failure);
+    } finally {
+      setGatekeeperActionEmail(undefined);
+    }
+  }, [loadAllDownloadedMail, refreshGatekeeper]);
 
   const accountSegments = useMemo<ToolbarSegment[]>(() => [
     { id: 'all', label: 'All inboxes', systemImage: 'tray.full' },
@@ -665,13 +711,13 @@ export default function App() {
     : mailboxName ?? 'Inbox';
 
   const toolbarItems = useMemo<NativeToolbarItem[]>(() => [
-    ...(selectedThread || surface === 'settings'
+    ...(selectedThread || surface !== 'mail'
       ? [{
           id: 'back',
           kind: 'button' as const,
-          label: surface === 'settings' ? 'Back to inbox' : `Back to ${inboxTitle}`,
+          label: surface !== 'mail' ? 'Back to inbox' : `Back to ${inboxTitle}`,
           systemImage: 'chevron.left',
-          toolTip: surface === 'settings' ? 'Back to inbox' : `Back to ${inboxTitle}`,
+          toolTip: surface !== 'mail' ? 'Back to inbox' : `Back to ${inboxTitle}`,
           immovable: true,
           navigational: true,
         }]
@@ -712,14 +758,29 @@ export default function App() {
       : []),
     { id: 'connect-account', kind: 'button', label: 'Connect Gmail', systemImage: 'plus', toolTip: 'Connect another Gmail account', enabled: downloadState.status !== 'running', immovable: true },
     ...(surface === 'mail'
-      ? [{
+      ? [
+        {
+          id: 'gatekeeper',
+          kind: 'button' as const,
+          label: 'Gatekeeper',
+          systemImage: 'checkmark.shield',
+          badgeCount: gatekeeperOverview?.pending.length ?? 0,
+          toolTip: gatekeeperOverview?.pending.length
+            ? `Review ${gatekeeperOverview.pending.length.toLocaleString()} new ${
+                gatekeeperOverview.pending.length === 1 ? 'sender' : 'senders'
+              }`
+            : 'No new senders to review',
+          immovable: true,
+        },
+        {
           id: 'settings',
           kind: 'button' as const,
           label: 'Settings',
           systemImage: 'gearshape',
           toolTip: 'Open Miwa settings',
           immovable: true,
-        }]
+        },
+      ]
       : []),
     {
       id: 'more',
@@ -741,6 +802,7 @@ export default function App() {
     accounts,
     downloadState,
     downloadStatusLabel,
+    gatekeeperOverview?.pending.length,
     inboxTitle,
     selectedAccountIndex,
     selectedThread,
@@ -917,6 +979,8 @@ export default function App() {
         identifier={
           surface === 'settings'
             ? 'MiwaSettingsToolbar'
+            : surface === 'gatekeeper'
+              ? 'MiwaGatekeeperToolbar'
             : selectedThread
               ? 'MiwaMessageToolbar'
               : 'MiwaLeadingInboxToolbar'
@@ -932,6 +996,10 @@ export default function App() {
             setSurface('mail');
           }
           else if (nativeEvent.id === 'connect-account') void connectAccount();
+          else if (nativeEvent.id === 'gatekeeper') {
+            setSelectedThread(undefined);
+            setSurface('gatekeeper');
+          }
           else if (nativeEvent.id === 'settings') {
             setSelectedThread(undefined);
             setSurface('settings');
@@ -969,6 +1037,20 @@ export default function App() {
               onDownloadMailbox={(account) => void downloadAccounts([account])}
               onDisconnectAccount={disconnect}
               preferences={preferences}
+            />
+          </View>
+        ) : null}
+        {surface === 'gatekeeper' ? (
+          <View style={styles.contentLayer}>
+            <GatekeeperView
+              actionEmail={gatekeeperActionEmail}
+              error={gatekeeperError}
+              loading={gatekeeperLoading}
+              onApprove={(email) => void decideGatekeeperSender(email, 'approved')}
+              onBlock={(email) => void decideGatekeeperSender(email, 'blocked')}
+              onRetry={() => void refreshGatekeeper()}
+              onUnblock={(email) => void decideGatekeeperSender(email, 'pending')}
+              overview={gatekeeperOverview}
             />
           </View>
         ) : null}

@@ -28,6 +28,7 @@ public struct ToolbarItemRecord: Record {
   @Field public var paletteLabel: String?
   @Field public var toolTip: String?
   @Field public var systemImage: String?
+  @Field public var badgeCount: Int?
   @Field public var enabled: Bool = true
   @Field public var selectable: Bool = false
   @Field public var immovable: Bool = false
@@ -227,6 +228,14 @@ public final class NativeWindowToolbarView: ExpoView, NSToolbarDelegate, NSSearc
     onItemPress(["id": definition.id])
   }
 
+  @objc private func handleBadgeButton(_ sender: NSButton) {
+    guard let itemId = sender.identifier?.rawValue,
+          items.contains(where: { $0.id == itemId }) else {
+      return
+    }
+    onItemPress(["id": itemId])
+  }
+
   @objc private func handleMenuItem(_ sender: NSMenuItem) {
     guard let payload = sender.representedObject as? [String: String],
           let itemId = payload["itemId"],
@@ -328,10 +337,51 @@ public final class NativeWindowToolbarView: ExpoView, NSToolbarDelegate, NSSearc
     definition: ToolbarItemRecord,
     identifier: NSToolbarItem.Identifier
   ) -> NSToolbarItem {
+    if definition.badgeCount != nil {
+      return makeBadgeButtonItem(
+        definition: definition,
+        identifier: identifier
+      )
+    }
+
     let item = NSToolbarItem(itemIdentifier: identifier)
     configure(item, from: definition)
     item.target = self
     item.action = #selector(handleToolbarItem(_:))
+    return item
+  }
+
+  private func makeBadgeButtonItem(
+    definition: ToolbarItemRecord,
+    identifier: NSToolbarItem.Identifier
+  ) -> NSToolbarItem {
+    let item = NSToolbarItem(itemIdentifier: identifier)
+    let label = definition.label ?? definition.id
+    let count = max(0, definition.badgeCount ?? 0)
+    let button = NSButton()
+
+    button.identifier = NSUserInterfaceItemIdentifier(definition.id)
+    button.title = count > 0 ? count.formatted() : ""
+    button.image = definition.systemImage.flatMap {
+      NSImage(systemSymbolName: $0, accessibilityDescription: label)
+    }
+    button.imagePosition = count > 0 ? .imageLeading : .imageOnly
+    button.imageScaling = .scaleProportionallyDown
+    button.font = .monospacedDigitSystemFont(ofSize: 11, weight: .semibold)
+    button.bezelStyle = .texturedRounded
+    button.isBordered = count > 0
+    button.contentTintColor = count > 0 ? .controlAccentColor : .controlTextColor
+    button.toolTip = definition.toolTip
+    button.isEnabled = definition.enabled
+    button.target = self
+    button.action = #selector(handleBadgeButton(_:))
+    button.setAccessibilityLabel(label)
+    button.setAccessibilityValue(
+      count == 1 ? "1 new sender" : "\(count) new senders"
+    )
+
+    item.view = button
+    configure(item, from: definition, includeImage: false)
     return item
   }
 

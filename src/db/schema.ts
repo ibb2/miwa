@@ -237,6 +237,43 @@ export const mailboxSyncState = sqliteTable("mailbox_sync_state", {
   lastError: text("last_error"),
 });
 
+/**
+ * Gatekeeper only considers messages received after this feature was first
+ * activated. Keeping that boundary in SQLite prevents an app restart from
+ * treating the existing mailbox as new.
+ */
+export const gatekeeperSettings = sqliteTable("gatekeeper_settings", {
+  id: integer("id").primaryKey(),
+  activatedAt: integer("activated_at", { mode: "number" }).notNull(),
+});
+
+/**
+ * A sender is global across connected inboxes, so the normalized address is
+ * the primary key. Decisions are local to Miwa and never mutate Gmail.
+ */
+export const gatekeeperSenders = sqliteTable(
+  "gatekeeper_senders",
+  {
+    email: text("email").primaryKey(),
+    displayName: text("display_name").notNull().default(""),
+    status: text("status", {
+      enum: ["pending", "approved", "blocked"],
+    })
+      .notNull()
+      .default("pending"),
+    firstSeenAt: integer("first_seen_at", { mode: "number" }).notNull(),
+    lastSeenAt: integer("last_seen_at", { mode: "number" }).notNull(),
+    messageCount: integer("message_count").notNull().default(1),
+    updatedAt: integer("updated_at", { mode: "number" }).notNull().default(now),
+  },
+  (table) => [
+    index("gatekeeper_senders_status_last_seen_idx").on(
+      table.status,
+      table.lastSeenAt,
+    ),
+  ],
+);
+
 export type MailAccountRow = typeof mailAccounts.$inferSelect;
 export type NewMailAccountRow = typeof mailAccounts.$inferInsert;
 export type MailThreadRow = typeof mailThreads.$inferSelect;
@@ -247,3 +284,5 @@ export type MailMessageAddressRow = typeof mailMessageAddresses.$inferSelect;
 export type NewMailMessageAddressRow = typeof mailMessageAddresses.$inferInsert;
 export type MailAttachmentRow = typeof mailAttachments.$inferSelect;
 export type NewMailAttachmentRow = typeof mailAttachments.$inferInsert;
+export type GatekeeperSenderRow = typeof gatekeeperSenders.$inferSelect;
+export type NewGatekeeperSenderRow = typeof gatekeeperSenders.$inferInsert;
