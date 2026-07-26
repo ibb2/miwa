@@ -1,4 +1,4 @@
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 
 import db from "../db/db";
 import {
@@ -13,7 +13,8 @@ import {
   type NewMailMessageRow,
 } from "../db/schema";
 import { gmailAccountAuth } from "./account-auth";
-import { gmailGet } from "./gmail";
+import { GmailApiError, gmailGet } from "./gmail";
+import { latestHistoryId } from "./gmail-history";
 import {
   decodeBase64UrlBytes,
   sanitizeEmailHtml,
@@ -80,6 +81,14 @@ type DownloadedThread = {
   lastMessageAt: number;
   unread: boolean;
   messages: DownloadedMessage[];
+};
+
+export type InboxThreadReconciliationResult = {
+  providerThreadId: string;
+  action: "upserted" | "removed";
+  messagesStored: number;
+  attachmentsStored: number;
+  historyId?: string;
 };
 
 export type InboxDownloadOptions = {
@@ -564,6 +573,90 @@ async function persistThread(
   });
 }
 
+async function removeDownloadedThread(
+  accountId: string,
+  providerThreadId: string,
+): Promise<void> {
+  await db
+    .delete(mailThreads)
+    .where(
+      and(
+        eq(mailThreads.accountId, accountId),
+        eq(mailThreads.providerThreadId, providerThreadId),
+      ),
+    );
+}
+
+/**
+ * Re-fetches one Gmail thread and makes its local INBOX representation match.
+ *
+ * A thread remains local while at least one message carries the INBOX label.
+ * The complete thread is stored so sent and archived replies remain available
+ * in the offline conversation view.
+ */
+export async function reconcileInboxThread(
+  accountId: string,
+  providerThreadId: string,
+  options: Pick<
+    InboxDownloadOptions,
+    "attachmentConcurrency" | "signal"
+  > = {},
+): Promise<InboxThreadReconciliationResult> {
+  const attachmentConcurrency =
+    options.attachmentConcurrency ?? DEFAULT_ATTACHMENT_CONCURRENCY;
+  assertPositiveInteger(attachmentConcurrency, "attachmentConcurrency");
+  throwIfAborted(options.signal);
+
+  let thread: DownloadedThread;
+  try {
+    thread = await downloadThread(
+      accountId,
+      providerThreadId,
+      attachmentConcurrency,
+      options.signal,
+    );
+  } catch (error) {
+    if (!(error instanceof GmailApiError) || error.status !== 404) throw error;
+    await removeDownloadedThread(accountId, providerThreadId);
+    return {
+      providerThreadId,
+      action: "removed",
+      messagesStored: 0,
+      attachmentsStored: 0,
+    };
+  }
+
+  const remainsInInbox = thread.messages.some((message) =>
+    (message.row.labelIds ?? []).includes("INBOX"),
+  );
+  if (!remainsInInbox) {
+    await removeDownloadedThread(accountId, providerThreadId);
+    return {
+      providerThreadId,
+      action: "removed",
+      messagesStored: 0,
+      attachmentsStored: 0,
+      historyId: latestHistoryId(
+        thread.messages.map((message) => message.row.providerHistoryId),
+      ),
+    };
+  }
+
+  await persistThread(accountId, thread);
+  return {
+    providerThreadId,
+    action: "upserted",
+    messagesStored: thread.messages.length,
+    attachmentsStored: thread.messages.reduce(
+      (total, message) => total + message.attachments.length,
+      0,
+    ),
+    historyId: latestHistoryId(
+      thread.messages.map((message) => message.row.providerHistoryId),
+    ),
+  };
+}
+
 /**
  * Downloads a read-only snapshot of one Gmail account's INBOX into SQLite.
  *
@@ -664,6 +757,7 @@ export async function downloadInbox(
   let pageToken: string | undefined;
   let nextPageToken: string | undefined;
   let entireInboxDownloaded = false;
+  let downloadedHistoryId: string | undefined;
 
   try {
     const messageReferences: GmailMessageReference[] = [];
@@ -748,6 +842,12 @@ export async function downloadInbox(
       );
       for (const thread of batch) {
         await persistThread(accountId, thread);
+        downloadedHistoryId = latestHistoryId([
+          downloadedHistoryId,
+          ...thread.messages.map(
+            (message) => message.row.providerHistoryId,
+          ),
+        ]);
         threadsDownloaded += 1;
         messagesStored += thread.messages.length;
         attachmentsStored += thread.messages.reduce(
@@ -772,10 +872,19 @@ export async function downloadInbox(
     }
 
     const completedAt = Date.now();
+    const existingSyncState = await db
+      .select({ historyId: mailboxSyncState.historyId })
+      .from(mailboxSyncState)
+      .where(eq(mailboxSyncState.accountId, accountId))
+      .get();
     await db
       .update(mailboxSyncState)
       .set({
         nextPageToken: entireInboxDownloaded ? null : nextPageToken,
+        historyId: latestHistoryId([
+          existingSyncState?.historyId,
+          downloadedHistoryId,
+        ]),
         lastSuccessfulSyncAt: completedAt,
         initialSyncComplete: entireInboxDownloaded,
         lastError: null,

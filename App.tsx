@@ -26,6 +26,7 @@ import {
   downloadInbox,
   type InboxDownloadProgress,
 } from './src/mail/inbox-download';
+import { startInboxReconciliation } from './src/mail/inbox-reconciliation';
 import {
   loadDownloadedThreadDetail,
   loadDownloadedThreads,
@@ -149,6 +150,62 @@ const InboxThreadRow = memo(function InboxThreadRow({
   );
 });
 
+const MailboxThreadList = memo(function MailboxThreadList({
+  accountsById,
+  active,
+  emptyMailboxName,
+  onListLoad,
+  onOpenThread,
+  onScroll,
+  showAccount,
+  threads,
+}: {
+  accountsById: Map<string, ConnectedAccount>;
+  active: boolean;
+  emptyMailboxName?: string;
+  onListLoad: (event: { elapsedTimeInMs: number }) => void;
+  onOpenThread: (thread: MailThreadSummary) => void;
+  onScroll: (event: NativeSyntheticEvent<NativeScrollEvent>) => void;
+  showAccount: boolean;
+  threads: MailThreadSummary[];
+}) {
+  const renderThread = useCallback(
+    ({ item }: LegendListRenderItemProps<MailThreadSummary>) => (
+      <InboxThreadRow
+        account={accountsById.get(item.accountId)}
+        showAccount={showAccount}
+        thread={item}
+        onPress={onOpenThread}
+      />
+    ),
+    [accountsById, onOpenThread, showAccount],
+  );
+
+  return (
+    <View
+      accessibilityElementsHidden={!active}
+      importantForAccessibility={active ? 'auto' : 'no-hide-descendants'}
+      pointerEvents={active ? 'auto' : 'none'}
+      style={[styles.mailboxListLayer, !active && styles.inactiveMailboxList]}
+    >
+      <LegendList
+        ListEmptyComponent={<EmptyMailboxState mailboxName={emptyMailboxName} />}
+        contentContainerStyle={styles.listContent}
+        contentInsetAdjustmentBehavior="automatic"
+        data={threads}
+        estimatedItemSize={94}
+        keyExtractor={(thread) => `${thread.accountId}:${thread.threadId}`}
+        onLoad={onListLoad}
+        onScroll={onScroll}
+        recycleItems
+        renderItem={renderThread}
+        scrollEventThrottle={16}
+        style={styles.scrollView}
+      />
+    </View>
+  );
+});
+
 type MailLoadPerformance = {
   threadCount: number;
   databaseFetchMs: number;
@@ -184,6 +241,7 @@ export default function App() {
     intervals: [],
     distance: 0,
   });
+  const mailboxSelectionFrameRef = useRef<number | null>(null);
   const accountsById = useMemo(
     () => new Map(accounts.map((account) => [account.id, account])),
     [accounts]
@@ -217,6 +275,37 @@ export default function App() {
   useEffect(() => {
     void loadAllDownloadedMail();
   }, [loadAllDownloadedMail]);
+
+  useEffect(() => () => {
+    if (mailboxSelectionFrameRef.current !== null) {
+      cancelAnimationFrame(mailboxSelectionFrameRef.current);
+    }
+  }, []);
+
+  useEffect(() => startInboxReconciliation({
+    onCycleComplete: (cycle) => {
+      if (__DEV__) {
+        console.info('[MiwaReconciliation] cycle complete', JSON.stringify({
+          durationMs: cycle.completedAt - cycle.startedAt,
+          accounts: cycle.accounts,
+          failureCount: cycle.failures.length,
+        }));
+      }
+      const changed = cycle.accounts.some(
+        (account) =>
+          account.threadsUpserted > 0 || account.threadsRemoved > 0,
+      );
+      if (changed) void loadAllDownloadedMail(false);
+    },
+    onError: (error) => {
+      if (__DEV__) {
+        console.warn(
+          '[MiwaReconciliation] Gmail INBOX reconciliation failed',
+          messageFor(error),
+        );
+      }
+    },
+  }), [loadAllDownloadedMail]);
 
   useEffect(() => {
     let active = true;
@@ -518,23 +607,40 @@ export default function App() {
   const mailboxName = mailboxView.kind === 'account'
     ? accountsById.get(mailboxView.accountId)?.email
     : undefined;
-  const visibleThreads = useMemo(
-    () => (downloadedThreads ?? []).filter((thread) =>
-      mailboxView.kind === 'all' || thread.accountId === mailboxView.accountId
-    ),
-    [downloadedThreads, mailboxView],
-  );
+  const mailboxLists = useMemo(() => [
+    {
+      key: 'all',
+      mailboxName: undefined,
+      showAccount: true,
+      threads: downloadedThreads ?? [],
+    },
+    ...accounts.map((account) => ({
+      key: `account:${account.id}`,
+      mailboxName: account.email,
+      showAccount: false,
+      threads: (downloadedThreads ?? []).filter(
+        (thread) => thread.accountId === account.id,
+      ),
+    })),
+  ], [accounts, downloadedThreads]);
+  const activeMailboxKey = mailboxView.kind === 'all'
+    ? 'all'
+    : `account:${mailboxView.accountId}`;
   const inboxTitle = mailboxView.kind === 'all'
     ? 'All Inboxes'
     : mailboxName ?? 'Inbox';
-  const renderThread = useCallback(({ item }: LegendListRenderItemProps<MailThreadSummary>) => (
-    <InboxThreadRow
-      account={accountsById.get(item.accountId)}
-      showAccount={mailboxView.kind === 'all'}
-      thread={item}
-      onPress={setSelectedThread}
-    />
-  ), [accountsById, mailboxView.kind]);
+  const selectMailboxSegment = useCallback((segmentId: string) => {
+    if (mailboxSelectionFrameRef.current !== null) {
+      cancelAnimationFrame(mailboxSelectionFrameRef.current);
+    }
+    mailboxSelectionFrameRef.current = requestAnimationFrame(() => {
+      mailboxSelectionFrameRef.current = null;
+      setSelectedThread(undefined);
+      setMailboxView(segmentId === 'all'
+        ? { kind: 'all' }
+        : { kind: 'account', accountId: segmentId.replace('account:', '') });
+    });
+  }, []);
   const handleListLoad = useCallback(({ elapsedTimeInMs }: { elapsedTimeInMs: number }) => {
     if (!__DEV__ || listPerformanceLoggedRef.current || !mailLoadPerformance) return;
     listPerformanceLoggedRef.current = true;
@@ -628,26 +734,27 @@ export default function App() {
         </View>
       );
     }
-    if (visibleThreads.length === 0) {
-      return <EmptyMailboxState mailboxName={mailboxName} />;
-    }
     return (
-      <LegendList
-        contentContainerStyle={styles.listContent}
-        contentInsetAdjustmentBehavior="automatic"
-        data={visibleThreads}
-        estimatedItemSize={94}
-        keyExtractor={(thread) => `${thread.accountId}:${thread.threadId}`}
-        onLoad={handleListLoad}
-        onScroll={handleScroll}
-        recycleItems
-        renderItem={renderThread}
-        scrollEventThrottle={16}
-        style={styles.scrollView}
-      />
+      <View style={styles.mailboxListStack}>
+        {mailboxLists.map((list) => (
+          <MailboxThreadList
+            key={list.key}
+            accountsById={accountsById}
+            active={list.key === activeMailboxKey}
+            emptyMailboxName={list.mailboxName}
+            onListLoad={handleListLoad}
+            onOpenThread={setSelectedThread}
+            onScroll={handleScroll}
+            showAccount={list.showAccount}
+            threads={list.threads}
+          />
+        ))}
+      </View>
     );
   }, [
+    accountsById,
     accounts.length,
+    activeMailboxKey,
     connectAccount,
     connectError,
     downloadedThreads,
@@ -655,10 +762,8 @@ export default function App() {
     handleScroll,
     loadAllDownloadedMail,
     loadingAccounts,
+    mailboxLists,
     mailLoadError,
-    mailboxName,
-    renderThread,
-    visibleThreads,
   ]);
 
   return (
@@ -676,10 +781,7 @@ export default function App() {
           if (nativeEvent.id === 'connect-account') void connectAccount();
         }}
         onSegmentChange={({ nativeEvent }) => {
-          setSelectedThread(undefined);
-          setMailboxView(nativeEvent.segmentId === 'all'
-            ? { kind: 'all' }
-            : { kind: 'account', accountId: nativeEvent.segmentId.replace('account:', '') });
+          selectMailboxSegment(nativeEvent.segmentId);
         }}
         onMenuItemPress={({ nativeEvent }) => {
           if (nativeEvent.optionId === 'customize') void toolbarRef.current?.showCustomizationPalette();
@@ -699,8 +801,16 @@ export default function App() {
       />
 
       <View style={styles.mainPane}>
+        <View
+          accessibilityElementsHidden={Boolean(selectedThread)}
+          importantForAccessibility={selectedThread ? 'no-hide-descendants' : 'auto'}
+          pointerEvents={selectedThread ? 'none' : 'auto'}
+          style={[styles.contentLayer, selectedThread && styles.inactiveMailboxList]}
+        >
+          {mainContent}
+        </View>
         {selectedThread ? (
-          <>
+          <View style={styles.contentLayer}>
             <View style={styles.contentHeader}>
               <Pressable
                 accessibilityLabel={`Back to ${inboxTitle}`}
@@ -756,8 +866,8 @@ export default function App() {
                 </>
               ) : null}
             </ScrollView>
-          </>
-        ) : mainContent}
+          </View>
+        ) : null}
       </View>
     </View>
   );
@@ -774,6 +884,10 @@ const styles = StyleSheet.create({
     backgroundColor: PlatformColor('windowBackgroundColor'),
   },
   scrollView: { flex: 1 },
+  mailboxListStack: { flex: 1, position: 'relative' },
+  contentLayer: { ...StyleSheet.absoluteFillObject },
+  mailboxListLayer: { ...StyleSheet.absoluteFillObject },
+  inactiveMailboxList: { opacity: 0 },
   listContent: { padding: 10, gap: 7 },
   threadRow: {
     padding: 11,
