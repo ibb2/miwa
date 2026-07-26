@@ -68,8 +68,15 @@ export type InboxReconciliationCycleResult = {
 export type InboxReconciliationSchedulerOptions = {
   intervalMs?: number;
   runImmediately?: boolean;
+  onCycleStart?: () => void;
   onCycleComplete?: (result: InboxReconciliationCycleResult) => void;
+  onCycleEnd?: () => void;
   onError?: (error: unknown) => void;
+};
+
+export type InboxReconciliationController = {
+  runNow: () => void;
+  stop: () => void;
 };
 
 function assertInterval(value: number): void {
@@ -423,7 +430,7 @@ export async function reconcileAllDownloadedInboxes(
  */
 export function startInboxReconciliation(
   options: InboxReconciliationSchedulerOptions = {},
-): () => void {
+): InboxReconciliationController {
   const intervalMs =
     options.intervalMs ?? DEFAULT_INBOX_RECONCILIATION_INTERVAL_MS;
   assertInterval(intervalMs);
@@ -436,6 +443,7 @@ export function startInboxReconciliation(
     if (stopped || running) return;
     running = true;
     controller = new AbortController();
+    options.onCycleStart?.();
     try {
       const result = await reconcileAllDownloadedInboxes(
         controller.signal,
@@ -456,6 +464,7 @@ export function startInboxReconciliation(
     } finally {
       running = false;
       controller = undefined;
+      if (!stopped) options.onCycleEnd?.();
     }
   };
 
@@ -464,9 +473,14 @@ export function startInboxReconciliation(
   }, intervalMs);
   if (options.runImmediately ?? true) void run();
 
-  return () => {
-    stopped = true;
-    clearInterval(timer);
-    controller?.abort();
+  return {
+    runNow: () => {
+      void run();
+    },
+    stop: () => {
+      stopped = true;
+      clearInterval(timer);
+      controller?.abort();
+    },
   };
 }

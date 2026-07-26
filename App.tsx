@@ -26,7 +26,10 @@ import {
   downloadInbox,
   type InboxDownloadProgress,
 } from './src/mail/inbox-download';
-import { startInboxReconciliation } from './src/mail/inbox-reconciliation';
+import {
+  startInboxReconciliation,
+  type InboxReconciliationController,
+} from './src/mail/inbox-reconciliation';
 import {
   loadDownloadedThreadDetail,
   loadDownloadedThreads,
@@ -221,6 +224,7 @@ type ScrollPerformanceState = {
 
 export default function App() {
   const toolbarRef = useRef<NativeWindowToolbarRef>(null);
+  const reconciliationRef = useRef<InboxReconciliationController>(null);
   const downloadActiveRef = useRef(false);
   const lastDownloadProgressUpdateRef = useRef(0);
   const [accounts, setAccounts] = useState<ConnectedAccount[]>([]);
@@ -229,6 +233,8 @@ export default function App() {
   const [connectError, setConnectError] = useState<string>();
   const [avatarData, setAvatarData] = useState<Record<string, string>>({});
   const [downloadState, setDownloadState] = useState<ToolbarDownloadState>(idleDownloadState);
+  const [syncingInbox, setSyncingInbox] = useState(false);
+  const [syncStatusLabel, setSyncStatusLabel] = useState('Check Gmail for new mail');
   const [downloadedThreads, setDownloadedThreads] = useState<MailThreadSummary[]>();
   const [mailLoadError, setMailLoadError] = useState<string>();
   const [mailLoadPerformance, setMailLoadPerformance] = useState<MailLoadPerformance>();
@@ -282,30 +288,60 @@ export default function App() {
     }
   }, []);
 
-  useEffect(() => startInboxReconciliation({
-    onCycleComplete: (cycle) => {
-      if (__DEV__) {
-        console.info('[MiwaReconciliation] cycle complete', JSON.stringify({
-          durationMs: cycle.completedAt - cycle.startedAt,
-          accounts: cycle.accounts,
-          failureCount: cycle.failures.length,
-        }));
-      }
-      const changed = cycle.accounts.some(
-        (account) =>
-          account.threadsUpserted > 0 || account.threadsRemoved > 0,
-      );
-      if (changed) void loadAllDownloadedMail(false);
-    },
-    onError: (error) => {
-      if (__DEV__) {
-        console.warn(
-          '[MiwaReconciliation] Gmail INBOX reconciliation failed',
-          messageFor(error),
+  useEffect(() => {
+    const reconciliation = startInboxReconciliation({
+      onCycleStart: () => {
+        setSyncingInbox(true);
+        setSyncStatusLabel('Checking Gmail for new mail…');
+      },
+      onCycleComplete: (cycle) => {
+        if (__DEV__) {
+          console.info('[MiwaReconciliation] cycle complete', JSON.stringify({
+            durationMs: cycle.completedAt - cycle.startedAt,
+            accounts: cycle.accounts,
+            failureCount: cycle.failures.length,
+          }));
+        }
+        const changed = cycle.accounts.some(
+          (account) =>
+            account.threadsUpserted > 0 || account.threadsRemoved > 0,
         );
+        const updated = cycle.accounts.reduce(
+          (total, account) => total + account.threadsUpserted,
+          0,
+        );
+        const removed = cycle.accounts.reduce(
+          (total, account) => total + account.threadsRemoved,
+          0,
+        );
+        setSyncStatusLabel(
+          cycle.failures.length > 0
+            ? `Mail sync finished with ${cycle.failures.length.toLocaleString()} ${cycle.failures.length === 1 ? 'account error' : 'account errors'}`
+            : changed
+            ? `Mail updated: ${updated.toLocaleString()} changed, ${removed.toLocaleString()} removed`
+            : 'Mail is up to date',
+        );
+        if (changed) void loadAllDownloadedMail(false);
+      },
+      onError: (error) => {
+        setSyncStatusLabel(`Mail sync failed: ${messageFor(error)}`);
+        if (__DEV__) {
+          console.warn(
+            '[MiwaReconciliation] Gmail INBOX reconciliation failed',
+            messageFor(error),
+          );
+        }
+      },
+      onCycleEnd: () => setSyncingInbox(false),
+    });
+    reconciliationRef.current = reconciliation;
+    return () => {
+      if (reconciliationRef.current === reconciliation) {
+        reconciliationRef.current = null;
       }
-    },
-  }), [loadAllDownloadedMail]);
+      reconciliation.stop();
+    };
+  }, [loadAllDownloadedMail]);
 
   useEffect(() => {
     let active = true;
@@ -527,8 +563,25 @@ export default function App() {
     }
     return `Downloading ${account?.email ?? 'inbox'} (${accountPosition} of ${downloadState.accountCount}): ${progress.threadsDownloaded.toLocaleString()} of ${progress.totalThreads.toLocaleString()} conversations`;
   }, [accountsById, downloadState]);
+  const mailboxName = mailboxView.kind === 'account'
+    ? accountsById.get(mailboxView.accountId)?.email
+    : undefined;
+  const inboxTitle = mailboxView.kind === 'all'
+    ? 'All Inboxes'
+    : mailboxName ?? 'Inbox';
 
   const toolbarItems = useMemo<NativeToolbarItem[]>(() => [
+    ...(selectedThread
+      ? [{
+          id: 'back',
+          kind: 'button' as const,
+          label: `Back to ${inboxTitle}`,
+          systemImage: 'chevron.left',
+          toolTip: `Back to ${inboxTitle}`,
+          immovable: true,
+          navigational: true,
+        }]
+      : []),
     {
       id: 'accounts',
       kind: 'segmented',
@@ -540,6 +593,24 @@ export default function App() {
       navigational: true,
     },
     { id: 'toolbar-spacer', kind: 'flexibleSpace' },
+    syncingInbox
+      ? {
+          id: 'sync-inbox',
+          kind: 'progress',
+          label: 'Syncing Mail',
+          toolTip: syncStatusLabel,
+          indeterminate: true,
+          immovable: true,
+        }
+      : {
+          id: 'sync-inbox',
+          kind: 'button',
+          label: 'Sync Mail',
+          systemImage: 'arrow.clockwise',
+          toolTip: syncStatusLabel,
+          enabled: accounts.length > 0,
+          immovable: true,
+        },
     {
       id: 'download-inbox',
       kind: 'menu',
@@ -602,11 +673,18 @@ export default function App() {
         { id: 'reset', label: 'Reset Toolbar' },
       ],
     },
-  ], [accountSegments, accounts, downloadState, downloadStatusLabel, selectedAccountIndex]);
+  ], [
+    accountSegments,
+    accounts,
+    downloadState,
+    downloadStatusLabel,
+    inboxTitle,
+    selectedAccountIndex,
+    selectedThread,
+    syncingInbox,
+    syncStatusLabel,
+  ]);
 
-  const mailboxName = mailboxView.kind === 'account'
-    ? accountsById.get(mailboxView.accountId)?.email
-    : undefined;
   const mailboxLists = useMemo(() => [
     {
       key: 'all',
@@ -626,9 +704,6 @@ export default function App() {
   const activeMailboxKey = mailboxView.kind === 'all'
     ? 'all'
     : `account:${mailboxView.accountId}`;
-  const inboxTitle = mailboxView.kind === 'all'
-    ? 'All Inboxes'
-    : mailboxName ?? 'Inbox';
   const selectMailboxSegment = useCallback((segmentId: string) => {
     if (mailboxSelectionFrameRef.current !== null) {
       cancelAnimationFrame(mailboxSelectionFrameRef.current);
@@ -771,14 +846,16 @@ export default function App() {
       <NativeWindowToolbar
         ref={toolbarRef}
         style={styles.nativeToolbarBridge}
-        identifier="MiwaLeadingInboxToolbar"
+        identifier={selectedThread ? "MiwaMessageToolbar" : "MiwaLeadingInboxToolbar"}
         items={toolbarItems}
         customizable
         autosavesConfiguration
         displayMode="iconOnly"
         toolbarStyle="unified"
         onItemPress={({ nativeEvent }) => {
-          if (nativeEvent.id === 'connect-account') void connectAccount();
+          if (nativeEvent.id === 'back') setSelectedThread(undefined);
+          else if (nativeEvent.id === 'sync-inbox') reconciliationRef.current?.runNow();
+          else if (nativeEvent.id === 'connect-account') void connectAccount();
         }}
         onSegmentChange={({ nativeEvent }) => {
           selectMailboxSegment(nativeEvent.segmentId);
@@ -811,17 +888,6 @@ export default function App() {
         </View>
         {selectedThread ? (
           <View style={styles.contentLayer}>
-            <View style={styles.contentHeader}>
-              <Pressable
-                accessibilityLabel={`Back to ${inboxTitle}`}
-                accessibilityRole="button"
-                onPress={() => setSelectedThread(undefined)}
-                style={({ pressed }) => [styles.backButton, pressed && styles.pressed]}
-              >
-                <Text style={styles.backButtonText}>‹</Text>
-                <Text numberOfLines={1} style={styles.backButtonLabel}>{inboxTitle}</Text>
-              </Pressable>
-            </View>
             <ScrollView
               contentContainerStyle={styles.detailContent}
               contentInsetAdjustmentBehavior="automatic"
@@ -920,30 +986,6 @@ const styles = StyleSheet.create({
     color: PlatformColor('tertiaryLabelColor'),
     fontSize: 9,
     paddingTop: 2,
-  },
-  contentHeader: {
-    height: 52,
-    justifyContent: 'center',
-    paddingHorizontal: 18,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: PlatformColor('separatorColor'),
-  },
-  backButton: {
-    maxWidth: '100%',
-    alignSelf: 'flex-start',
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderRadius: 7,
-    paddingHorizontal: 6,
-    paddingVertical: 4,
-    gap: 5,
-  },
-  backButtonText: { color: PlatformColor('linkColor'), fontSize: 26, lineHeight: 20 },
-  backButtonLabel: {
-    flexShrink: 1,
-    color: PlatformColor('linkColor'),
-    fontSize: 13,
-    fontWeight: '500',
   },
   detailContent: { padding: 24, gap: 14 },
   detailSubject: {
