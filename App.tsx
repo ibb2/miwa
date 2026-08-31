@@ -828,6 +828,67 @@ export default function App() {
         }]
       : []),
     { id: 'toolbar-spacer', kind: 'flexibleSpace' },
+    ...(surface === 'mail' && selectedThread
+      ? [
+        {
+          id: 'message-read-toggle',
+          kind: 'button' as const,
+          label: selectedThread.unread ? 'Mark as read' : 'Mark as unread',
+          systemImage: selectedThread.unread ? 'envelope.open' : 'envelope.badge',
+          toolTip: selectedThread.unread ? 'Mark as read' : 'Mark as unread',
+          immovable: true,
+        },
+        {
+          id: 'message-archive',
+          kind: 'button' as const,
+          label: 'Archive',
+          systemImage: 'archivebox',
+          toolTip: 'Archive conversation',
+          immovable: true,
+        },
+        {
+          id: 'message-pin',
+          kind: 'button' as const,
+          label: 'Pin',
+          systemImage: 'pin',
+          toolTip: 'Pin conversation',
+          immovable: true,
+        },
+        {
+          id: 'message-delete',
+          kind: 'button' as const,
+          label: 'Delete',
+          systemImage: 'trash',
+          toolTip: 'Delete conversation',
+          immovable: true,
+        },
+        { id: 'message-action-space', kind: 'space' as const, immovable: true },
+        {
+          id: 'message-reply',
+          kind: 'button' as const,
+          label: 'Reply',
+          systemImage: 'arrowshape.turn.up.left',
+          toolTip: 'Reply',
+          immovable: true,
+        },
+        {
+          id: 'message-reply-all',
+          kind: 'button' as const,
+          label: 'Reply All',
+          systemImage: 'arrowshape.turn.up.left.2',
+          toolTip: 'Reply all',
+          immovable: true,
+        },
+        {
+          id: 'message-forward',
+          kind: 'button' as const,
+          label: 'Forward',
+          systemImage: 'arrowshape.turn.up.right',
+          toolTip: 'Forward',
+          immovable: true,
+        },
+      ]
+      : []),
     ...(syncingInbox
       ? [{
           id: 'sync-inbox',
@@ -1169,11 +1230,9 @@ export default function App() {
               {detailError ? <Text selectable style={styles.connectError}>{detailError}</Text> : null}
               {threadDetail ? (
                 <>
-                  <View style={styles.detailHero}>
-                    <Text selectable style={styles.detailSubject}>
-                      {threadDetail.subject || '(No subject)'}
-                    </Text>
-                  </View>
+                  <Text selectable style={styles.detailSubject}>
+                    {threadDetail.subject || '(No subject)'}
+                  </Text>
                   <View style={styles.messageStack}>
                     {threadDetail.messages.map((message) => (
                       <View key={message.id} style={styles.messageCard}>
