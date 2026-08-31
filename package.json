@@ -37,6 +37,7 @@
     "@rnx-kit/metro-config": "latest",
     "@types/react": "~19.1.0",
     "drizzle-kit": "^1.0.0-rc.4",
+    "expo-desktop": "1.0.0-beta.4",
     "typescript": "~5.9.2"
   },
   "private": true,
