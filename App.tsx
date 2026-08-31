@@ -22,6 +22,7 @@ import {
 import { clearLocalDatabase } from './src/db/clear-database';
 import { EmptyMailboxState } from './src/components/empty-mailbox-state';
 import { MailCategoryTabs } from './src/components/mail-category-tabs';
+import { NativeSymbol } from './src/components/native-symbol';
 import { GatekeeperView } from './src/components/gatekeeper-view';
 import { SettingsView } from './src/components/settings-view';
 import { gmailAccountAuth } from './src/mail/account-auth';
@@ -71,6 +72,45 @@ function initials(account: ConnectedAccount): string {
     .join('')
     .slice(0, 2)
     .toUpperCase();
+}
+
+const senderAvatarColors = [
+  '#5B7CFA',
+  '#8B5CF6',
+  '#D05B9C',
+  '#E66A4E',
+  '#C58A20',
+  '#3A9B72',
+  '#338BA8',
+] as const;
+
+function senderAvatar(sender: string): {
+  color: string;
+  email: string;
+  initials: string;
+  usesInitials: boolean;
+} {
+  const bracketIndex = sender.lastIndexOf('<');
+  const displayName = bracketIndex > 0
+    ? sender.slice(0, bracketIndex).trim().replace(/^['"]|['"]$/g, '')
+    : '';
+  const identity = bracketIndex >= 0
+    ? sender.slice(bracketIndex + 1).replace(/>.*$/, '').trim().toLowerCase()
+    : sender.trim().toLowerCase();
+  const nameParts = displayName.split(/\s+/).filter(Boolean);
+  const avatarInitials = nameParts.length
+    ? `${nameParts[0][0]}${nameParts.length > 1 ? nameParts.at(-1)![0] : ''}`.toUpperCase()
+    : '@';
+  let hash = 0;
+  for (const character of identity) {
+    hash = ((hash << 5) - hash + character.charCodeAt(0)) | 0;
+  }
+  return {
+    color: senderAvatarColors[Math.abs(hash) % senderAvatarColors.length],
+    email: identity,
+    initials: avatarInitials,
+    usesInitials: nameParts.length > 0,
+  };
 }
 
 type ToolbarDownloadState = {
@@ -136,18 +176,20 @@ function formatDate(milliseconds: number): string {
 const InboxThreadRow = memo(function InboxThreadRow({
   account,
   comfortable,
-  showAccount,
   showPreview,
   thread,
   onPress,
 }: {
   account?: ConnectedAccount;
   comfortable: boolean;
-  showAccount: boolean;
   showPreview: boolean;
   thread: MailThreadSummary;
   onPress: (thread: MailThreadSummary) => void;
 }) {
+  const avatar = senderAvatar(thread.sender);
+  const senderImageUri = account?.email.toLowerCase() === avatar.email
+    ? account.avatarUrl
+    : undefined;
   return (
     <Pressable
       accessibilityLabel={`${thread.sender}, ${thread.subject}`}
@@ -163,6 +205,13 @@ const InboxThreadRow = memo(function InboxThreadRow({
         accessibilityElementsHidden
         importantForAccessibility="no-hide-descendants"
         style={[styles.unreadMark, !thread.unread && styles.readMark]}
+      />
+      <NativeSymbol
+        color={avatar.color}
+        fallback={avatar.initials}
+        imageUri={senderImageUri}
+        preferFallback={avatar.usesInitials}
+        systemName="at"
       />
       <Text
         numberOfLines={1}
@@ -189,11 +238,6 @@ const InboxThreadRow = memo(function InboxThreadRow({
       {thread.messageCount > 1 ? (
         <Text selectable style={styles.messageCount}>{thread.messageCount}</Text>
       ) : null}
-      {showAccount && account ? (
-        <Text numberOfLines={1} selectable style={styles.threadAccount}>
-          {account.email}
-        </Text>
-      ) : null}
       <Text selectable style={styles.threadDate}>{formatDate(thread.receivedAt)}</Text>
     </Pressable>
   );
@@ -209,7 +253,6 @@ const MailboxThreadList = memo(function MailboxThreadList({
   onScroll,
   preferences,
   onSelectCategory,
-  showAccount,
   threads,
 }: {
   accountsById: Map<string, ConnectedAccount>;
@@ -221,7 +264,6 @@ const MailboxThreadList = memo(function MailboxThreadList({
   onScroll: (event: NativeSyntheticEvent<NativeScrollEvent>) => void;
   preferences: MailPreferences;
   onSelectCategory: (category: MailCategoryFilter) => void;
-  showAccount: boolean;
   threads: MailThreadSummary[];
 }) {
   const renderThread = useCallback(
@@ -229,13 +271,12 @@ const MailboxThreadList = memo(function MailboxThreadList({
       <InboxThreadRow
         account={accountsById.get(item.accountId)}
         comfortable={preferences.comfortableRows}
-        showAccount={showAccount && preferences.showAccountLabels}
         showPreview={preferences.showPreviews}
         thread={item}
         onPress={onOpenThread}
       />
     ),
-    [accountsById, onOpenThread, preferences, showAccount],
+    [accountsById, onOpenThread, preferences],
   );
 
   return (
@@ -831,13 +872,11 @@ export default function App() {
     {
       key: 'all',
       mailboxName: undefined,
-      showAccount: true,
       threads: categoryThreads,
     },
     ...accounts.map((account) => ({
       key: `account:${account.id}`,
       mailboxName: account.email,
-      showAccount: false,
       threads: categoryThreads.filter(
         (thread) => thread.accountId === account.id,
       ),
@@ -968,7 +1007,6 @@ export default function App() {
           onScroll={handleScroll}
           preferences={preferences}
           onSelectCategory={setMailCategory}
-          showAccount={activeList.showAccount}
           threads={activeList.threads}
         />
       </View>
@@ -1201,7 +1239,7 @@ const styles = StyleSheet.create({
   },
   readMark: { opacity: 0 },
   threadSender: {
-    width: 160,
+    width: 144,
     color: PlatformColor('labelColor'),
     fontSize: 12,
   },
@@ -1235,12 +1273,6 @@ const styles = StyleSheet.create({
     color: PlatformColor('secondaryLabelColor'),
     fontSize: 9,
     fontVariant: ['tabular-nums'],
-  },
-  threadAccount: {
-    width: 150,
-    color: PlatformColor('tertiaryLabelColor'),
-    fontSize: 9,
-    textAlign: 'right',
   },
   detailContent: {
     flexGrow: 1,

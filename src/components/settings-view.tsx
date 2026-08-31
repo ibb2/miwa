@@ -162,13 +162,6 @@ export function SettingsView({
             onValueChange={(value) => onChangePreference('comfortableRows', value)}
             value={preferences.comfortableRows}
           />
-          <NativeDivider />
-          <PreferenceRow
-            description="Show the destination inbox when viewing all accounts."
-            label="Show account labels"
-            onValueChange={(value) => onChangePreference('showAccountLabels', value)}
-            value={preferences.showAccountLabels}
-          />
         </View>
       </View>
 
