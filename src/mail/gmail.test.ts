@@ -4,6 +4,7 @@ import {
   decodeBase64Url,
   decodeBase64UrlBytes,
   extractMailBody,
+  gmailThreadReadStateModification,
   mergeAccountThreads,
   mergeThreadSummaries,
   sanitizeEmailHtml,
@@ -26,6 +27,11 @@ function summary(accountId: string, threadId: string, receivedAt: number): MailT
 }
 
 describe('Gmail mail utilities', () => {
+  test('maps read state to Gmail UNREAD label mutations', () => {
+    expect(gmailThreadReadStateModification(true)).toEqual({ addLabelIds: ['UNREAD'] });
+    expect(gmailThreadReadStateModification(false)).toEqual({ removeLabelIds: ['UNREAD'] });
+  });
+
   test('decodes UTF-8 base64url bodies', () => {
     expect(decodeBase64Url('SGVsbG8sIE1pd2Eh')).toBe('Hello, Miwa!');
   });

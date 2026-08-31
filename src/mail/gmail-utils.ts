@@ -9,6 +9,15 @@ export type GmailPart = {
   parts?: GmailPart[];
 };
 
+export function gmailThreadReadStateModification(unread: boolean): {
+  addLabelIds?: string[];
+  removeLabelIds?: string[];
+} {
+  return unread
+    ? { addLabelIds: ['UNREAD'] }
+    : { removeLabelIds: ['UNREAD'] };
+}
+
 export function decodeBase64UrlBytes(value?: string): Uint8Array {
   if (!value) return new Uint8Array();
   const normalized = value.replace(/-/g, '+').replace(/_/g, '/');

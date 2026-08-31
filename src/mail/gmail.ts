@@ -3,6 +3,7 @@ import { mailCategoryForLabels } from './mail-category';
 import {
   compareThreads,
   extractMailBody,
+  gmailThreadReadStateModification,
   sanitizeEmailHtml,
   stripHtml,
   type GmailPart,
@@ -54,15 +55,18 @@ const wait = (milliseconds: number) =>
 function gmailRequest(
   url: string,
   accessToken: string,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  method = 'GET',
+  body?: string,
 ): Promise<XhrResponse> {
   return new Promise((resolve, reject) => {
     const request = new XMLHttpRequest();
     const abort = () => request.abort();
     const cleanup = () => signal?.removeEventListener('abort', abort);
 
-    request.open('GET', url, true);
+    request.open(method, url, true);
     request.setRequestHeader('Authorization', `Bearer ${accessToken}`);
+    if (body) request.setRequestHeader('Content-Type', 'application/json');
     request.onload = () => {
       cleanup();
       resolve({ status: request.status, text: request.responseText ?? '' });
@@ -83,8 +87,32 @@ function gmailRequest(
       return;
     }
     signal?.addEventListener('abort', abort, { once: true });
-    request.send();
+    request.send(body);
   });
+}
+
+function gmailError(response: XhrResponse): GmailApiError {
+  const payload = (() => {
+    try {
+      return JSON.parse(response.text) as {
+        error?: {
+          message?: string;
+          errors?: Array<{ reason?: string }>;
+        };
+      };
+    } catch {
+      return null;
+    }
+  })();
+  const message = payload?.error?.message ?? `Gmail request failed (${response.status})`;
+  const insufficientScope = payload?.error?.errors?.some(
+    (error) => error.reason === 'insufficientPermissions',
+  ) || /insufficient (authentication )?scopes?/i.test(message);
+  return new GmailApiError(
+    message,
+    response.status,
+    response.status === 401 || insufficientScope,
+  );
 }
 
 /**
@@ -120,23 +148,42 @@ export async function gmailGet<T>(
   }
 
   if (response.status < 200 || response.status >= 300) {
-    const payload = (() => {
-      try {
-        return JSON.parse(response.text) as { error?: { message?: string } };
-      } catch {
-        return null;
-      }
-    })() as
-      | { error?: { message?: string } }
-      | null;
-    throw new GmailApiError(
-      payload?.error?.message ?? `Gmail request failed (${response.status})`,
-      response.status,
-      response.status === 401
-    );
+    throw gmailError(response);
   }
 
   return JSON.parse(response.text) as T;
+}
+
+/** Updates the UNREAD label for every message in a Gmail thread. */
+export async function setGmailThreadReadState(
+  accountId: string,
+  threadId: string,
+  unread: boolean,
+  attempt = 0,
+  forceRefresh = false,
+): Promise<void> {
+  const token = await gmailAccountAuth.getAccessToken(accountId, forceRefresh);
+  let response: XhrResponse;
+  try {
+    response = await gmailRequest(
+      `${GMAIL_API}/threads/${encodeURIComponent(threadId)}/modify`,
+      token.accessToken,
+      undefined,
+      'POST',
+      JSON.stringify(gmailThreadReadStateModification(unread)),
+    );
+  } catch {
+    throw new GmailApiError('Unable to reach Gmail. Check your connection.', 0);
+  }
+
+  if (response.status === 401 && !forceRefresh) {
+    return setGmailThreadReadState(accountId, threadId, unread, attempt, true);
+  }
+  if (TRANSIENT_STATUSES.has(response.status) && attempt < 2) {
+    await wait(400 * 2 ** attempt);
+    return setGmailThreadReadState(accountId, threadId, unread, attempt + 1, forceRefresh);
+  }
+  if (response.status < 200 || response.status >= 300) throw gmailError(response);
 }
 
 function header(headers: GmailHeader[] | undefined, name: string): string {

@@ -166,3 +166,42 @@ export async function loadDownloadedThreadDetail(
     })),
   };
 }
+
+export async function setDownloadedThreadReadState(
+  accountId: string,
+  providerThreadId: string,
+  unread: boolean,
+): Promise<void> {
+  const thread = await db
+    .select({ id: mailThreads.id })
+    .from(mailThreads)
+    .where(and(
+      eq(mailThreads.accountId, accountId),
+      eq(mailThreads.providerThreadId, providerThreadId),
+    ))
+    .get();
+  if (!thread) throw new Error('This downloaded conversation is no longer available.');
+
+  const messages = await db
+    .select({ id: mailMessages.id, labelIds: mailMessages.labelIds })
+    .from(mailMessages)
+    .where(eq(mailMessages.threadId, thread.id));
+  const updatedAt = Date.now();
+  db.transaction((transaction) => {
+    transaction
+      .update(mailThreads)
+      .set({ unread, updatedAt })
+      .where(eq(mailThreads.id, thread.id))
+      .run();
+    for (const message of messages) {
+      const labels = unread
+        ? Array.from(new Set([...message.labelIds, 'UNREAD']))
+        : message.labelIds.filter((label) => label !== 'UNREAD');
+      transaction
+        .update(mailMessages)
+        .set({ labelIds: labels, updatedAt })
+        .where(eq(mailMessages.id, message.id))
+        .run();
+    }
+  });
+}

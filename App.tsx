@@ -27,6 +27,7 @@ import { NativeSymbol } from './src/components/native-symbol';
 import { GatekeeperView } from './src/components/gatekeeper-view';
 import { SettingsView } from './src/components/settings-view';
 import { gmailAccountAuth } from './src/mail/account-auth';
+import { GmailApiError, setGmailThreadReadState } from './src/mail/gmail';
 import {
   loadGatekeeperOverview,
   setGatekeeperSenderStatus,
@@ -45,6 +46,7 @@ import {
 import {
   loadDownloadedThreadDetail,
   loadDownloadedThreads,
+  setDownloadedThreadReadState,
 } from './src/mail/offline-mail';
 import type {
   ConnectedAccount,
@@ -180,12 +182,14 @@ const InboxThreadRow = memo(function InboxThreadRow({
   showPreview,
   thread,
   onPress,
+  onToggleRead,
 }: {
   account?: ConnectedAccount;
   comfortable: boolean;
   showPreview: boolean;
   thread: MailThreadSummary;
   onPress: (thread: MailThreadSummary) => void;
+  onToggleRead: (thread: MailThreadSummary) => void;
 }) {
   const [hovered, setHovered] = useState(false);
   const avatar = senderAvatar(thread.sender);
@@ -194,19 +198,64 @@ const InboxThreadRow = memo(function InboxThreadRow({
     : undefined;
   return (
     <Pressable
-      accessibilityLabel={`${thread.sender}, ${thread.subject}`}
-      accessibilityRole="button"
-      onBlur={() => setHovered(false)}
-      onFocus={() => setHovered(true)}
+      accessible={false}
       onHoverIn={() => setHovered(true)}
       onHoverOut={() => setHovered(false)}
-      onPress={() => onPress(thread)}
-      style={({ pressed }) => [
+      style={[
         styles.threadRow,
         comfortable && styles.comfortableThreadRow,
-        pressed && styles.pressed,
       ]}
     >
+      <Pressable
+        accessibilityLabel={`${thread.sender}, ${thread.subject}`}
+        accessibilityRole="button"
+        onBlur={() => setHovered(false)}
+        onFocus={() => setHovered(true)}
+        onPress={() => onPress(thread)}
+        style={({ pressed }) => [
+          styles.threadRowPressTarget,
+          pressed && styles.pressed,
+        ]}
+      >
+        <View
+        accessibilityElementsHidden
+        importantForAccessibility="no-hide-descendants"
+        style={[styles.unreadMark, !thread.unread && styles.readMark]}
+        />
+        <NativeSymbol
+          color={avatar.color}
+          fallback={avatar.initials}
+          imageUri={senderImageUri}
+          preferFallback={avatar.usesInitials}
+          systemName="at"
+        />
+        <Text
+          numberOfLines={1}
+          selectable
+          style={[styles.threadSender, thread.unread && styles.unreadText]}
+        >
+          {thread.sender}
+        </Text>
+        <View style={styles.threadCopy}>
+          <Text
+            numberOfLines={1}
+            selectable
+            style={[styles.threadSubject, thread.unread && styles.unreadText]}
+          >
+            {thread.subject || '(No subject)'}
+          </Text>
+          {showPreview && thread.snippet ? (
+            <Text numberOfLines={1} selectable style={styles.threadSnippet}>
+              <Text style={styles.snippetDivider}> — </Text>
+              {thread.snippet}
+            </Text>
+          ) : null}
+        </View>
+        {thread.messageCount > 1 ? (
+          <Text selectable style={styles.messageCount}>{thread.messageCount}</Text>
+        ) : null}
+        <Text selectable style={styles.threadDate}>{formatDate(thread.receivedAt)}</Text>
+      </Pressable>
       {hovered ? (
         <View
           accessibilityLabel={`Actions for ${thread.subject || 'message'}`}
@@ -215,72 +264,15 @@ const InboxThreadRow = memo(function InboxThreadRow({
           <NativeActionButton
             accessibilityLabel={thread.unread ? 'Mark as read' : 'Mark as unread'}
             label={thread.unread ? 'Mark as read' : 'Mark as unread'}
-            onPress={() => {}}
-            systemImage={thread.unread ? 'envelope.open' : 'envelope.badge'}
+            onPress={() => onToggleRead(thread)}
+            systemImage={thread.unread ? 'envelope.badge' : 'envelope.open'}
             variant="glass"
           />
-          <NativeActionButton
-            accessibilityLabel="Archive"
-            label="Archive"
-            onPress={() => {}}
-            systemImage="archivebox"
-            variant="glass"
-          />
-          <NativeActionButton
-            accessibilityLabel="Pin"
-            label="Pin"
-            onPress={() => {}}
-            systemImage="pin"
-            variant="glass"
-          />
-          <NativeActionButton
-            accessibilityLabel="Delete"
-            label="Delete"
-            onPress={() => {}}
-            role="destructive"
-            systemImage="trash"
-            variant="glass"
-          />
+          <NativeActionButton accessibilityLabel="Archive" label="Archive" onPress={() => {}} systemImage="archivebox" variant="glass" />
+          <NativeActionButton accessibilityLabel="Pin" label="Pin" onPress={() => {}} systemImage="pin" variant="glass" />
+          <NativeActionButton accessibilityLabel="Delete" label="Delete" onPress={() => {}} role="destructive" systemImage="trash" variant="glass" />
         </View>
       ) : null}
-      <View
-        accessibilityElementsHidden
-        importantForAccessibility="no-hide-descendants"
-        style={[styles.unreadMark, !thread.unread && styles.readMark]}
-      />
-      <NativeSymbol
-        color={avatar.color}
-        fallback={avatar.initials}
-        imageUri={senderImageUri}
-        preferFallback={avatar.usesInitials}
-        systemName="at"
-      />
-      <Text
-        numberOfLines={1}
-        selectable
-        style={[styles.threadSender, thread.unread && styles.unreadText]}
-      >
-        {thread.sender}
-      </Text>
-      <View style={styles.threadCopy}>
-        <Text
-          numberOfLines={1}
-          selectable
-          style={[styles.threadSubject, thread.unread && styles.unreadText]}
-        >
-          {thread.subject || '(No subject)'}
-        </Text>
-        {showPreview && thread.snippet ? (
-          <Text numberOfLines={1} selectable style={styles.threadSnippet}>
-            <Text style={styles.snippetDivider}> — </Text>
-            {thread.snippet}
-          </Text>
-        ) : null}
-      </View>
-      {thread.messageCount > 1 ? (
-        <Text selectable style={styles.messageCount}>{thread.messageCount}</Text>
-      ) : null}
-      <Text selectable style={styles.threadDate}>{formatDate(thread.receivedAt)}</Text>
     </Pressable>
   );
 });
@@ -292,6 +284,7 @@ const MailboxThreadList = memo(function MailboxThreadList({
   emptyMailboxName,
   onListLoad,
   onOpenThread,
+  onToggleRead,
   onScroll,
   preferences,
   onSelectCategory,
@@ -303,6 +296,7 @@ const MailboxThreadList = memo(function MailboxThreadList({
   emptyMailboxName?: string;
   onListLoad: (event: { elapsedTimeInMs: number }) => void;
   onOpenThread: (thread: MailThreadSummary) => void;
+  onToggleRead: (thread: MailThreadSummary) => void;
   onScroll: (event: NativeSyntheticEvent<NativeScrollEvent>) => void;
   preferences: MailPreferences;
   onSelectCategory: (category: MailCategoryFilter) => void;
@@ -316,9 +310,10 @@ const MailboxThreadList = memo(function MailboxThreadList({
         showPreview={preferences.showPreviews}
         thread={item}
         onPress={onOpenThread}
+        onToggleRead={onToggleRead}
       />
     ),
-    [accountsById, onOpenThread, preferences],
+    [accountsById, onOpenThread, onToggleRead, preferences],
   );
 
   return (
@@ -393,6 +388,7 @@ export default function App() {
   const [threadDetail, setThreadDetail] = useState<MailThreadDetail>();
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string>();
+  const [readStateActionKey, setReadStateActionKey] = useState<string>();
   const listPerformanceLoggedRef = useRef(false);
   const scrollPerformanceRef = useRef<ScrollPerformanceState>({
     intervals: [],
@@ -760,6 +756,49 @@ export default function App() {
     }
   }, [loadAllDownloadedMail, refreshGatekeeper]);
 
+  const changeThreadReadState = useCallback(async (thread: MailThreadSummary) => {
+    const actionKey = `${thread.accountId}:${thread.threadId}`;
+    if (readStateActionKey === actionKey) return;
+    const unread = !thread.unread;
+    const updateVisibleState = (nextUnread: boolean) => {
+      setDownloadedThreads((current) => current?.map((item) =>
+        item.accountId === thread.accountId && item.threadId === thread.threadId
+          ? { ...item, unread: nextUnread }
+          : item
+      ));
+      setSelectedThread((current) =>
+        current?.accountId === thread.accountId && current.threadId === thread.threadId
+          ? { ...current, unread: nextUnread }
+          : current
+      );
+    };
+
+    setReadStateActionKey(actionKey);
+    updateVisibleState(unread);
+    let gmailUpdated = false;
+    try {
+      try {
+        await setGmailThreadReadState(thread.accountId, thread.threadId, unread);
+      } catch (error) {
+        if (!(error instanceof GmailApiError) || !error.requiresReauthentication) throw error;
+        await gmailAccountAuth.reauthorizeAccount(thread.accountId);
+        await setGmailThreadReadState(thread.accountId, thread.threadId, unread);
+      }
+      gmailUpdated = true;
+      await setDownloadedThreadReadState(thread.accountId, thread.threadId, unread);
+      reconciliationRef.current?.runNow();
+    } catch (error) {
+      if (!gmailUpdated) updateVisibleState(thread.unread);
+      else reconciliationRef.current?.runNow();
+      Alert.alert(
+        gmailUpdated ? 'Gmail updated, but Miwa could not refresh' : 'Could not update Gmail',
+        messageFor(error),
+      );
+    } finally {
+      setReadStateActionKey((current) => current === actionKey ? undefined : current);
+    }
+  }, [readStateActionKey]);
+
   const accountSegments = useMemo<ToolbarSegment[]>(() => [
     { id: 'all', label: 'All inboxes', systemImage: 'tray.full' },
     ...accounts.map((account) => ({
@@ -834,8 +873,9 @@ export default function App() {
           id: 'message-read-toggle',
           kind: 'button' as const,
           label: selectedThread.unread ? 'Mark as read' : 'Mark as unread',
-          systemImage: selectedThread.unread ? 'envelope.open' : 'envelope.badge',
+          systemImage: selectedThread.unread ? 'envelope.badge' : 'envelope.open',
           toolTip: selectedThread.unread ? 'Mark as read' : 'Mark as unread',
+          enabled: readStateActionKey !== `${selectedThread.accountId}:${selectedThread.threadId}`,
           immovable: true,
         },
         {
@@ -960,6 +1000,7 @@ export default function App() {
     inboxTitle,
     selectedAccountIndex,
     selectedThread,
+    readStateActionKey,
     surface,
     syncingInbox,
     syncStatusLabel,
@@ -1107,6 +1148,7 @@ export default function App() {
           emptyMailboxName={activeList.mailboxName}
           onListLoad={handleListLoad}
           onOpenThread={setSelectedThread}
+          onToggleRead={(thread) => void changeThreadReadState(thread)}
           onScroll={handleScroll}
           preferences={preferences}
           onSelectCategory={setMailCategory}
@@ -1154,6 +1196,9 @@ export default function App() {
           if (nativeEvent.id === 'back') {
             setSelectedThread(undefined);
             setSurface('mail');
+          }
+          else if (nativeEvent.id === 'message-read-toggle' && selectedThread) {
+            void changeThreadReadState(selectedThread);
           }
           else if (nativeEvent.id === 'connect-account') void connectAccount();
           else if (nativeEvent.id === 'gatekeeper') {
@@ -1316,18 +1361,25 @@ const styles = StyleSheet.create({
     maxWidth: 1140,
     alignSelf: 'center',
     minHeight: 60,
+    position: 'relative',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: PlatformColor('separatorColor'),
+  },
+  threadRowPressTarget: {
+    flex: 1,
+    minHeight: 60,
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 10,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: PlatformColor('separatorColor'),
     gap: 11,
   },
   hoverActions: {
     position: 'absolute',
+    top: '50%',
     right: 6,
     zIndex: 10,
     height: 40,
+    transform: [{ translateY: -20 }],
     paddingHorizontal: 4,
     borderRadius: 20,
     borderCurve: 'continuous',

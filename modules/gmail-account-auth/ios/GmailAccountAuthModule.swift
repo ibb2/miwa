@@ -3,7 +3,7 @@ import ExpoModulesCore
 import GoogleSignIn
 import Security
 
-private let gmailReadonlyScope = "https://www.googleapis.com/auth/gmail.readonly"
+private let gmailModifyScope = "https://www.googleapis.com/auth/gmail.modify"
 
 private struct StoredAccount: Codable {
   let id: String
@@ -209,7 +209,7 @@ public final class GmailAccountAuthModule: Module {
     let result = try await GIDSignIn.sharedInstance.signIn(
       withPresenting: window,
       hint: hint,
-      additionalScopes: [gmailReadonlyScope]
+      additionalScopes: [gmailModifyScope]
     )
     if let expectedAccountId, result.user.userID != expectedAccountId {
       throw GmailAuthError.wrongAccount
