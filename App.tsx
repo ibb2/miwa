@@ -1170,10 +1170,6 @@ export default function App() {
               {threadDetail ? (
                 <>
                   <View style={styles.detailHero}>
-                    <Text selectable style={styles.detailEyebrow}>
-                      {threadDetail.messages.length.toLocaleString()}{' '}
-                      {threadDetail.messages.length === 1 ? 'MESSAGE' : 'MESSAGES'}
-                    </Text>
                     <Text selectable style={styles.detailSubject}>
                       {threadDetail.subject || '(No subject)'}
                     </Text>
@@ -1334,11 +1330,10 @@ const styles = StyleSheet.create({
     maxWidth: 1080,
     alignSelf: 'center',
     paddingHorizontal: 38,
-    paddingTop: 34,
-    paddingBottom: 24,
+    paddingTop: 16,
+    paddingBottom: 16,
     gap: 16,
   },
-  detailHero: { paddingBottom: 12, gap: 8 },
   detailEyebrow: {
     color: '#E86E5A',
     fontSize: 9,
