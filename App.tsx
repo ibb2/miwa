@@ -22,6 +22,7 @@ import {
 import { clearLocalDatabase } from './src/db/clear-database';
 import { EmptyMailboxState } from './src/components/empty-mailbox-state';
 import { MailCategoryTabs } from './src/components/mail-category-tabs';
+import { NativeActionButton } from './src/components/native-action-button';
 import { NativeSymbol } from './src/components/native-symbol';
 import { GatekeeperView } from './src/components/gatekeeper-view';
 import { SettingsView } from './src/components/settings-view';
@@ -186,6 +187,7 @@ const InboxThreadRow = memo(function InboxThreadRow({
   thread: MailThreadSummary;
   onPress: (thread: MailThreadSummary) => void;
 }) {
+  const [hovered, setHovered] = useState(false);
   const avatar = senderAvatar(thread.sender);
   const senderImageUri = account?.email.toLowerCase() === avatar.email
     ? account.avatarUrl
@@ -194,6 +196,10 @@ const InboxThreadRow = memo(function InboxThreadRow({
     <Pressable
       accessibilityLabel={`${thread.sender}, ${thread.subject}`}
       accessibilityRole="button"
+      onBlur={() => setHovered(false)}
+      onFocus={() => setHovered(true)}
+      onHoverIn={() => setHovered(true)}
+      onHoverOut={() => setHovered(false)}
       onPress={() => onPress(thread)}
       style={({ pressed }) => [
         styles.threadRow,
@@ -201,6 +207,42 @@ const InboxThreadRow = memo(function InboxThreadRow({
         pressed && styles.pressed,
       ]}
     >
+      {hovered ? (
+        <View
+          accessibilityLabel={`Actions for ${thread.subject || 'message'}`}
+          style={styles.hoverActions}
+        >
+          <NativeActionButton
+            accessibilityLabel={thread.unread ? 'Mark as read' : 'Mark as unread'}
+            label={thread.unread ? 'Mark as read' : 'Mark as unread'}
+            onPress={() => {}}
+            systemImage={thread.unread ? 'envelope.open' : 'envelope.badge'}
+            variant="glass"
+          />
+          <NativeActionButton
+            accessibilityLabel="Archive"
+            label="Archive"
+            onPress={() => {}}
+            systemImage="archivebox"
+            variant="glass"
+          />
+          <NativeActionButton
+            accessibilityLabel="Pin"
+            label="Pin"
+            onPress={() => {}}
+            systemImage="pin"
+            variant="glass"
+          />
+          <NativeActionButton
+            accessibilityLabel="Delete"
+            label="Delete"
+            onPress={() => {}}
+            role="destructive"
+            systemImage="trash"
+            variant="glass"
+          />
+        </View>
+      ) : null}
       <View
         accessibilityElementsHidden
         importantForAccessibility="no-hide-descendants"
@@ -1225,6 +1267,18 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: PlatformColor('separatorColor'),
     gap: 11,
+  },
+  hoverActions: {
+    position: 'absolute',
+    right: 6,
+    zIndex: 10,
+    height: 40,
+    paddingHorizontal: 4,
+    borderRadius: 20,
+    borderCurve: 'continuous',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
   },
   comfortableThreadRow: { minHeight: 72 },
   pressed: {
