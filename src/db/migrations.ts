@@ -177,6 +177,13 @@ const migrations = [
         ON "gatekeeper_senders" ("status", "last_seen_at");
     `,
   },
+  {
+    version: 4,
+    sql: `
+      ALTER TABLE "mail_threads"
+        ADD COLUMN "pinned" integer DEFAULT 0 NOT NULL;
+    `,
+  },
 ] as const;
 
 export function migrateDatabase(database: SQLiteDatabase): void {

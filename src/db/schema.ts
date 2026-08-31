@@ -64,6 +64,7 @@ export const mailThreads = sqliteTable(
     snippet: text("snippet").notNull().default(""),
     lastMessageAt: integer("last_message_at", { mode: "number" }).notNull(),
     unread: integer("unread", { mode: "boolean" }).notNull().default(false),
+    pinned: integer("pinned", { mode: "boolean" }).notNull().default(false),
     messageCount: integer("message_count").notNull().default(0),
     /**
      * False means only the INBOX summary has been saved. It becomes true after

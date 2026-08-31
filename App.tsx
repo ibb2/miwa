@@ -48,11 +48,12 @@ import {
   loadDownloadedThreads,
   removeDownloadedInboxThread,
   setDownloadedThreadReadState,
+  setDownloadedThreadPinnedState,
 } from './src/mail/offline-mail';
 import type {
   ConnectedAccount,
   MailboxView,
-  MailCategoryFilter,
+  MailViewFilter,
   MailThreadDetail,
   MailThreadSummary,
 } from './src/mail/types';
@@ -184,6 +185,7 @@ const InboxThreadRow = memo(function InboxThreadRow({
   thread,
   onPress,
   onArchive,
+  onSetPinned,
   onToggleRead,
 }: {
   account?: ConnectedAccount;
@@ -192,6 +194,7 @@ const InboxThreadRow = memo(function InboxThreadRow({
   thread: MailThreadSummary;
   onPress: (thread: MailThreadSummary) => void;
   onArchive: (thread: MailThreadSummary) => void;
+  onSetPinned: (thread: MailThreadSummary, pinned: boolean) => void;
   onToggleRead: (thread: MailThreadSummary) => void;
 }) {
   const [hovered, setHovered] = useState(false);
@@ -272,7 +275,13 @@ const InboxThreadRow = memo(function InboxThreadRow({
             variant="glass"
           />
           <NativeActionButton accessibilityLabel="Archive" label="Archive" onPress={() => onArchive(thread)} systemImage="archivebox" variant="glass" />
-          <NativeActionButton accessibilityLabel="Pin" label="Pin" onPress={() => {}} systemImage="pin" variant="glass" />
+          <NativeActionButton
+            accessibilityLabel={thread.pinned ? 'Unpin' : 'Pin'}
+            label={thread.pinned ? 'Unpin' : 'Pin'}
+            onPress={() => onSetPinned(thread, !thread.pinned)}
+            systemImage={thread.pinned ? 'pin.slash' : 'pin'}
+            variant="glass"
+          />
           <NativeActionButton accessibilityLabel="Delete" label="Delete" onPress={() => {}} role="destructive" systemImage="trash" variant="glass" />
         </View>
       ) : null}
@@ -283,28 +292,30 @@ const InboxThreadRow = memo(function InboxThreadRow({
 const MailboxThreadList = memo(function MailboxThreadList({
   accountsById,
   active,
-  category,
+  mailView,
   emptyMailboxName,
   onListLoad,
   onOpenThread,
   onArchive,
+  onSetPinned,
   onToggleRead,
   onScroll,
   preferences,
-  onSelectCategory,
+  onSelectMailView,
   threads,
 }: {
   accountsById: Map<string, ConnectedAccount>;
   active: boolean;
-  category: MailCategoryFilter;
+  mailView: MailViewFilter;
   emptyMailboxName?: string;
   onListLoad: (event: { elapsedTimeInMs: number }) => void;
   onOpenThread: (thread: MailThreadSummary) => void;
   onArchive: (thread: MailThreadSummary) => void;
+  onSetPinned: (thread: MailThreadSummary, pinned: boolean) => void;
   onToggleRead: (thread: MailThreadSummary) => void;
   onScroll: (event: NativeSyntheticEvent<NativeScrollEvent>) => void;
   preferences: MailPreferences;
-  onSelectCategory: (category: MailCategoryFilter) => void;
+  onSelectMailView: (mailView: MailViewFilter) => void;
   threads: MailThreadSummary[];
 }) {
   const renderThread = useCallback(
@@ -316,10 +327,11 @@ const MailboxThreadList = memo(function MailboxThreadList({
         thread={item}
         onPress={onOpenThread}
         onArchive={onArchive}
+        onSetPinned={onSetPinned}
         onToggleRead={onToggleRead}
       />
     ),
-    [accountsById, onArchive, onOpenThread, onToggleRead, preferences],
+    [accountsById, onArchive, onOpenThread, onSetPinned, onToggleRead, preferences],
   );
 
   return (
@@ -332,7 +344,7 @@ const MailboxThreadList = memo(function MailboxThreadList({
       <LegendList
         ListEmptyComponent={<EmptyMailboxState mailboxName={emptyMailboxName} />}
         ListHeaderComponent={(
-          <MailCategoryTabs selection={category} onSelect={onSelectCategory} />
+          <MailCategoryTabs selection={mailView} onSelect={onSelectMailView} />
         )}
         contentContainerStyle={styles.listContent}
         contentInsetAdjustmentBehavior="automatic"
@@ -374,7 +386,7 @@ export default function App() {
     loadMailPreferences,
   );
   const [mailboxView, setMailboxView] = useState<MailboxView>({ kind: 'all' });
-  const [mailCategory, setMailCategory] = useState<MailCategoryFilter>('inbox');
+  const [mailView, setMailView] = useState<MailViewFilter>('inbox');
   const [loadingAccounts, setLoadingAccounts] = useState(true);
   const [connectError, setConnectError] = useState<string>();
   const [avatarData, setAvatarData] = useState<Record<string, string>>({});
@@ -396,6 +408,7 @@ export default function App() {
   const [detailError, setDetailError] = useState<string>();
   const [readStateActionKey, setReadStateActionKey] = useState<string>();
   const [archiveActionKey, setArchiveActionKey] = useState<string>();
+  const [pinActionKey, setPinActionKey] = useState<string>();
   const listPerformanceLoggedRef = useRef(false);
   const scrollPerformanceRef = useRef<ScrollPerformanceState>({
     intervals: [],
@@ -840,6 +853,37 @@ export default function App() {
     }
   }, [archiveActionKey, loadAllDownloadedMail, refreshGatekeeper]);
 
+  const setThreadPinned = useCallback(async (
+    thread: MailThreadSummary,
+    pinned: boolean,
+  ) => {
+    const actionKey = `${thread.accountId}:${thread.threadId}`;
+    if (pinActionKey === actionKey) return;
+    const updateVisibleState = (nextPinned: boolean) => {
+      setDownloadedThreads((current) => current?.map((item) =>
+        item.accountId === thread.accountId && item.threadId === thread.threadId
+          ? { ...item, pinned: nextPinned }
+          : item
+      ));
+      setSelectedThread((current) =>
+        current?.accountId === thread.accountId && current.threadId === thread.threadId
+          ? { ...current, pinned: nextPinned }
+          : current
+      );
+    };
+
+    setPinActionKey(actionKey);
+    updateVisibleState(pinned);
+    try {
+      await setDownloadedThreadPinnedState(thread.accountId, thread.threadId, pinned);
+    } catch (error) {
+      updateVisibleState(thread.pinned);
+      Alert.alert('Could not update pin', messageFor(error));
+    } finally {
+      setPinActionKey((current) => current === actionKey ? undefined : current);
+    }
+  }, [pinActionKey]);
+
   const accountSegments = useMemo<ToolbarSegment[]>(() => [
     { id: 'all', label: 'All inboxes', systemImage: 'tray.full' },
     ...accounts.map((account) => ({
@@ -931,9 +975,10 @@ export default function App() {
         {
           id: 'message-pin',
           kind: 'button' as const,
-          label: 'Pin',
-          systemImage: 'pin',
-          toolTip: 'Pin conversation',
+          label: selectedThread.pinned ? 'Unpin' : 'Pin',
+          systemImage: selectedThread.pinned ? 'pin.slash' : 'pin',
+          toolTip: selectedThread.pinned ? 'Unpin conversation' : 'Pin conversation',
+          enabled: pinActionKey !== `${selectedThread.accountId}:${selectedThread.threadId}`,
           immovable: true,
         },
         {
@@ -1043,32 +1088,33 @@ export default function App() {
     selectedAccountIndex,
     selectedThread,
     archiveActionKey,
+    pinActionKey,
     readStateActionKey,
     surface,
     syncingInbox,
     syncStatusLabel,
   ]);
 
-  const categoryThreads = useMemo(
-    () => mailCategory === 'inbox'
+  const visibleThreads = useMemo(
+    () => mailView === 'inbox'
       ? downloadedThreads ?? []
-      : (downloadedThreads ?? []).filter((thread) => thread.category === mailCategory),
-    [downloadedThreads, mailCategory],
+      : (downloadedThreads ?? []).filter((thread) => thread.pinned),
+    [downloadedThreads, mailView],
   );
   const mailboxLists = useMemo(() => [
     {
       key: 'all',
       mailboxName: undefined,
-      threads: categoryThreads,
+      threads: visibleThreads,
     },
     ...accounts.map((account) => ({
       key: `account:${account.id}`,
       mailboxName: account.email,
-      threads: categoryThreads.filter(
+      threads: visibleThreads.filter(
         (thread) => thread.accountId === account.id,
       ),
     })),
-  ], [accounts, categoryThreads]);
+  ], [accounts, visibleThreads]);
   const activeMailboxKey = mailboxView.kind === 'all'
     ? 'all'
     : `account:${mailboxView.accountId}`;
@@ -1187,15 +1233,16 @@ export default function App() {
           key={activeList.key}
           accountsById={accountsById}
           active
-          category={mailCategory}
+          mailView={mailView}
           emptyMailboxName={activeList.mailboxName}
           onListLoad={handleListLoad}
           onOpenThread={setSelectedThread}
           onArchive={(thread) => void archiveThread(thread)}
+          onSetPinned={(thread, pinned) => void setThreadPinned(thread, pinned)}
           onToggleRead={(thread) => void changeThreadReadState(thread)}
           onScroll={handleScroll}
           preferences={preferences}
-          onSelectCategory={setMailCategory}
+          onSelectMailView={setMailView}
           threads={activeList.threads}
         />
       </View>
@@ -1214,8 +1261,9 @@ export default function App() {
     loadingAccounts,
     mailboxLists,
     mailLoadError,
-    mailCategory,
+    mailView,
     preferences,
+    setThreadPinned,
   ]);
 
   return (
@@ -1247,6 +1295,9 @@ export default function App() {
           }
           else if (nativeEvent.id === 'message-archive' && selectedThread) {
             void archiveThread(selectedThread);
+          }
+          else if (nativeEvent.id === 'message-pin' && selectedThread) {
+            void setThreadPinned(selectedThread, !selectedThread.pinned);
           }
           else if (nativeEvent.id === 'connect-account') void connectAccount();
           else if (nativeEvent.id === 'gatekeeper') {

@@ -218,6 +218,7 @@ function toSummary(accountId: string, thread: GmailThread): MailThreadSummary {
     snippet: latest?.snippet ?? '',
     receivedAt: Number(latest?.internalDate ?? 0),
     unread: messages.some((message) => message.labelIds?.includes('UNREAD')),
+    pinned: false,
     messageCount: messages.length,
     category: mailCategoryForLabels(latest?.labelIds ?? []),
   };

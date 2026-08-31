@@ -26,6 +26,7 @@ export async function loadDownloadedThreads(): Promise<MailThreadSummary[]> {
         snippet: mailThreads.snippet,
         lastMessageAt: mailThreads.lastMessageAt,
         unread: mailThreads.unread,
+        pinned: mailThreads.pinned,
         messageCount: mailThreads.messageCount,
       })
       .from(mailThreads)
@@ -81,6 +82,7 @@ export async function loadDownloadedThreads(): Promise<MailThreadSummary[]> {
       snippet: row.snippet,
       receivedAt: row.lastMessageAt,
       unread: row.unread,
+      pinned: row.pinned,
       messageCount: row.messageCount,
       category: categoryByThreadId.get(row.id) ?? 'primary',
     }));
@@ -204,6 +206,24 @@ export async function setDownloadedThreadReadState(
         .run();
     }
   });
+}
+
+export async function setDownloadedThreadPinnedState(
+  accountId: string,
+  providerThreadId: string,
+  pinned: boolean,
+): Promise<void> {
+  const result = await db
+    .update(mailThreads)
+    .set({ pinned, updatedAt: Date.now() })
+    .where(and(
+      eq(mailThreads.accountId, accountId),
+      eq(mailThreads.providerThreadId, providerThreadId),
+    ))
+    .run();
+  if (result.changes === 0) {
+    throw new Error('This downloaded conversation is no longer available.');
+  }
 }
 
 export async function removeDownloadedInboxThread(

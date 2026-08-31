@@ -1,11 +1,11 @@
 import { Picker } from '@expo/ui/jetpack-compose';
 
-import type { MailCategoryFilter } from '../mail/types';
+import type { MailViewFilter } from '../mail/types';
 import { mailCategoryTabs } from './mail-category-tab-data';
 
 type MailCategoryTabsProps = {
-  selection: MailCategoryFilter;
-  onSelect: (category: MailCategoryFilter) => void;
+  selection: MailViewFilter;
+  onSelect: (category: MailViewFilter) => void;
 };
 
 export function MailCategoryTabs({ selection, onSelect }: MailCategoryTabsProps) {
@@ -13,7 +13,7 @@ export function MailCategoryTabs({ selection, onSelect }: MailCategoryTabsProps)
 
   return (
     <Picker
-      style={{ width: 560, height: 48 }}
+      style={{ width: 220, height: 48 }}
       options={mailCategoryTabs.map((tab) => tab.label)}
       selectedIndex={selectedIndex}
       variant="segmented"

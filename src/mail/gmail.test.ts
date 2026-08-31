@@ -22,6 +22,7 @@ function summary(accountId: string, threadId: string, receivedAt: number): MailT
     snippet: '',
     receivedAt,
     unread: false,
+    pinned: false,
     messageCount: 1,
     category: 'primary',
   };

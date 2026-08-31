@@ -14,7 +14,7 @@ export type MailboxView =
   | { kind: 'account'; accountId: string };
 
 export type MailCategory = 'primary' | 'promotions' | 'updates' | 'social' | 'forums';
-export type MailCategoryFilter = 'inbox' | MailCategory;
+export type MailViewFilter = 'inbox' | 'pinned';
 
 export type MailThreadSummary = {
   provider: MailProvider;
@@ -25,6 +25,7 @@ export type MailThreadSummary = {
   snippet: string;
   receivedAt: number;
   unread: boolean;
+  pinned: boolean;
   messageCount: number;
   category: MailCategory;
 };
