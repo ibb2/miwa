@@ -21,6 +21,7 @@ import {
 } from './modules/native-window-toolbar/src';
 import { clearLocalDatabase } from './src/db/clear-database';
 import { EmptyMailboxState } from './src/components/empty-mailbox-state';
+import { MailCategoryTabs } from './src/components/mail-category-tabs';
 import { GatekeeperView } from './src/components/gatekeeper-view';
 import { SettingsView } from './src/components/settings-view';
 import { gmailAccountAuth } from './src/mail/account-auth';
@@ -46,6 +47,7 @@ import {
 import type {
   ConnectedAccount,
   MailboxView,
+  MailCategoryFilter,
   MailThreadDetail,
   MailThreadSummary,
 } from './src/mail/types';
@@ -200,21 +202,25 @@ const InboxThreadRow = memo(function InboxThreadRow({
 const MailboxThreadList = memo(function MailboxThreadList({
   accountsById,
   active,
+  category,
   emptyMailboxName,
   onListLoad,
   onOpenThread,
   onScroll,
   preferences,
+  onSelectCategory,
   showAccount,
   threads,
 }: {
   accountsById: Map<string, ConnectedAccount>;
   active: boolean;
+  category: MailCategoryFilter;
   emptyMailboxName?: string;
   onListLoad: (event: { elapsedTimeInMs: number }) => void;
   onOpenThread: (thread: MailThreadSummary) => void;
   onScroll: (event: NativeSyntheticEvent<NativeScrollEvent>) => void;
   preferences: MailPreferences;
+  onSelectCategory: (category: MailCategoryFilter) => void;
   showAccount: boolean;
   threads: MailThreadSummary[];
 }) {
@@ -241,6 +247,9 @@ const MailboxThreadList = memo(function MailboxThreadList({
     >
       <LegendList
         ListEmptyComponent={<EmptyMailboxState mailboxName={emptyMailboxName} />}
+        ListHeaderComponent={(
+          <MailCategoryTabs selection={category} onSelect={onSelectCategory} />
+        )}
         contentContainerStyle={styles.listContent}
         contentInsetAdjustmentBehavior="automatic"
         data={threads}
@@ -281,6 +290,7 @@ export default function App() {
     loadMailPreferences,
   );
   const [mailboxView, setMailboxView] = useState<MailboxView>({ kind: 'all' });
+  const [mailCategory, setMailCategory] = useState<MailCategoryFilter>('inbox');
   const [loadingAccounts, setLoadingAccounts] = useState(true);
   const [connectError, setConnectError] = useState<string>();
   const [avatarData, setAvatarData] = useState<Record<string, string>>({});
@@ -811,22 +821,28 @@ export default function App() {
     syncStatusLabel,
   ]);
 
+  const categoryThreads = useMemo(
+    () => mailCategory === 'inbox'
+      ? downloadedThreads ?? []
+      : (downloadedThreads ?? []).filter((thread) => thread.category === mailCategory),
+    [downloadedThreads, mailCategory],
+  );
   const mailboxLists = useMemo(() => [
     {
       key: 'all',
       mailboxName: undefined,
       showAccount: true,
-      threads: downloadedThreads ?? [],
+      threads: categoryThreads,
     },
     ...accounts.map((account) => ({
       key: `account:${account.id}`,
       mailboxName: account.email,
       showAccount: false,
-      threads: (downloadedThreads ?? []).filter(
+      threads: categoryThreads.filter(
         (thread) => thread.accountId === account.id,
       ),
     })),
-  ], [accounts, downloadedThreads]);
+  ], [accounts, categoryThreads]);
   const activeMailboxKey = mailboxView.kind === 'all'
     ? 'all'
     : `account:${mailboxView.accountId}`;
@@ -945,11 +961,13 @@ export default function App() {
           key={activeList.key}
           accountsById={accountsById}
           active
+          category={mailCategory}
           emptyMailboxName={activeList.mailboxName}
           onListLoad={handleListLoad}
           onOpenThread={setSelectedThread}
           onScroll={handleScroll}
           preferences={preferences}
+          onSelectCategory={setMailCategory}
           showAccount={activeList.showAccount}
           threads={activeList.threads}
         />
@@ -968,6 +986,7 @@ export default function App() {
     loadingAccounts,
     mailboxLists,
     mailLoadError,
+    mailCategory,
     preferences,
   ]);
 

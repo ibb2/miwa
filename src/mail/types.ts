@@ -13,6 +13,9 @@ export type MailboxView =
   | { kind: 'all' }
   | { kind: 'account'; accountId: string };
 
+export type MailCategory = 'primary' | 'promotions' | 'updates' | 'social' | 'forums';
+export type MailCategoryFilter = 'inbox' | MailCategory;
+
 export type MailThreadSummary = {
   provider: MailProvider;
   accountId: string;
@@ -23,6 +26,7 @@ export type MailThreadSummary = {
   receivedAt: number;
   unread: boolean;
   messageCount: number;
+  category: MailCategory;
 };
 
 export type MailAttachment = {

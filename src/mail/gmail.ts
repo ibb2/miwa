@@ -1,4 +1,5 @@
 import { gmailAccountAuth } from './account-auth';
+import { mailCategoryForLabels } from './mail-category';
 import {
   compareThreads,
   extractMailBody,
@@ -157,6 +158,7 @@ function toSummary(accountId: string, thread: GmailThread): MailThreadSummary {
     receivedAt: Number(latest?.internalDate ?? 0),
     unread: messages.some((message) => message.labelIds?.includes('UNREAD')),
     messageCount: messages.length,
+    category: mailCategoryForLabels(latest?.labelIds ?? []),
   };
 }
 

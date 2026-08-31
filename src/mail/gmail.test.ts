@@ -21,6 +21,7 @@ function summary(accountId: string, threadId: string, receivedAt: number): MailT
     receivedAt,
     unread: false,
     messageCount: 1,
+    category: 'primary',
   };
 }
 

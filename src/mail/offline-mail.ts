@@ -12,9 +12,10 @@ import type {
   MailThreadDetail,
   MailThreadSummary,
 } from './types';
+import { mailCategoryForLabels } from './mail-category';
 
 export async function loadDownloadedThreads(): Promise<MailThreadSummary[]> {
-  const [rows, blockedMessageRows] = await Promise.all([
+  const [rows, messageLabelRows, blockedMessageRows] = await Promise.all([
     db
       .select({
         id: mailThreads.id,
@@ -30,6 +31,14 @@ export async function loadDownloadedThreads(): Promise<MailThreadSummary[]> {
       .from(mailThreads)
       .where(eq(mailThreads.fullyDownloaded, true))
       .orderBy(desc(mailThreads.lastMessageAt), desc(mailThreads.id)),
+    db
+      .select({
+        threadId: mailMessages.threadId,
+        labelIds: mailMessages.labelIds,
+        sentAt: mailMessages.sentAt,
+      })
+      .from(mailMessages)
+      .orderBy(desc(mailMessages.sentAt)),
     db
       .select({
         threadId: mailMessages.threadId,
@@ -54,6 +63,12 @@ export async function loadDownloadedThreads(): Promise<MailThreadSummary[]> {
       .filter((message) => message.labelIds.includes('INBOX'))
       .map((message) => message.threadId),
   );
+  const categoryByThreadId = new Map<string, MailThreadSummary['category']>();
+  for (const message of messageLabelRows) {
+    if (!categoryByThreadId.has(message.threadId)) {
+      categoryByThreadId.set(message.threadId, mailCategoryForLabels(message.labelIds));
+    }
+  }
 
   return rows
     .filter((row) => !blockedThreadIds.has(row.id))
@@ -67,6 +82,7 @@ export async function loadDownloadedThreads(): Promise<MailThreadSummary[]> {
       receivedAt: row.lastMessageAt,
       unread: row.unread,
       messageCount: row.messageCount,
+      category: categoryByThreadId.get(row.id) ?? 'primary',
     }));
 }
 
