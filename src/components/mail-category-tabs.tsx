@@ -1,4 +1,4 @@
-import { ScrollView, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Host, Picker } from '@expo/ui/swift-ui';
 
 import type { MailCategoryFilter } from '../mail/types';
 import { mailCategoryTabs } from './mail-category-tab-data';
@@ -9,58 +9,20 @@ type MailCategoryTabsProps = {
 };
 
 export function MailCategoryTabs({ selection, onSelect }: MailCategoryTabsProps) {
+  const selectedIndex = mailCategoryTabs.findIndex((tab) => tab.id === selection);
+
   return (
-    <View style={styles.container}>
-      <ScrollView
-        contentContainerStyle={styles.content}
-        horizontal
-        showsHorizontalScrollIndicator={false}
-      >
-        {mailCategoryTabs.map((tab) => {
-          const selected = tab.id === selection;
-          return (
-            <Pressable
-              accessibilityRole="tab"
-              accessibilityState={{ selected }}
-              key={tab.id}
-              onPress={() => onSelect(tab.id)}
-              style={({ pressed }) => [
-                styles.tab,
-                selected && styles.selectedTab,
-                pressed && styles.pressedTab,
-              ]}
-            >
-              <Text style={[styles.fallbackIcon, selected && styles.selectedText]}>
-                {tab.fallbackIcon}
-              </Text>
-              <Text style={[styles.label, selected && styles.selectedText]}>{tab.label}</Text>
-            </Pressable>
-          );
-        })}
-      </ScrollView>
-    </View>
+    <Host style={{ width: 620, height: 42, marginVertical: 10 }}>
+      <Picker
+        label="Mail category"
+        options={mailCategoryTabs.map((tab) => tab.label)}
+        selectedIndex={selectedIndex}
+        variant="segmented"
+        onOptionSelected={({ nativeEvent }) => {
+          const tab = mailCategoryTabs[nativeEvent.index];
+          if (tab) onSelect(tab.id);
+        }}
+      />
+    </Host>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    minHeight: 48,
-    justifyContent: 'center',
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: 'rgba(128, 128, 128, 0.28)',
-  },
-  content: { alignItems: 'center', paddingHorizontal: 20, paddingVertical: 8, gap: 4 },
-  tab: {
-    height: 31,
-    paddingHorizontal: 12,
-    borderRadius: 999,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  selectedTab: { backgroundColor: '#E86E5A' },
-  pressedTab: { opacity: 0.68 },
-  fallbackIcon: { color: '#6B6B70', fontSize: 10, fontWeight: '800' },
-  label: { color: '#54545A', fontSize: 12, fontWeight: '600' },
-  selectedText: { color: '#FFFFFF' },
-});

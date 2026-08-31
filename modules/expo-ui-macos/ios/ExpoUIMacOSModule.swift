@@ -1,5 +1,6 @@
 import AppKit
 import ExpoModulesCore
+import SwiftUI
 
 public final class ExpoUIMacOSModule: Module {
   public func definition() -> ModuleDefinition {
@@ -106,6 +107,26 @@ public final class ExpoUIMacOSModule: Module {
     View(MacOSExpoUIDivider.self) {
       ViewName("DividerView")
     }
+
+    View(MacOSExpoUIPicker.self) {
+      ViewName("PickerView")
+
+      Prop("options") { (view: MacOSExpoUIPicker, options: [String]) in
+        view.options = options
+      }
+
+      Prop("selectedIndex") { (view: MacOSExpoUIPicker, selectedIndex: Int?) in
+        view.selectedIndex = selectedIndex
+      }
+
+      Prop("variant") { (_: MacOSExpoUIPicker, _: String?) in }
+
+      Prop("label") { (view: MacOSExpoUIPicker, label: String?) in
+        view.accessibilityText = label
+      }
+
+      Events("onOptionSelected")
+    }
   }
 }
 
@@ -134,6 +155,130 @@ private final class MacOSExpoUIHost: ExpoView {
     super.mountChildComponentView(childComponentView, index: index)
     childComponentView.autoresizingMask = [.width, .height]
     childComponentView.frame = bounds
+  }
+}
+
+private final class MacOSExpoUIPicker: ExpoView {
+  private let segmentedControl = NSSegmentedControl()
+  private let onOptionSelected = EventDispatcher()
+  private var glassHost: NSView?
+
+  var options: [String] = [] {
+    didSet { updateSegments() }
+  }
+
+  var selectedIndex: Int? {
+    didSet {
+      let index = selectedIndex ?? -1
+      if segmentedControl.selectedSegment != index {
+        segmentedControl.selectedSegment = index
+      }
+      updateGlassContent()
+    }
+  }
+
+  var accessibilityText: String? {
+    didSet { segmentedControl.setAccessibilityLabel(accessibilityText) }
+  }
+
+  required init(appContext: AppContext? = nil) {
+    super.init(appContext: appContext)
+    segmentedControl.segmentStyle = .automatic
+    segmentedControl.trackingMode = .selectOne
+    segmentedControl.controlSize = .small
+    segmentedControl.target = self
+    segmentedControl.action = #selector(selectionChanged)
+    segmentedControl.autoresizingMask = [.width, .height]
+    if #available(macOS 26.0, *) {
+      let host = NSHostingView(rootView: glassContent)
+      host.autoresizingMask = [.width, .height]
+      addSubview(host)
+      glassHost = host
+    } else {
+      addSubview(segmentedControl)
+    }
+  }
+
+  override func layoutSubviews() {
+    super.layoutSubviews()
+    glassHost?.frame = bounds
+    segmentedControl.frame = bounds
+  }
+
+  private func updateSegments() {
+    segmentedControl.segmentCount = options.count
+    for (index, option) in options.enumerated() {
+      segmentedControl.setLabel(option, forSegment: index)
+    }
+    segmentedControl.selectedSegment = selectedIndex ?? -1
+    updateGlassContent()
+  }
+
+  @objc private func selectionChanged() {
+    let index = segmentedControl.selectedSegment
+    guard options.indices.contains(index) else { return }
+    onOptionSelected([
+      "index": index,
+      "label": options[index]
+    ])
+  }
+
+  private func selectGlassOption(_ index: Int) {
+    guard options.indices.contains(index) else { return }
+    selectedIndex = index
+    onOptionSelected([
+      "index": index,
+      "label": options[index]
+    ])
+  }
+
+  @available(macOS 26.0, *)
+  private var glassContent: MacOSGlassPickerContent {
+    MacOSGlassPickerContent(
+      options: options,
+      selectedIndex: selectedIndex ?? -1,
+      onSelect: { [weak self] index in self?.selectGlassOption(index) }
+    )
+  }
+
+  private func updateGlassContent() {
+    guard #available(macOS 26.0, *),
+          let host = glassHost as? NSHostingView<MacOSGlassPickerContent> else {
+      return
+    }
+    host.rootView = glassContent
+  }
+}
+
+@available(macOS 26.0, *)
+private struct MacOSGlassPickerContent: View {
+  let options: [String]
+  let selectedIndex: Int
+  let onSelect: (Int) -> Void
+
+  var body: some View {
+    HStack(spacing: 6) {
+      ForEach(Array(options.enumerated()), id: \.offset) { index, option in
+        if index == selectedIndex {
+          Button(action: { onSelect(index) }) {
+            Text(option)
+              .padding(.horizontal, 10)
+              .padding(.vertical, 4)
+          }
+            .buttonStyle(.glassProminent)
+            .buttonBorderShape(.capsule)
+        } else {
+          Button(action: { onSelect(index) }) {
+            Text(option)
+              .padding(.horizontal, 10)
+              .padding(.vertical, 4)
+          }
+            .buttonStyle(.plain)
+        }
+      }
+    }
+    .padding(.horizontal, 6)
+    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
   }
 }
 
