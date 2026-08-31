@@ -205,3 +205,15 @@ export async function setDownloadedThreadReadState(
     }
   });
 }
+
+export async function removeDownloadedInboxThread(
+  accountId: string,
+  providerThreadId: string,
+): Promise<void> {
+  await db
+    .delete(mailThreads)
+    .where(and(
+      eq(mailThreads.accountId, accountId),
+      eq(mailThreads.providerThreadId, providerThreadId),
+    ));
+}

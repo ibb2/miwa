@@ -4,6 +4,7 @@ import {
   decodeBase64Url,
   decodeBase64UrlBytes,
   extractMailBody,
+  gmailThreadArchiveModification,
   gmailThreadReadStateModification,
   mergeAccountThreads,
   mergeThreadSummaries,
@@ -27,6 +28,10 @@ function summary(accountId: string, threadId: string, receivedAt: number): MailT
 }
 
 describe('Gmail mail utilities', () => {
+  test('maps archive to removal of the Gmail INBOX label', () => {
+    expect(gmailThreadArchiveModification()).toEqual({ removeLabelIds: ['INBOX'] });
+  });
+
   test('maps read state to Gmail UNREAD label mutations', () => {
     expect(gmailThreadReadStateModification(true)).toEqual({ addLabelIds: ['UNREAD'] });
     expect(gmailThreadReadStateModification(false)).toEqual({ removeLabelIds: ['UNREAD'] });

@@ -3,6 +3,7 @@ import { mailCategoryForLabels } from './mail-category';
 import {
   compareThreads,
   extractMailBody,
+  gmailThreadArchiveModification,
   gmailThreadReadStateModification,
   sanitizeEmailHtml,
   stripHtml,
@@ -154,11 +155,10 @@ export async function gmailGet<T>(
   return JSON.parse(response.text) as T;
 }
 
-/** Updates the UNREAD label for every message in a Gmail thread. */
-export async function setGmailThreadReadState(
+async function modifyGmailThread(
   accountId: string,
   threadId: string,
-  unread: boolean,
+  modification: { addLabelIds?: string[]; removeLabelIds?: string[] },
   attempt = 0,
   forceRefresh = false,
 ): Promise<void> {
@@ -170,20 +170,34 @@ export async function setGmailThreadReadState(
       token.accessToken,
       undefined,
       'POST',
-      JSON.stringify(gmailThreadReadStateModification(unread)),
+      JSON.stringify(modification),
     );
   } catch {
     throw new GmailApiError('Unable to reach Gmail. Check your connection.', 0);
   }
 
   if (response.status === 401 && !forceRefresh) {
-    return setGmailThreadReadState(accountId, threadId, unread, attempt, true);
+    return modifyGmailThread(accountId, threadId, modification, attempt, true);
   }
   if (TRANSIENT_STATUSES.has(response.status) && attempt < 2) {
     await wait(400 * 2 ** attempt);
-    return setGmailThreadReadState(accountId, threadId, unread, attempt + 1, forceRefresh);
+    return modifyGmailThread(accountId, threadId, modification, attempt + 1, forceRefresh);
   }
   if (response.status < 200 || response.status >= 300) throw gmailError(response);
+}
+
+/** Updates the UNREAD label for every message in a Gmail thread. */
+export function setGmailThreadReadState(
+  accountId: string,
+  threadId: string,
+  unread: boolean,
+): Promise<void> {
+  return modifyGmailThread(accountId, threadId, gmailThreadReadStateModification(unread));
+}
+
+/** Removes a Gmail thread from the inbox without deleting it. */
+export function archiveGmailThread(accountId: string, threadId: string): Promise<void> {
+  return modifyGmailThread(accountId, threadId, gmailThreadArchiveModification());
 }
 
 function header(headers: GmailHeader[] | undefined, name: string): string {

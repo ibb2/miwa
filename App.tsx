@@ -27,7 +27,7 @@ import { NativeSymbol } from './src/components/native-symbol';
 import { GatekeeperView } from './src/components/gatekeeper-view';
 import { SettingsView } from './src/components/settings-view';
 import { gmailAccountAuth } from './src/mail/account-auth';
-import { GmailApiError, setGmailThreadReadState } from './src/mail/gmail';
+import { archiveGmailThread, GmailApiError, setGmailThreadReadState } from './src/mail/gmail';
 import {
   loadGatekeeperOverview,
   setGatekeeperSenderStatus,
@@ -46,6 +46,7 @@ import {
 import {
   loadDownloadedThreadDetail,
   loadDownloadedThreads,
+  removeDownloadedInboxThread,
   setDownloadedThreadReadState,
 } from './src/mail/offline-mail';
 import type {
@@ -182,6 +183,7 @@ const InboxThreadRow = memo(function InboxThreadRow({
   showPreview,
   thread,
   onPress,
+  onArchive,
   onToggleRead,
 }: {
   account?: ConnectedAccount;
@@ -189,6 +191,7 @@ const InboxThreadRow = memo(function InboxThreadRow({
   showPreview: boolean;
   thread: MailThreadSummary;
   onPress: (thread: MailThreadSummary) => void;
+  onArchive: (thread: MailThreadSummary) => void;
   onToggleRead: (thread: MailThreadSummary) => void;
 }) {
   const [hovered, setHovered] = useState(false);
@@ -268,7 +271,7 @@ const InboxThreadRow = memo(function InboxThreadRow({
             systemImage={thread.unread ? 'envelope.badge' : 'envelope.open'}
             variant="glass"
           />
-          <NativeActionButton accessibilityLabel="Archive" label="Archive" onPress={() => {}} systemImage="archivebox" variant="glass" />
+          <NativeActionButton accessibilityLabel="Archive" label="Archive" onPress={() => onArchive(thread)} systemImage="archivebox" variant="glass" />
           <NativeActionButton accessibilityLabel="Pin" label="Pin" onPress={() => {}} systemImage="pin" variant="glass" />
           <NativeActionButton accessibilityLabel="Delete" label="Delete" onPress={() => {}} role="destructive" systemImage="trash" variant="glass" />
         </View>
@@ -284,6 +287,7 @@ const MailboxThreadList = memo(function MailboxThreadList({
   emptyMailboxName,
   onListLoad,
   onOpenThread,
+  onArchive,
   onToggleRead,
   onScroll,
   preferences,
@@ -296,6 +300,7 @@ const MailboxThreadList = memo(function MailboxThreadList({
   emptyMailboxName?: string;
   onListLoad: (event: { elapsedTimeInMs: number }) => void;
   onOpenThread: (thread: MailThreadSummary) => void;
+  onArchive: (thread: MailThreadSummary) => void;
   onToggleRead: (thread: MailThreadSummary) => void;
   onScroll: (event: NativeSyntheticEvent<NativeScrollEvent>) => void;
   preferences: MailPreferences;
@@ -310,10 +315,11 @@ const MailboxThreadList = memo(function MailboxThreadList({
         showPreview={preferences.showPreviews}
         thread={item}
         onPress={onOpenThread}
+        onArchive={onArchive}
         onToggleRead={onToggleRead}
       />
     ),
-    [accountsById, onOpenThread, onToggleRead, preferences],
+    [accountsById, onArchive, onOpenThread, onToggleRead, preferences],
   );
 
   return (
@@ -389,6 +395,7 @@ export default function App() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string>();
   const [readStateActionKey, setReadStateActionKey] = useState<string>();
+  const [archiveActionKey, setArchiveActionKey] = useState<string>();
   const listPerformanceLoggedRef = useRef(false);
   const scrollPerformanceRef = useRef<ScrollPerformanceState>({
     intervals: [],
@@ -799,6 +806,40 @@ export default function App() {
     }
   }, [readStateActionKey]);
 
+  const archiveThread = useCallback(async (thread: MailThreadSummary) => {
+    const actionKey = `${thread.accountId}:${thread.threadId}`;
+    if (archiveActionKey === actionKey) return;
+
+    setArchiveActionKey(actionKey);
+    setDownloadedThreads((current) => current?.filter((item) =>
+      item.accountId !== thread.accountId || item.threadId !== thread.threadId
+    ));
+
+    let gmailUpdated = false;
+    try {
+      try {
+        await archiveGmailThread(thread.accountId, thread.threadId);
+      } catch (error) {
+        if (!(error instanceof GmailApiError) || !error.requiresReauthentication) throw error;
+        await gmailAccountAuth.reauthorizeAccount(thread.accountId);
+        await archiveGmailThread(thread.accountId, thread.threadId);
+      }
+      gmailUpdated = true;
+      await removeDownloadedInboxThread(thread.accountId, thread.threadId);
+      void refreshGatekeeper(false);
+      reconciliationRef.current?.runNow();
+    } catch (error) {
+      await loadAllDownloadedMail(false);
+      if (gmailUpdated) reconciliationRef.current?.runNow();
+      Alert.alert(
+        gmailUpdated ? 'Gmail archived the conversation, but Miwa could not refresh' : 'Could not archive conversation',
+        messageFor(error),
+      );
+    } finally {
+      setArchiveActionKey((current) => current === actionKey ? undefined : current);
+    }
+  }, [archiveActionKey, loadAllDownloadedMail, refreshGatekeeper]);
+
   const accountSegments = useMemo<ToolbarSegment[]>(() => [
     { id: 'all', label: 'All inboxes', systemImage: 'tray.full' },
     ...accounts.map((account) => ({
@@ -884,6 +925,7 @@ export default function App() {
           label: 'Archive',
           systemImage: 'archivebox',
           toolTip: 'Archive conversation',
+          enabled: archiveActionKey !== `${selectedThread.accountId}:${selectedThread.threadId}`,
           immovable: true,
         },
         {
@@ -1000,6 +1042,7 @@ export default function App() {
     inboxTitle,
     selectedAccountIndex,
     selectedThread,
+    archiveActionKey,
     readStateActionKey,
     surface,
     syncingInbox,
@@ -1148,6 +1191,7 @@ export default function App() {
           emptyMailboxName={activeList.mailboxName}
           onListLoad={handleListLoad}
           onOpenThread={setSelectedThread}
+          onArchive={(thread) => void archiveThread(thread)}
           onToggleRead={(thread) => void changeThreadReadState(thread)}
           onScroll={handleScroll}
           preferences={preferences}
@@ -1160,6 +1204,7 @@ export default function App() {
     accountsById,
     accounts.length,
     activeMailboxKey,
+    archiveThread,
     connectAccount,
     connectError,
     downloadedThreads,
@@ -1199,6 +1244,9 @@ export default function App() {
           }
           else if (nativeEvent.id === 'message-read-toggle' && selectedThread) {
             void changeThreadReadState(selectedThread);
+          }
+          else if (nativeEvent.id === 'message-archive' && selectedThread) {
+            void archiveThread(selectedThread);
           }
           else if (nativeEvent.id === 'connect-account') void connectAccount();
           else if (nativeEvent.id === 'gatekeeper') {

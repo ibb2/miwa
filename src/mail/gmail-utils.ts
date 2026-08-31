@@ -18,6 +18,10 @@ export function gmailThreadReadStateModification(unread: boolean): {
     : { removeLabelIds: ['UNREAD'] };
 }
 
+export function gmailThreadArchiveModification(): { removeLabelIds: string[] } {
+  return { removeLabelIds: ['INBOX'] };
+}
+
 export function decodeBase64UrlBytes(value?: string): Uint8Array {
   if (!value) return new Uint8Array();
   const normalized = value.replace(/-/g, '+').replace(/_/g, '/');
