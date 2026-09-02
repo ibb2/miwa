@@ -1,9 +1,6 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { LegendList, type LegendListRenderItemProps } from '@legendapp/list/react-native';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
-  type NativeScrollEvent,
-  type NativeSyntheticEvent,
   PlatformColor,
   Pressable,
   ScrollView,
@@ -20,11 +17,8 @@ import {
   type ToolbarSegment,
 } from './modules/native-window-toolbar/src';
 import { clearLocalDatabase } from './src/db/clear-database';
-import { EmptyMailboxState } from './src/components/empty-mailbox-state';
-import { NativeActionButton } from './src/components/native-action-button';
-import { NativeSectionLabel } from './src/components/native-section-label';
-import { NativeSymbol } from './src/components/native-symbol';
 import { GatekeeperView } from './src/components/gatekeeper-view';
+import { MailboxThreadList } from './src/components/mailbox-thread-list';
 import { SettingsView } from './src/components/settings-view';
 import { gmailAccountAuth } from './src/mail/account-auth';
 import { archiveGmailThread, GmailApiError, setGmailThreadReadState } from './src/mail/gmail';
@@ -44,12 +38,9 @@ import {
   type InboxReconciliationController,
 } from './src/mail/inbox-reconciliation';
 import {
-  buildInboxSections,
   inboxLayoutMode,
   type InboxLayoutMode,
-  type InboxSection,
   type InboxSectionFocus,
-  type InboxSectionId,
 } from './src/mail/inbox-layout';
 import {
   loadDownloadedThreadDetail,
@@ -88,45 +79,6 @@ function initials(account: ConnectedAccount): string {
     .join('')
     .slice(0, 2)
     .toUpperCase();
-}
-
-const senderAvatarColors = [
-  '#5B7CFA',
-  '#8B5CF6',
-  '#D05B9C',
-  '#E66A4E',
-  '#C58A20',
-  '#3A9B72',
-  '#338BA8',
-] as const;
-
-function senderAvatar(sender: string): {
-  color: string;
-  email: string;
-  initials: string;
-  usesInitials: boolean;
-} {
-  const bracketIndex = sender.lastIndexOf('<');
-  const displayName = bracketIndex > 0
-    ? sender.slice(0, bracketIndex).trim().replace(/^['"]|['"]$/g, '')
-    : '';
-  const identity = bracketIndex >= 0
-    ? sender.slice(bracketIndex + 1).replace(/>.*$/, '').trim().toLowerCase()
-    : sender.trim().toLowerCase();
-  const nameParts = displayName.split(/\s+/).filter(Boolean);
-  const avatarInitials = nameParts.length
-    ? `${nameParts[0][0]}${nameParts.length > 1 ? nameParts.at(-1)![0] : ''}`.toUpperCase()
-    : '@';
-  let hash = 0;
-  for (const character of identity) {
-    hash = ((hash << 5) - hash + character.charCodeAt(0)) | 0;
-  }
-  return {
-    color: senderAvatarColors[Math.abs(hash) % senderAvatarColors.length],
-    email: identity,
-    initials: avatarInitials,
-    usesInitials: nameParts.length > 0,
-  };
 }
 
 type ToolbarDownloadState = {
@@ -180,306 +132,9 @@ function fetchArrayBuffer(url: string): Promise<ArrayBuffer> {
   });
 }
 
-function formatDate(milliseconds: number): string {
-  const date = new Date(milliseconds);
-  const today = new Date();
-  if (date.toDateString() === today.toDateString()) {
-    return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-  }
-  return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
-}
-
-const InboxThreadRow = memo(function InboxThreadRow({
-  account,
-  comfortable,
-  presentation,
-  roundBottom,
-  showPreview,
-  thread,
-  onPress,
-  onArchive,
-  onSetPinned,
-  onToggleRead,
-}: {
-  account?: ConnectedAccount;
-  comfortable: boolean;
-  presentation: InboxSection['presentation'];
-  roundBottom: boolean;
-  showPreview: boolean;
-  thread: MailThreadSummary;
-  onPress: (thread: MailThreadSummary) => void;
-  onArchive: (thread: MailThreadSummary) => void;
-  onSetPinned: (thread: MailThreadSummary, pinned: boolean) => void;
-  onToggleRead: (thread: MailThreadSummary) => void;
-}) {
-  const [hovered, setHovered] = useState(false);
-  const avatar = senderAvatar(thread.sender);
-  const senderImageUri = account?.email.toLowerCase() === avatar.email
-    ? account.avatarUrl
-    : undefined;
-  return (
-    <Pressable
-      accessible={false}
-      onHoverIn={() => setHovered(true)}
-      onHoverOut={() => setHovered(false)}
-      style={[
-        styles.threadRow,
-        presentation === 'plain' && styles.plainThreadRow,
-        comfortable && styles.comfortableThreadRow,
-        roundBottom && styles.lastThreadRow,
-      ]}
-    >
-      <Pressable
-        accessibilityLabel={`${thread.sender}, ${thread.subject}`}
-        accessibilityRole="button"
-        onBlur={() => setHovered(false)}
-        onFocus={() => setHovered(true)}
-        onPress={() => onPress(thread)}
-        style={({ pressed }) => [
-          styles.threadRowPressTarget,
-          pressed && styles.pressed,
-        ]}
-      >
-        <View
-          accessibilityElementsHidden
-          importantForAccessibility="no-hide-descendants"
-          style={[styles.unreadMark, !thread.unread && styles.readMark]}
-        />
-        <NativeSymbol
-          color={avatar.color}
-          fallback={avatar.initials}
-          imageUri={senderImageUri}
-          preferFallback={avatar.usesInitials}
-          systemName="at"
-        />
-        <View style={styles.threadCopy}>
-          <Text
-            numberOfLines={1}
-            selectable
-            style={[styles.threadSender, thread.unread && styles.unreadText]}
-          >
-            {thread.sender}
-          </Text>
-          <Text
-            numberOfLines={1}
-            selectable
-            style={[styles.threadSubject, thread.unread && styles.unreadText]}
-          >
-            {thread.subject || '(No subject)'}
-            {showPreview && thread.snippet ? (
-              <Text style={styles.threadSnippet}>
-                <Text style={styles.snippetDivider}> — </Text>
-                {thread.snippet}
-              </Text>
-            ) : null}
-          </Text>
-        </View>
-        {thread.messageCount > 1 ? (
-          <Text selectable style={styles.messageCount}>{thread.messageCount}</Text>
-        ) : null}
-        <Text selectable style={styles.threadDate}>{formatDate(thread.receivedAt)}</Text>
-      </Pressable>
-      {hovered ? (
-        <View
-          accessibilityLabel={`Actions for ${thread.subject || 'message'}`}
-          style={styles.hoverActions}
-        >
-          <NativeActionButton
-            accessibilityLabel={thread.unread ? 'Mark as read' : 'Mark as unread'}
-            label={thread.unread ? 'Mark as read' : 'Mark as unread'}
-            onPress={() => onToggleRead(thread)}
-            systemImage={thread.unread ? 'envelope.badge' : 'envelope.open'}
-            variant="glass"
-          />
-          <NativeActionButton accessibilityLabel="Archive" label="Archive" onPress={() => onArchive(thread)} systemImage="archivebox" variant="glass" />
-          <NativeActionButton
-            accessibilityLabel={thread.pinned ? 'Unpin' : 'Pin'}
-            label={thread.pinned ? 'Unpin' : 'Pin'}
-            onPress={() => onSetPinned(thread, !thread.pinned)}
-            systemImage={thread.pinned ? 'pin.slash' : 'pin'}
-            variant="glass"
-          />
-          <NativeActionButton accessibilityLabel="Delete" label="Delete" onPress={() => {}} role="destructive" systemImage="trash" variant="glass" />
-        </View>
-      ) : null}
-    </Pressable>
-  );
-});
-
-type InboxListItem =
-  | {
-      kind: 'section';
-      id: string;
-      title: string;
-      systemImage: InboxSection['systemImage'];
-      totalCount: number;
-      presentation: InboxSection['presentation'];
-    }
-  | {
-      kind: 'thread';
-      id: string;
-      thread: MailThreadSummary;
-      presentation: InboxSection['presentation'];
-      roundBottom: boolean;
-    }
-  | {
-      kind: 'sectionFooter';
-      id: string;
-      sectionId: InboxSectionFocus;
-      title: string;
-    };
-
-function sectionFocus(sectionId: InboxSectionId): InboxSectionFocus | undefined {
-  return sectionId === 'inbox' || sectionId === 'seen' ? undefined : sectionId;
-}
-
-const MailboxThreadList = memo(function MailboxThreadList({
-  accountsById,
-  active,
-  focusedSection,
-  layoutMode,
-  emptyMailboxName,
-  onFocusSection,
-  onListLoad,
-  onOpenThread,
-  onArchive,
-  onSetPinned,
-  onToggleRead,
-  onScroll,
-  preferences,
-  threads,
-}: {
-  accountsById: Map<string, ConnectedAccount>;
-  active: boolean;
-  focusedSection?: InboxSectionFocus;
-  layoutMode: InboxLayoutMode;
-  emptyMailboxName?: string;
-  onFocusSection: (section?: InboxSectionFocus) => void;
-  onListLoad: (event: { elapsedTimeInMs: number }) => void;
-  onOpenThread: (thread: MailThreadSummary) => void;
-  onArchive: (thread: MailThreadSummary) => void;
-  onSetPinned: (thread: MailThreadSummary, pinned: boolean) => void;
-  onToggleRead: (thread: MailThreadSummary) => void;
-  onScroll: (event: NativeSyntheticEvent<NativeScrollEvent>) => void;
-  preferences: MailPreferences;
-  threads: MailThreadSummary[];
-}) {
-  const listItems = useMemo<InboxListItem[]>(() => {
-    if (!threads.length) return [];
-
-    return buildInboxSections(threads, layoutMode, focusedSection).flatMap((section) => {
-      const focus = section.expandable ? sectionFocus(section.id) : undefined;
-      const items: InboxListItem[] = [{
-        kind: 'section' as const,
-        id: `section:${section.id}`,
-        title: section.title,
-        systemImage: section.systemImage,
-        totalCount: section.totalCount,
-        presentation: section.presentation,
-      }, ...section.threads.map((thread, index) => ({
-        kind: 'thread' as const,
-        id: `${thread.accountId}:${thread.threadId}`,
-        thread,
-        presentation: section.presentation,
-        roundBottom: section.presentation === 'card'
-          && index === section.threads.length - 1
-          && !focus,
-      }))];
-      if (focus) {
-        items.push({
-          kind: 'sectionFooter',
-          id: `footer:${section.id}`,
-          sectionId: focus,
-          title: section.title,
-        });
-      }
-      return items;
-    });
-  }, [focusedSection, layoutMode, threads]);
-
-  const renderThread = useCallback(
-    ({ item }: LegendListRenderItemProps<InboxListItem>) => {
-      if (item.kind === 'section') {
-        return (
-          <View
-            accessibilityLabel={`${item.title}, ${item.totalCount} emails`}
-            accessibilityRole="header"
-            style={item.presentation === 'plain' ? styles.plainSectionHeader : styles.sectionHeader}
-          >
-            <NativeSectionLabel
-              label={`${item.title}  ${item.totalCount}`}
-              systemImage={item.systemImage}
-            />
-          </View>
-        );
-      }
-      if (item.kind === 'sectionFooter') {
-        return (
-          <View style={styles.sectionFooter}>
-            <NativeActionButton
-              accessibilityLabel={`Show all ${item.title} emails`}
-              label="Show all"
-              onPress={() => onFocusSection(item.sectionId)}
-              variant="plain"
-            />
-          </View>
-        );
-      }
-      return (
-        <InboxThreadRow
-          account={accountsById.get(item.thread.accountId)}
-          comfortable={preferences.comfortableRows}
-          presentation={item.presentation}
-          roundBottom={item.roundBottom}
-          showPreview={preferences.showPreviews}
-          thread={item.thread}
-          onPress={onOpenThread}
-          onArchive={onArchive}
-          onSetPinned={onSetPinned}
-          onToggleRead={onToggleRead}
-        />
-      );
-    },
-    [accountsById, onArchive, onFocusSection, onOpenThread, onSetPinned, onToggleRead, preferences],
-  );
-
-  return (
-    <View
-      accessibilityElementsHidden={!active}
-      importantForAccessibility={active ? 'auto' : 'no-hide-descendants'}
-      pointerEvents={active ? 'auto' : 'none'}
-      style={[styles.mailboxListLayer, !active && styles.inactiveMailboxList]}
-    >
-      <LegendList
-        key={`${layoutMode}:${focusedSection ?? 'root'}`}
-        ListEmptyComponent={<EmptyMailboxState mailboxName={emptyMailboxName} />}
-        contentContainerStyle={styles.listContent}
-        contentInsetAdjustmentBehavior="automatic"
-        data={listItems}
-        estimatedItemSize={preferences.comfortableRows ? 60 : 50}
-        keyExtractor={(item) => item.id}
-        onLoad={onListLoad}
-        onScroll={onScroll}
-        recycleItems={false}
-        renderItem={renderThread}
-        scrollEventThrottle={16}
-        style={styles.scrollView}
-      />
-    </View>
-  );
-});
-
 type MailLoadPerformance = {
   threadCount: number;
   databaseFetchMs: number;
-};
-
-type ScrollPerformanceState = {
-  lastTimestamp?: number;
-  lastOffset?: number;
-  intervals: number[];
-  distance: number;
-  completionTimer?: ReturnType<typeof setTimeout>;
 };
 
 export default function App() {
@@ -518,10 +173,6 @@ export default function App() {
   const [archiveActionKey, setArchiveActionKey] = useState<string>();
   const [pinActionKey, setPinActionKey] = useState<string>();
   const listPerformanceLoggedRef = useRef(false);
-  const scrollPerformanceRef = useRef<ScrollPerformanceState>({
-    intervals: [],
-    distance: 0,
-  });
   const mailboxSelectionFrameRef = useRef<number | null>(null);
   const accountsById = useMemo(
     () => new Map(accounts.map((account) => [account.id, account])),
@@ -1265,52 +916,6 @@ export default function App() {
       ),
     }));
   }, [mailLoadPerformance]);
-  const handleScroll = useCallback((
-    event: NativeSyntheticEvent<NativeScrollEvent>,
-  ) => {
-    if (!__DEV__) return;
-    const timestamp = globalThis.performance.now();
-    const offset = event.nativeEvent.contentOffset.y;
-    const sample = scrollPerformanceRef.current;
-    if (
-      sample.lastTimestamp !== undefined &&
-      timestamp - sample.lastTimestamp < 250
-    ) {
-      sample.intervals.push(timestamp - sample.lastTimestamp);
-    }
-    if (sample.lastOffset !== undefined) {
-      sample.distance += Math.abs(offset - sample.lastOffset);
-    }
-    sample.lastTimestamp = timestamp;
-    sample.lastOffset = offset;
-
-    if (sample.completionTimer) clearTimeout(sample.completionTimer);
-    sample.completionTimer = setTimeout(() => {
-      const completed = scrollPerformanceRef.current;
-      if (completed.intervals.length >= 3) {
-        const sorted = [...completed.intervals].sort((left, right) => left - right);
-        const average = completed.intervals.reduce((total, interval) => total + interval, 0)
-          / completed.intervals.length;
-        const percentileIndex = Math.min(
-          sorted.length - 1,
-          Math.ceil(sorted.length * 0.95) - 1,
-        );
-        console.info('[MiwaPerformance] scroll', JSON.stringify({
-          eventCount: completed.intervals.length + 1,
-          distancePoints: Number(completed.distance.toFixed(1)),
-          averageIntervalMs: Number(average.toFixed(2)),
-          p95IntervalMs: Number(sorted[percentileIndex].toFixed(2)),
-          maxIntervalMs: Number(sorted.at(-1)!.toFixed(2)),
-          intervalsOver20Ms: completed.intervals.filter((interval) => interval > 20).length,
-          estimatedEventFps: Number((1000 / average).toFixed(1)),
-        }));
-      }
-      scrollPerformanceRef.current = {
-        intervals: [],
-        distance: 0,
-      };
-    }, 500);
-  }, []);
   const mainContent = useMemo(() => {
     if (loadingAccounts || downloadedThreads === undefined) {
       return <Text selectable style={styles.stateText}>Loading downloaded mail…</Text>;
@@ -1354,7 +959,6 @@ export default function App() {
         <MailboxThreadList
           key={activeList.key}
           accountsById={accountsById}
-          active
           focusedSection={focusedInboxSection}
           layoutMode={inboxLayout}
           emptyMailboxName={activeList.mailboxName}
@@ -1364,7 +968,6 @@ export default function App() {
           onArchive={(thread) => void archiveThread(thread)}
           onSetPinned={(thread, pinned) => void setThreadPinned(thread, pinned)}
           onToggleRead={(thread) => void changeThreadReadState(thread)}
-          onScroll={handleScroll}
           preferences={preferences}
           threads={activeList.threads}
         />
@@ -1379,7 +982,6 @@ export default function App() {
     connectError,
     downloadedThreads,
     handleListLoad,
-    handleScroll,
     loadAllDownloadedMail,
     loadingAccounts,
     mailboxLists,
@@ -1572,9 +1174,6 @@ export default function App() {
   );
 }
 
-const glassSurface = PlatformColor('controlBackgroundColor');
-const glassBorder = PlatformColor('separatorColor');
-
 const styles = StyleSheet.create({
   appRoot: { flex: 1, backgroundColor: PlatformColor('windowBackgroundColor') },
   nativeToolbarBridge: { position: 'absolute', width: 1, height: 1, opacity: 0 },
@@ -1608,150 +1207,6 @@ const styles = StyleSheet.create({
   scrollView: { flex: 1 },
   mailboxListStack: { flex: 1, position: 'relative' },
   contentLayer: { ...StyleSheet.absoluteFillObject },
-  mailboxListLayer: { ...StyleSheet.absoluteFillObject },
-  inactiveMailboxList: { opacity: 0 },
-  listContent: {
-    width: '100%',
-    maxWidth: 720,
-    alignSelf: 'center',
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 24,
-  },
-  sectionHeader: {
-    width: '100%',
-    minHeight: 34,
-    justifyContent: 'flex-start',
-    paddingHorizontal: 14,
-    paddingTop: 8,
-    marginTop: 10,
-    borderTopLeftRadius: 14,
-    borderTopRightRadius: 14,
-    borderCurve: 'continuous',
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderLeftWidth: StyleSheet.hairlineWidth,
-    borderRightWidth: StyleSheet.hairlineWidth,
-    borderColor: glassBorder,
-    backgroundColor: glassSurface,
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  plainSectionHeader: {
-    width: '100%',
-    minHeight: 32,
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 8,
-    paddingTop: 10,
-    marginTop: 8,
-  },
-  sectionFooter: {
-    width: '100%',
-    minHeight: 36,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 2,
-    borderLeftWidth: StyleSheet.hairlineWidth,
-    borderRightWidth: StyleSheet.hairlineWidth,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderColor: glassBorder,
-    borderBottomLeftRadius: 14,
-    borderBottomRightRadius: 14,
-    borderCurve: 'continuous',
-    backgroundColor: glassSurface,
-    overflow: 'hidden',
-  },
-  threadRow: {
-    width: '100%',
-    minHeight: 50,
-    position: 'relative',
-    borderLeftWidth: StyleSheet.hairlineWidth,
-    borderRightWidth: StyleSheet.hairlineWidth,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderColor: glassBorder,
-    backgroundColor: glassSurface,
-  },
-  plainThreadRow: {
-    borderLeftWidth: 0,
-    borderRightWidth: 0,
-    backgroundColor: 'transparent',
-  },
-  lastThreadRow: {
-    marginBottom: 2,
-    borderBottomLeftRadius: 14,
-    borderBottomRightRadius: 14,
-    borderCurve: 'continuous',
-    overflow: 'hidden',
-  },
-  threadRowPressTarget: {
-    flex: 1,
-    minHeight: 50,
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 10,
-    gap: 8,
-  },
-  hoverActions: {
-    position: 'absolute',
-    top: '50%',
-    right: 6,
-    zIndex: 10,
-    height: 34,
-    transform: [{ translateY: -17 }],
-    paddingHorizontal: 4,
-    borderRadius: 20,
-    borderCurve: 'continuous',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 2,
-  },
-  comfortableThreadRow: { minHeight: 60 },
-  pressed: {
-    backgroundColor: PlatformColor('selectedContentBackgroundColor'),
-  },
-  buttonPressed: { opacity: 0.58 },
-  unreadMark: {
-    width: 3,
-    height: 22,
-    borderRadius: 999,
-    backgroundColor: '#E86E5A',
-  },
-  readMark: { opacity: 0 },
-  threadSender: {
-    color: PlatformColor('labelColor'),
-    fontSize: 11,
-    lineHeight: 15,
-  },
-  threadCopy: {
-    flex: 1,
-    minWidth: 0,
-    justifyContent: 'center',
-  },
-  threadSubject: {
-    color: PlatformColor('labelColor'),
-    fontSize: 12,
-    lineHeight: 16,
-  },
-  threadSnippet: {
-    color: PlatformColor('secondaryLabelColor'),
-    fontSize: 10,
-    fontWeight: '400',
-  },
-  snippetDivider: { color: PlatformColor('tertiaryLabelColor') },
-  threadDate: {
-    width: 58,
-    color: PlatformColor('secondaryLabelColor'),
-    fontSize: 10,
-    fontVariant: ['tabular-nums'],
-    textAlign: 'right',
-  },
-  unreadText: { fontWeight: '700' },
-  messageCount: {
-    color: PlatformColor('secondaryLabelColor'),
-    fontSize: 9,
-    fontVariant: ['tabular-nums'],
-  },
   detailContent: {
     flexGrow: 1,
     width: '100%',
