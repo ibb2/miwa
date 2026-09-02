@@ -1,13 +1,9 @@
-import { PlatformColor, StyleSheet, View } from 'react-native';
+import { Divider, Host } from '@expo/ui/swift-ui';
 
 export function NativeDivider() {
-  return <View style={styles.divider} />;
+  return (
+    <Host style={{ height: 1, marginLeft: 16 }}>
+      <Divider />
+    </Host>
+  );
 }
-
-const styles = StyleSheet.create({
-  divider: {
-    height: StyleSheet.hairlineWidth,
-    backgroundColor: PlatformColor('separatorColor'),
-    marginLeft: 16,
-  },
-});

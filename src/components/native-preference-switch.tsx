@@ -1,4 +1,4 @@
-import { Switch } from 'react-native';
+import { Host, Switch } from '@expo/ui/swift-ui';
 
 export type NativePreferenceSwitchProps = {
   label: string;
@@ -12,10 +12,14 @@ export function NativePreferenceSwitch({
   value,
 }: NativePreferenceSwitchProps) {
   return (
-    <Switch
-      accessibilityLabel={label}
-      onValueChange={onValueChange}
-      value={value}
-    />
+    <Host style={{ width: 44, height: 24 }}>
+      <Switch
+        color="#E86E5A"
+        label={label}
+        onValueChange={onValueChange}
+        value={value}
+        variant="switch"
+      />
+    </Host>
   );
 }

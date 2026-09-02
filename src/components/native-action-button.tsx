@@ -1,13 +1,15 @@
-import { Pressable, StyleSheet, Text } from 'react-native';
+import { Button, Host, type ButtonProps } from '@expo/ui/swift-ui';
+import { accessibilityLabel as accessibilityLabelModifier } from '@expo/ui/swift-ui/modifiers';
+import { View } from 'react-native';
 
 export type NativeActionButtonProps = {
   accessibilityLabel?: string;
   disabled?: boolean;
   label: string;
   onPress: () => void;
-  role?: 'default' | 'destructive';
-  systemImage?: string;
-  variant?: 'bordered' | 'plain' | 'glass' | 'glassProminent';
+  role?: ButtonProps['role'];
+  systemImage?: ButtonProps['systemImage'];
+  variant?: ButtonProps['variant'];
 };
 
 export function NativeActionButton({
@@ -16,54 +18,37 @@ export function NativeActionButton({
   label,
   onPress,
   role = 'default',
-  variant = 'bordered',
+  systemImage,
+  variant = 'glass',
 }: NativeActionButtonProps) {
+  const buttonWidth = systemImage
+    ? 34
+    : Math.max(80, Math.min(184, label.length * 7 + 34));
+
   return (
-    <Pressable
+    <View
+      accessible
       accessibilityLabel={accessibilityLabel ?? label}
       accessibilityRole="button"
-      disabled={disabled}
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.button,
-        variant === 'plain' && styles.plainButton,
-        (variant === 'glass' || variant === 'glassProminent') && styles.glassButton,
-        role === 'destructive' && styles.destructiveButton,
-        disabled && styles.disabled,
-        pressed && styles.pressed,
-      ]}
+      onAccessibilityTap={onPress}
+      style={{ width: buttonWidth, height: 34 }}
     >
-      <Text
-        style={[
-          styles.label,
-          role === 'destructive' && styles.destructiveLabel,
-        ]}
-      >
-        {label}
-      </Text>
-    </Pressable>
+      <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+        <Host style={{ width: buttonWidth, height: 34 }}>
+          <Button
+            color={role === 'destructive' ? 'red' : '#E86E5A'}
+            controlSize="small"
+            disabled={disabled}
+            modifiers={[accessibilityLabelModifier(accessibilityLabel ?? label)]}
+            onPress={onPress}
+            role={role}
+            systemImage={systemImage}
+            variant={variant}
+          >
+            {systemImage ? ' ' : label}
+          </Button>
+        </Host>
+      </View>
+    </View>
   );
 }
-
-const styles = StyleSheet.create({
-  button: {
-    minHeight: 28,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 11,
-    borderRadius: 7,
-    borderCurve: 'continuous',
-    backgroundColor: 'rgba(232, 110, 90, 0.11)',
-  },
-  plainButton: { backgroundColor: 'transparent' },
-  glassButton: {
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(255, 255, 255, 0.46)',
-    backgroundColor: 'rgba(255, 255, 255, 0.22)',
-  },
-  destructiveButton: { backgroundColor: 'rgba(255, 59, 48, 0.09)' },
-  label: { color: '#C95243', fontSize: 11, fontWeight: '600' },
-  destructiveLabel: { color: '#C9342D' },
-  pressed: { opacity: 0.58 },
-  disabled: { opacity: 0.42 },
-});

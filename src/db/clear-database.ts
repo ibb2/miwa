@@ -27,8 +27,9 @@ export function clearLocalDatabase(): void {
         id,
         show_previews,
         comfortable_rows,
-        show_account_labels
-      ) VALUES (1, 1, 0, 1);
+        show_account_labels,
+        inbox_layout
+      ) VALUES (1, 1, 0, 1, 'categorized');
       COMMIT;
     `);
   } catch (error) {

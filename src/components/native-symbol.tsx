@@ -1,26 +1,39 @@
-import { Image, PlatformColor, StyleSheet, Text, View } from 'react-native';
+import { Host, Image as SwiftUIImage, type ImageProps } from '@expo/ui/swift-ui';
+import { Image, StyleSheet, Text, View } from 'react-native';
 
 export type NativeSymbolProps = {
   color?: string;
   fallback: string;
   imageUri?: string;
   preferFallback?: boolean;
-  systemName: string;
+  systemName: ImageProps['systemName'];
 };
 
-export function NativeSymbol({ color = '#E86E5A', fallback, imageUri }: NativeSymbolProps) {
+export function NativeSymbol({
+  color = '#E86E5A',
+  fallback,
+  imageUri,
+  preferFallback = false,
+  systemName,
+}: NativeSymbolProps) {
   if (imageUri) {
-    return <Image accessibilityIgnoresInvertColors source={{ uri: imageUri }} style={styles.image} />;
+    return <Image accessibilityIgnoresInvertColors source={{ uri: imageUri }} style={styles.avatar} />;
   }
   return (
-    <View style={[styles.container, { backgroundColor: color }]}>
-      <Text selectable style={styles.fallback}>{fallback}</Text>
+    <View style={[styles.avatar, { backgroundColor: color }]}>
+      {preferFallback ? (
+        <Text style={styles.initials}>{fallback}</Text>
+      ) : (
+        <Host style={styles.iconHost}>
+          <SwiftUIImage color="white" size={16} systemName={systemName} />
+        </Host>
+      )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  avatar: {
     width: 32,
     height: 32,
     alignItems: 'center',
@@ -29,10 +42,6 @@ const styles = StyleSheet.create({
     borderCurve: 'continuous',
     overflow: 'hidden',
   },
-  fallback: {
-    color: PlatformColor('selectedMenuItemTextColor'),
-    fontSize: 13,
-    fontWeight: '700',
-  },
-  image: { width: 32, height: 32, borderRadius: 16, overflow: 'hidden' },
+  iconHost: { width: 18, height: 18 },
+  initials: { color: '#FFFFFF', fontSize: 12, fontWeight: '700' },
 });

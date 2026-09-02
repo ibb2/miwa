@@ -21,8 +21,8 @@ import {
 } from './modules/native-window-toolbar/src';
 import { clearLocalDatabase } from './src/db/clear-database';
 import { EmptyMailboxState } from './src/components/empty-mailbox-state';
-import { MailCategoryTabs } from './src/components/mail-category-tabs';
 import { NativeActionButton } from './src/components/native-action-button';
+import { NativeSectionLabel } from './src/components/native-section-label';
 import { NativeSymbol } from './src/components/native-symbol';
 import { GatekeeperView } from './src/components/gatekeeper-view';
 import { SettingsView } from './src/components/settings-view';
@@ -44,6 +44,14 @@ import {
   type InboxReconciliationController,
 } from './src/mail/inbox-reconciliation';
 import {
+  buildInboxSections,
+  inboxLayoutMode,
+  type InboxLayoutMode,
+  type InboxSection,
+  type InboxSectionFocus,
+  type InboxSectionId,
+} from './src/mail/inbox-layout';
+import {
   loadDownloadedThreadDetail,
   loadDownloadedThreads,
   removeDownloadedInboxThread,
@@ -53,7 +61,6 @@ import {
 import type {
   ConnectedAccount,
   MailboxView,
-  MailViewFilter,
   MailThreadDetail,
   MailThreadSummary,
 } from './src/mail/types';
@@ -62,6 +69,10 @@ import {
   saveMailPreference,
   type MailPreferences,
 } from './src/settings/mail-preferences';
+import {
+  loadInboxLayoutMode,
+  saveInboxLayoutMode,
+} from './src/settings/inbox-layout-preference';
 
 const appModuleStartedAt = globalThis.performance.now();
 
@@ -181,6 +192,8 @@ function formatDate(milliseconds: number): string {
 const InboxThreadRow = memo(function InboxThreadRow({
   account,
   comfortable,
+  presentation,
+  roundBottom,
   showPreview,
   thread,
   onPress,
@@ -190,6 +203,8 @@ const InboxThreadRow = memo(function InboxThreadRow({
 }: {
   account?: ConnectedAccount;
   comfortable: boolean;
+  presentation: InboxSection['presentation'];
+  roundBottom: boolean;
   showPreview: boolean;
   thread: MailThreadSummary;
   onPress: (thread: MailThreadSummary) => void;
@@ -209,7 +224,9 @@ const InboxThreadRow = memo(function InboxThreadRow({
       onHoverOut={() => setHovered(false)}
       style={[
         styles.threadRow,
+        presentation === 'plain' && styles.plainThreadRow,
         comfortable && styles.comfortableThreadRow,
+        roundBottom && styles.lastThreadRow,
       ]}
     >
       <Pressable
@@ -224,9 +241,9 @@ const InboxThreadRow = memo(function InboxThreadRow({
         ]}
       >
         <View
-        accessibilityElementsHidden
-        importantForAccessibility="no-hide-descendants"
-        style={[styles.unreadMark, !thread.unread && styles.readMark]}
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
+          style={[styles.unreadMark, !thread.unread && styles.readMark]}
         />
         <NativeSymbol
           color={avatar.color}
@@ -235,27 +252,27 @@ const InboxThreadRow = memo(function InboxThreadRow({
           preferFallback={avatar.usesInitials}
           systemName="at"
         />
-        <Text
-          numberOfLines={1}
-          selectable
-          style={[styles.threadSender, thread.unread && styles.unreadText]}
-        >
-          {thread.sender}
-        </Text>
         <View style={styles.threadCopy}>
+          <Text
+            numberOfLines={1}
+            selectable
+            style={[styles.threadSender, thread.unread && styles.unreadText]}
+          >
+            {thread.sender}
+          </Text>
           <Text
             numberOfLines={1}
             selectable
             style={[styles.threadSubject, thread.unread && styles.unreadText]}
           >
             {thread.subject || '(No subject)'}
+            {showPreview && thread.snippet ? (
+              <Text style={styles.threadSnippet}>
+                <Text style={styles.snippetDivider}> — </Text>
+                {thread.snippet}
+              </Text>
+            ) : null}
           </Text>
-          {showPreview && thread.snippet ? (
-            <Text numberOfLines={1} selectable style={styles.threadSnippet}>
-              <Text style={styles.snippetDivider}> — </Text>
-              {thread.snippet}
-            </Text>
-          ) : null}
         </View>
         {thread.messageCount > 1 ? (
           <Text selectable style={styles.messageCount}>{thread.messageCount}</Text>
@@ -289,11 +306,40 @@ const InboxThreadRow = memo(function InboxThreadRow({
   );
 });
 
+type InboxListItem =
+  | {
+      kind: 'section';
+      id: string;
+      title: string;
+      systemImage: InboxSection['systemImage'];
+      totalCount: number;
+      presentation: InboxSection['presentation'];
+    }
+  | {
+      kind: 'thread';
+      id: string;
+      thread: MailThreadSummary;
+      presentation: InboxSection['presentation'];
+      roundBottom: boolean;
+    }
+  | {
+      kind: 'sectionFooter';
+      id: string;
+      sectionId: InboxSectionFocus;
+      title: string;
+    };
+
+function sectionFocus(sectionId: InboxSectionId): InboxSectionFocus | undefined {
+  return sectionId === 'inbox' || sectionId === 'seen' ? undefined : sectionId;
+}
+
 const MailboxThreadList = memo(function MailboxThreadList({
   accountsById,
   active,
-  mailView,
+  focusedSection,
+  layoutMode,
   emptyMailboxName,
+  onFocusSection,
   onListLoad,
   onOpenThread,
   onArchive,
@@ -301,13 +347,14 @@ const MailboxThreadList = memo(function MailboxThreadList({
   onToggleRead,
   onScroll,
   preferences,
-  onSelectMailView,
   threads,
 }: {
   accountsById: Map<string, ConnectedAccount>;
   active: boolean;
-  mailView: MailViewFilter;
+  focusedSection?: InboxSectionFocus;
+  layoutMode: InboxLayoutMode;
   emptyMailboxName?: string;
+  onFocusSection: (section?: InboxSectionFocus) => void;
   onListLoad: (event: { elapsedTimeInMs: number }) => void;
   onOpenThread: (thread: MailThreadSummary) => void;
   onArchive: (thread: MailThreadSummary) => void;
@@ -315,23 +362,85 @@ const MailboxThreadList = memo(function MailboxThreadList({
   onToggleRead: (thread: MailThreadSummary) => void;
   onScroll: (event: NativeSyntheticEvent<NativeScrollEvent>) => void;
   preferences: MailPreferences;
-  onSelectMailView: (mailView: MailViewFilter) => void;
   threads: MailThreadSummary[];
 }) {
+  const listItems = useMemo<InboxListItem[]>(() => {
+    if (!threads.length) return [];
+
+    return buildInboxSections(threads, layoutMode, focusedSection).flatMap((section) => {
+      const focus = section.expandable ? sectionFocus(section.id) : undefined;
+      const items: InboxListItem[] = [{
+        kind: 'section' as const,
+        id: `section:${section.id}`,
+        title: section.title,
+        systemImage: section.systemImage,
+        totalCount: section.totalCount,
+        presentation: section.presentation,
+      }, ...section.threads.map((thread, index) => ({
+        kind: 'thread' as const,
+        id: `${thread.accountId}:${thread.threadId}`,
+        thread,
+        presentation: section.presentation,
+        roundBottom: section.presentation === 'card'
+          && index === section.threads.length - 1
+          && !focus,
+      }))];
+      if (focus) {
+        items.push({
+          kind: 'sectionFooter',
+          id: `footer:${section.id}`,
+          sectionId: focus,
+          title: section.title,
+        });
+      }
+      return items;
+    });
+  }, [focusedSection, layoutMode, threads]);
+
   const renderThread = useCallback(
-    ({ item }: LegendListRenderItemProps<MailThreadSummary>) => (
-      <InboxThreadRow
-        account={accountsById.get(item.accountId)}
-        comfortable={preferences.comfortableRows}
-        showPreview={preferences.showPreviews}
-        thread={item}
-        onPress={onOpenThread}
-        onArchive={onArchive}
-        onSetPinned={onSetPinned}
-        onToggleRead={onToggleRead}
-      />
-    ),
-    [accountsById, onArchive, onOpenThread, onSetPinned, onToggleRead, preferences],
+    ({ item }: LegendListRenderItemProps<InboxListItem>) => {
+      if (item.kind === 'section') {
+        return (
+          <View
+            accessibilityLabel={`${item.title}, ${item.totalCount} emails`}
+            accessibilityRole="header"
+            style={item.presentation === 'plain' ? styles.plainSectionHeader : styles.sectionHeader}
+          >
+            <NativeSectionLabel
+              label={`${item.title}  ${item.totalCount}`}
+              systemImage={item.systemImage}
+            />
+          </View>
+        );
+      }
+      if (item.kind === 'sectionFooter') {
+        return (
+          <View style={styles.sectionFooter}>
+            <NativeActionButton
+              accessibilityLabel={`Show all ${item.title} emails`}
+              label="Show all"
+              onPress={() => onFocusSection(item.sectionId)}
+              variant="plain"
+            />
+          </View>
+        );
+      }
+      return (
+        <InboxThreadRow
+          account={accountsById.get(item.thread.accountId)}
+          comfortable={preferences.comfortableRows}
+          presentation={item.presentation}
+          roundBottom={item.roundBottom}
+          showPreview={preferences.showPreviews}
+          thread={item.thread}
+          onPress={onOpenThread}
+          onArchive={onArchive}
+          onSetPinned={onSetPinned}
+          onToggleRead={onToggleRead}
+        />
+      );
+    },
+    [accountsById, onArchive, onFocusSection, onOpenThread, onSetPinned, onToggleRead, preferences],
   );
 
   return (
@@ -342,18 +451,16 @@ const MailboxThreadList = memo(function MailboxThreadList({
       style={[styles.mailboxListLayer, !active && styles.inactiveMailboxList]}
     >
       <LegendList
+        key={`${layoutMode}:${focusedSection ?? 'root'}`}
         ListEmptyComponent={<EmptyMailboxState mailboxName={emptyMailboxName} />}
-        ListHeaderComponent={(
-          <MailCategoryTabs selection={mailView} onSelect={onSelectMailView} />
-        )}
         contentContainerStyle={styles.listContent}
         contentInsetAdjustmentBehavior="automatic"
-        data={threads}
-        estimatedItemSize={preferences.comfortableRows ? 72 : 60}
-        keyExtractor={(thread) => `${thread.accountId}:${thread.threadId}`}
+        data={listItems}
+        estimatedItemSize={preferences.comfortableRows ? 60 : 50}
+        keyExtractor={(item) => item.id}
         onLoad={onListLoad}
         onScroll={onScroll}
-        recycleItems
+        recycleItems={false}
         renderItem={renderThread}
         scrollEventThrottle={16}
         style={styles.scrollView}
@@ -386,7 +493,8 @@ export default function App() {
     loadMailPreferences,
   );
   const [mailboxView, setMailboxView] = useState<MailboxView>({ kind: 'all' });
-  const [mailView, setMailView] = useState<MailViewFilter>('inbox');
+  const [inboxLayout, setInboxLayout] = useState<InboxLayoutMode>(loadInboxLayoutMode);
+  const [focusedInboxSection, setFocusedInboxSection] = useState<InboxSectionFocus>();
   const [loadingAccounts, setLoadingAccounts] = useState(true);
   const [connectError, setConnectError] = useState<string>();
   const [avatarData, setAvatarData] = useState<Record<string, string>>({});
@@ -738,6 +846,7 @@ export default function App() {
               setDetailError(undefined);
               setMailboxView({ kind: 'all' });
               setPreferences(loadMailPreferences());
+              setInboxLayout(loadInboxLayoutMode());
               setDownloadState(idleDownloadState);
               setSyncStatusLabel('No downloaded mail to sync');
               void refreshGatekeeper();
@@ -928,7 +1037,7 @@ export default function App() {
     : mailboxName ?? 'Inbox';
 
   const toolbarItems = useMemo<NativeToolbarItem[]>(() => [
-    ...(selectedThread || surface !== 'mail'
+    ...(selectedThread || focusedInboxSection || surface !== 'mail'
       ? [{
           id: 'back',
           kind: 'button' as const,
@@ -947,6 +1056,22 @@ export default function App() {
           selectionMode: 'selectOne' as const,
           selectedIndex: selectedAccountIndex,
           segments: accountSegments,
+          immovable: true,
+          navigational: true,
+        }]
+      : []),
+    ...(surface === 'mail' && !selectedThread && !focusedInboxSection
+      ? [{
+          id: 'inbox-layout',
+          kind: 'segmented' as const,
+          label: 'Inbox layout',
+          selectionMode: 'selectOne' as const,
+          selectedIndex: inboxLayout === 'categorized' ? 0 : 1,
+          segments: [
+            { id: 'categorized', label: 'Categorized', systemImage: 'rectangle.grid.1x2' },
+            { id: 'single', label: 'Single card', systemImage: 'rectangle' },
+          ],
+          toolTip: 'Switch inbox layout',
           immovable: true,
           navigational: true,
         }]
@@ -1084,6 +1209,8 @@ export default function App() {
     downloadState,
     downloadStatusLabel,
     gatekeeperOverview?.pending.length,
+    focusedInboxSection,
+    inboxLayout,
     inboxTitle,
     selectedAccountIndex,
     selectedThread,
@@ -1095,26 +1222,20 @@ export default function App() {
     syncStatusLabel,
   ]);
 
-  const visibleThreads = useMemo(
-    () => mailView === 'inbox'
-      ? downloadedThreads ?? []
-      : (downloadedThreads ?? []).filter((thread) => thread.pinned),
-    [downloadedThreads, mailView],
-  );
   const mailboxLists = useMemo(() => [
     {
       key: 'all',
       mailboxName: undefined,
-      threads: visibleThreads,
+      threads: downloadedThreads ?? [],
     },
     ...accounts.map((account) => ({
       key: `account:${account.id}`,
       mailboxName: account.email,
-      threads: visibleThreads.filter(
+      threads: (downloadedThreads ?? []).filter(
         (thread) => thread.accountId === account.id,
       ),
     })),
-  ], [accounts, visibleThreads]);
+  ], [accounts, downloadedThreads]);
   const activeMailboxKey = mailboxView.kind === 'all'
     ? 'all'
     : `account:${mailboxView.accountId}`;
@@ -1125,6 +1246,7 @@ export default function App() {
     mailboxSelectionFrameRef.current = requestAnimationFrame(() => {
       mailboxSelectionFrameRef.current = null;
       setSelectedThread(undefined);
+      setFocusedInboxSection(undefined);
       setSurface('mail');
       setMailboxView(segmentId === 'all'
         ? { kind: 'all' }
@@ -1233,8 +1355,10 @@ export default function App() {
           key={activeList.key}
           accountsById={accountsById}
           active
-          mailView={mailView}
+          focusedSection={focusedInboxSection}
+          layoutMode={inboxLayout}
           emptyMailboxName={activeList.mailboxName}
+          onFocusSection={setFocusedInboxSection}
           onListLoad={handleListLoad}
           onOpenThread={setSelectedThread}
           onArchive={(thread) => void archiveThread(thread)}
@@ -1242,7 +1366,6 @@ export default function App() {
           onToggleRead={(thread) => void changeThreadReadState(thread)}
           onScroll={handleScroll}
           preferences={preferences}
-          onSelectMailView={setMailView}
           threads={activeList.threads}
         />
       </View>
@@ -1261,7 +1384,8 @@ export default function App() {
     loadingAccounts,
     mailboxLists,
     mailLoadError,
-    mailView,
+    focusedInboxSection,
+    inboxLayout,
     preferences,
     setThreadPinned,
   ]);
@@ -1278,7 +1402,9 @@ export default function App() {
               ? 'MiwaGatekeeperToolbar'
             : selectedThread
               ? 'MiwaMessageToolbar'
-              : 'MiwaLeadingInboxToolbar'
+              : focusedInboxSection
+                ? 'MiwaSectionToolbar'
+                : 'MiwaLeadingInboxToolbar'
         }
         items={toolbarItems}
         customizable
@@ -1287,7 +1413,8 @@ export default function App() {
         toolbarStyle="unified"
         onItemPress={({ nativeEvent }) => {
           if (nativeEvent.id === 'back') {
-            setSelectedThread(undefined);
+            if (selectedThread) setSelectedThread(undefined);
+            else if (focusedInboxSection) setFocusedInboxSection(undefined);
             setSurface('mail');
           }
           else if (nativeEvent.id === 'message-read-toggle' && selectedThread) {
@@ -1302,15 +1429,24 @@ export default function App() {
           else if (nativeEvent.id === 'connect-account') void connectAccount();
           else if (nativeEvent.id === 'gatekeeper') {
             setSelectedThread(undefined);
+            setFocusedInboxSection(undefined);
             setSurface('gatekeeper');
           }
           else if (nativeEvent.id === 'settings') {
             setSelectedThread(undefined);
+            setFocusedInboxSection(undefined);
             setSurface('settings');
           }
         }}
         onSegmentChange={({ nativeEvent }) => {
-          selectMailboxSegment(nativeEvent.segmentId);
+          if (nativeEvent.id === 'inbox-layout') {
+            const layout = inboxLayoutMode(nativeEvent.segmentId);
+            setInboxLayout(layout);
+            setFocusedInboxSection(undefined);
+            saveInboxLayoutMode(layout);
+          } else {
+            selectMailboxSegment(nativeEvent.segmentId);
+          }
         }}
         onMenuItemPress={({ nativeEvent }) => {
           if (nativeEvent.optionId === 'customize') void toolbarRef.current?.showCustomizationPalette();
@@ -1323,6 +1459,10 @@ export default function App() {
       />
 
       <View style={styles.mainPane}>
+        <View pointerEvents="none" style={styles.backdrop}>
+          <View style={styles.backdropBlue} />
+          <View style={styles.backdropPink} />
+        </View>
         {surface === 'settings' ? (
           <View style={styles.contentLayer}>
             <SettingsView
@@ -1432,15 +1572,38 @@ export default function App() {
   );
 }
 
+const glassSurface = PlatformColor('controlBackgroundColor');
+const glassBorder = PlatformColor('separatorColor');
+
 const styles = StyleSheet.create({
   appRoot: { flex: 1, backgroundColor: PlatformColor('windowBackgroundColor') },
   nativeToolbarBridge: { position: 'absolute', width: 1, height: 1, opacity: 0 },
   mainPane: {
     flex: 1,
-    minWidth: 420,
     alignItems: 'stretch',
     justifyContent: 'center',
-    backgroundColor: PlatformColor('windowBackgroundColor'),
+    backgroundColor: 'transparent',
+  },
+  backdrop: { ...StyleSheet.absoluteFillObject, overflow: 'hidden' },
+  backdropBlue: {
+    position: 'absolute',
+    left: -140,
+    top: -120,
+    width: 620,
+    height: 520,
+    borderRadius: 260,
+    backgroundColor: 'rgba(96, 167, 255, 0.12)',
+    transform: [{ rotate: '-10deg' }],
+  },
+  backdropPink: {
+    position: 'absolute',
+    left: 360,
+    top: -180,
+    width: 720,
+    height: 680,
+    borderRadius: 340,
+    backgroundColor: 'rgba(255, 116, 177, 0.14)',
+    transform: [{ rotate: '14deg' }],
   },
   scrollView: { flex: 1 },
   mailboxListStack: { flex: 1, position: 'relative' },
@@ -1449,36 +1612,93 @@ const styles = StyleSheet.create({
   inactiveMailboxList: { opacity: 0 },
   listContent: {
     width: '100%',
-    maxWidth: 1180,
+    maxWidth: 720,
     alignSelf: 'center',
-    paddingHorizontal: 20,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 24,
+  },
+  sectionHeader: {
+    width: '100%',
+    minHeight: 34,
+    justifyContent: 'flex-start',
+    paddingHorizontal: 14,
+    paddingTop: 8,
+    marginTop: 10,
+    borderTopLeftRadius: 14,
+    borderTopRightRadius: 14,
+    borderCurve: 'continuous',
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderLeftWidth: StyleSheet.hairlineWidth,
+    borderRightWidth: StyleSheet.hairlineWidth,
+    borderColor: glassBorder,
+    backgroundColor: glassSurface,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  plainSectionHeader: {
+    width: '100%',
+    minHeight: 32,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
     paddingTop: 10,
-    paddingBottom: 22,
+    marginTop: 8,
+  },
+  sectionFooter: {
+    width: '100%',
+    minHeight: 36,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 2,
+    borderLeftWidth: StyleSheet.hairlineWidth,
+    borderRightWidth: StyleSheet.hairlineWidth,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderColor: glassBorder,
+    borderBottomLeftRadius: 14,
+    borderBottomRightRadius: 14,
+    borderCurve: 'continuous',
+    backgroundColor: glassSurface,
+    overflow: 'hidden',
   },
   threadRow: {
     width: '100%',
-    maxWidth: 1140,
-    alignSelf: 'center',
-    minHeight: 60,
+    minHeight: 50,
     position: 'relative',
+    borderLeftWidth: StyleSheet.hairlineWidth,
+    borderRightWidth: StyleSheet.hairlineWidth,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: PlatformColor('separatorColor'),
+    borderColor: glassBorder,
+    backgroundColor: glassSurface,
+  },
+  plainThreadRow: {
+    borderLeftWidth: 0,
+    borderRightWidth: 0,
+    backgroundColor: 'transparent',
+  },
+  lastThreadRow: {
+    marginBottom: 2,
+    borderBottomLeftRadius: 14,
+    borderBottomRightRadius: 14,
+    borderCurve: 'continuous',
+    overflow: 'hidden',
   },
   threadRowPressTarget: {
     flex: 1,
-    minHeight: 60,
+    minHeight: 50,
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 10,
-    gap: 11,
+    gap: 8,
   },
   hoverActions: {
     position: 'absolute',
     top: '50%',
     right: 6,
     zIndex: 10,
-    height: 40,
-    transform: [{ translateY: -20 }],
+    height: 34,
+    transform: [{ translateY: -17 }],
     paddingHorizontal: 4,
     borderRadius: 20,
     borderCurve: 'continuous',
@@ -1486,39 +1706,37 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 2,
   },
-  comfortableThreadRow: { minHeight: 72 },
+  comfortableThreadRow: { minHeight: 60 },
   pressed: {
     backgroundColor: PlatformColor('selectedContentBackgroundColor'),
   },
   buttonPressed: { opacity: 0.58 },
   unreadMark: {
     width: 3,
-    height: 26,
+    height: 22,
     borderRadius: 999,
     backgroundColor: '#E86E5A',
   },
   readMark: { opacity: 0 },
   threadSender: {
-    width: 144,
     color: PlatformColor('labelColor'),
-    fontSize: 12,
+    fontSize: 11,
+    lineHeight: 15,
   },
   threadCopy: {
     flex: 1,
     minWidth: 0,
-    flexDirection: 'row',
-    alignItems: 'baseline',
+    justifyContent: 'center',
   },
   threadSubject: {
-    maxWidth: '52%',
-    flexShrink: 1,
     color: PlatformColor('labelColor'),
     fontSize: 12,
+    lineHeight: 16,
   },
   threadSnippet: {
-    flex: 1,
     color: PlatformColor('secondaryLabelColor'),
-    fontSize: 11,
+    fontSize: 10,
+    fontWeight: '400',
   },
   snippetDivider: { color: PlatformColor('tertiaryLabelColor') },
   threadDate: {

@@ -184,11 +184,19 @@ const migrations = [
         ADD COLUMN "pinned" integer DEFAULT 0 NOT NULL;
     `,
   },
+  {
+    version: 5,
+    sql: `
+      ALTER TABLE "app_preferences"
+        ADD COLUMN "inbox_layout" text DEFAULT 'categorized' NOT NULL;
+    `,
+  },
 ] as const;
 
 export function migrateDatabase(database: SQLiteDatabase): void {
   database.execSync('PRAGMA foreign_keys = ON;');
   database.execSync('PRAGMA journal_mode = WAL;');
+  database.execSync('PRAGMA busy_timeout = 5000;');
 
   const currentVersion =
     database.getFirstSync<DatabaseVersionRow>('PRAGMA user_version')?.user_version ?? 0;
