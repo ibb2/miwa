@@ -42,7 +42,7 @@ mock.module('react-native-sensitive-info', () => ({
   deleteItem: async (key: string) => secrets.delete(key),
 }));
 
-const { gmailAccountAuth } = await import('./account-auth');
+const { gmailAccountAuth } = await import('./accounts');
 
 describe('Gmail credential storage', () => {
   test('stores, refreshes, reconciles, and deletes credentials through Sensitive Info', async () => {

@@ -1,19 +1,9 @@
 import { useEffect, useState } from 'react';
-import {
-  PlatformColor,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import type {
-  GatekeeperOverview,
-  GatekeeperSender,
-} from '../mail/gatekeeper';
-import { NativeActionButton } from './native-action-button';
-import { NativeSymbol } from './native-symbol';
+import type { GatekeeperOverview, GatekeeperSender } from '../mail/gatekeeper';
+import { accentDark, colors, shared } from '../theme';
+import { NativeActionButton, NativeSymbol } from './native';
 
 type GatekeeperViewProps = {
   actionEmail?: string;
@@ -37,6 +27,7 @@ function formatMessageDate(milliseconds: number): string {
   });
 }
 
+/** A pending sender with a message preview and Approve/Block actions. */
 function SenderReviewCard({
   actionEmail,
   onApprove,
@@ -53,7 +44,7 @@ function SenderReviewCard({
   const busy = actionEmail === sender.email;
 
   return (
-    <View style={styles.senderCard}>
+    <View style={[shared.card, styles.senderCard]}>
       <Pressable
         accessibilityHint="Shows or hides this sender's messages"
         accessibilityLabel={`${senderTitle(sender)}, ${sender.messageCount} ${
@@ -61,10 +52,7 @@ function SenderReviewCard({
         }`}
         accessibilityRole="button"
         onPress={() => setExpanded((current) => !current)}
-        style={({ pressed }) => [
-          styles.senderHeader,
-          pressed && styles.pressed,
-        ]}
+        style={({ pressed }) => [styles.senderHeader, pressed && shared.pressed]}
       >
         <NativeSymbol
           fallback={senderTitle(sender).slice(0, 1).toUpperCase()}
@@ -81,7 +69,7 @@ function SenderReviewCard({
           ) : null}
         </View>
         <View style={styles.senderMeta}>
-          <Text selectable style={styles.messageCount}>
+          <Text selectable style={styles.metaText}>
             {sender.messageCount.toLocaleString()}{' '}
             {sender.messageCount === 1 ? 'email' : 'emails'}
           </Text>
@@ -95,7 +83,7 @@ function SenderReviewCard({
         <View style={styles.messageList}>
           {messages.map((message, index) => (
             <View key={message.id}>
-              {index > 0 ? <View style={styles.messageDivider} /> : null}
+              {index > 0 ? <View style={styles.divider} /> : null}
               <View style={styles.messageRow}>
                 <View style={styles.messageCopy}>
                   <Text numberOfLines={1} selectable style={styles.messageSubject}>
@@ -117,10 +105,7 @@ function SenderReviewCard({
             <Pressable
               accessibilityRole="button"
               onPress={() => setExpanded(true)}
-              style={({ pressed }) => [
-                styles.showAllButton,
-                pressed && styles.pressed,
-              ]}
+              style={({ pressed }) => [styles.showAllButton, pressed && shared.pressed]}
             >
               <Text style={styles.showAllLabel}>
                 Show all {sender.messages.length.toLocaleString()} emails
@@ -156,6 +141,7 @@ function SenderReviewCard({
   );
 }
 
+/** One blocked sender with an undo action. */
 function BlockedSenderRow({
   actionEmail,
   onUnblock,
@@ -215,16 +201,16 @@ export function GatekeeperView({
     <ScrollView
       contentContainerStyle={styles.content}
       contentInsetAdjustmentBehavior="automatic"
-      style={styles.scrollView}
+      style={shared.screenScroll}
     >
       <View style={styles.titleRow}>
         <View style={styles.shieldMark}>
           <NativeSymbol fallback="G" systemName="checkmark.shield.fill" />
         </View>
         <View style={styles.titleCopy}>
-          <Text selectable style={styles.eyebrow}>GATEKEEPER</Text>
-          <Text selectable style={styles.title}>New senders</Text>
-          <Text selectable style={styles.subtitle}>
+          <Text selectable style={shared.eyebrow}>GATEKEEPER</Text>
+          <Text selectable style={shared.screenTitle}>New senders</Text>
+          <Text selectable style={shared.screenSubtitle}>
             Review each new email address once. Approve keeps its mail in your
             inbox; Block hides its conversations until you undo it.
           </Text>
@@ -243,18 +229,14 @@ export function GatekeeperView({
       </View>
 
       {loading && !overview ? (
-        <Text selectable style={styles.stateText}>Checking new senders…</Text>
+        <Text selectable style={shared.stateText}>Checking new senders…</Text>
       ) : null}
 
       {error ? (
-        <View style={styles.errorCard}>
+        <View style={[shared.card, styles.errorCard]}>
           <Text selectable style={styles.errorTitle}>Gatekeeper could not open.</Text>
           <Text selectable style={styles.errorCopy}>{error}</Text>
-          <NativeActionButton
-            label="Try again"
-            onPress={onRetry}
-            variant="glassProminent"
-          />
+          <NativeActionButton label="Try again" onPress={onRetry} variant="glassProminent" />
         </View>
       ) : null}
 
@@ -271,12 +253,10 @@ export function GatekeeperView({
               />
             ))}
             {!overview.pending.length ? (
-              <View style={styles.emptyCard}>
+              <View style={[shared.card, styles.emptyCard]}>
                 <NativeSymbol fallback="✓" systemName="checkmark.shield.fill" />
                 <View style={styles.emptyCopy}>
-                  <Text selectable style={styles.emptyTitle}>
-                    You’re caught up.
-                  </Text>
+                  <Text selectable style={styles.emptyTitle}>You’re caught up.</Text>
                   <Text selectable style={styles.emptyDescription}>
                     New sender addresses will collect here as mail arrives.
                   </Text>
@@ -293,15 +273,10 @@ export function GatekeeperView({
                 } blocked senders`}
                 accessibilityRole="button"
                 onPress={() => setShowBlocked((current) => !current)}
-                style={({ pressed }) => [
-                  styles.blockedDisclosure,
-                  pressed && styles.pressed,
-                ]}
+                style={({ pressed }) => [styles.blockedDisclosure, pressed && shared.pressed]}
               >
-                <Text selectable style={styles.blockedDisclosureLabel}>
-                  Blocked senders
-                </Text>
-                <Text selectable style={styles.blockedDisclosureCount}>
+                <Text selectable style={styles.blockedDisclosureLabel}>Blocked senders</Text>
+                <Text selectable style={styles.metaText}>
                   {overview.blocked.length.toLocaleString()}
                 </Text>
                 <Text accessibilityElementsHidden style={styles.disclosure}>
@@ -309,7 +284,7 @@ export function GatekeeperView({
                 </Text>
               </Pressable>
               {showBlocked ? (
-                <View style={styles.blockedList}>
+                <View style={[shared.card, styles.blockedList]}>
                   {overview.blocked.map((sender, index) => (
                     <View key={sender.email}>
                       {index > 0 ? <View style={styles.blockedDivider} /> : null}
@@ -326,8 +301,7 @@ export function GatekeeperView({
           ) : null}
 
           <Text selectable style={styles.activationNote}>
-            Watching for new senders since{' '}
-            {new Date(overview.activatedAt).toLocaleString()}.
+            Watching for new senders since {new Date(overview.activatedAt).toLocaleString()}.
           </Text>
         </>
       ) : null}
@@ -336,7 +310,6 @@ export function GatekeeperView({
 }
 
 const styles = StyleSheet.create({
-  scrollView: { flex: 1 },
   content: {
     width: '100%',
     maxWidth: 880,
@@ -354,53 +327,22 @@ const styles = StyleSheet.create({
   },
   shieldMark: { paddingTop: 3 },
   titleCopy: { flex: 1, minWidth: 0, gap: 4 },
-  eyebrow: {
-    color: '#E86E5A',
-    fontSize: 9,
-    fontWeight: '800',
-    letterSpacing: 1.5,
-  },
-  title: {
-    color: PlatformColor('labelColor'),
-    fontSize: 30,
-    fontWeight: '700',
-    letterSpacing: -0.8,
-  },
-  subtitle: {
-    maxWidth: 590,
-    color: PlatformColor('secondaryLabelColor'),
-    fontSize: 12,
-    lineHeight: 17,
-  },
-  queueCount: {
-    minWidth: 70,
-    alignItems: 'flex-end',
-    paddingTop: 2,
-    gap: 1,
-  },
+  queueCount: { minWidth: 70, alignItems: 'flex-end', paddingTop: 2, gap: 1 },
   queueNumber: {
-    color: '#C95243',
+    color: accentDark,
     fontSize: 25,
     fontWeight: '700',
     fontVariant: ['tabular-nums'],
     letterSpacing: -0.6,
   },
   queueLabel: {
-    color: PlatformColor('tertiaryLabelColor'),
+    color: colors.tertiaryLabel,
     fontSize: 8,
     fontWeight: '700',
     letterSpacing: 0.9,
   },
   queue: { gap: 12 },
-  senderCard: {
-    overflow: 'hidden',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: PlatformColor('separatorColor'),
-    borderRadius: 14,
-    borderCurve: 'continuous',
-    backgroundColor: PlatformColor('controlBackgroundColor'),
-    boxShadow: '0 6px 18px rgba(0, 0, 0, 0.045)',
-  },
+  senderCard: { overflow: 'hidden', boxShadow: '0 6px 18px rgba(0, 0, 0, 0.045)' },
   senderHeader: {
     minHeight: 64,
     flexDirection: 'row',
@@ -410,34 +352,23 @@ const styles = StyleSheet.create({
     gap: 11,
   },
   senderIdentity: { flex: 1, minWidth: 0, gap: 2 },
-  senderName: {
-    color: PlatformColor('labelColor'),
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  senderEmail: {
-    color: PlatformColor('secondaryLabelColor'),
-    fontSize: 10,
-  },
-  senderMeta: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  messageCount: {
-    color: PlatformColor('secondaryLabelColor'),
+  senderName: { color: colors.label, fontSize: 13, fontWeight: '600' },
+  senderEmail: { color: colors.secondaryLabel, fontSize: 10 },
+  senderMeta: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  metaText: {
+    color: colors.secondaryLabel,
     fontSize: 10,
     fontVariant: ['tabular-nums'],
   },
   disclosure: {
     width: 14,
-    color: PlatformColor('tertiaryLabelColor'),
+    color: colors.tertiaryLabel,
     fontSize: 12,
     textAlign: 'center',
   },
   messageList: {
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: PlatformColor('separatorColor'),
+    borderTopColor: colors.separator,
     paddingHorizontal: 16,
   },
   messageRow: {
@@ -448,43 +379,24 @@ const styles = StyleSheet.create({
     gap: 18,
   },
   messageCopy: { flex: 1, minWidth: 0, gap: 3 },
-  messageSubject: {
-    color: PlatformColor('labelColor'),
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  messageSnippet: {
-    color: PlatformColor('secondaryLabelColor'),
-    fontSize: 10,
-    lineHeight: 14,
-  },
+  messageSubject: { color: colors.label, fontSize: 12, fontWeight: '600' },
+  messageSnippet: { color: colors.secondaryLabel, fontSize: 10, lineHeight: 14 },
   messageDate: {
     width: 132,
-    color: PlatformColor('tertiaryLabelColor'),
+    color: colors.tertiaryLabel,
     fontSize: 9,
     fontVariant: ['tabular-nums'],
     textAlign: 'right',
   },
-  messageDivider: {
-    height: StyleSheet.hairlineWidth,
-    backgroundColor: PlatformColor('separatorColor'),
-  },
-  showAllButton: {
-    alignSelf: 'flex-start',
-    paddingTop: 2,
-    paddingBottom: 10,
-  },
-  showAllLabel: {
-    color: '#C95243',
-    fontSize: 10,
-    fontWeight: '600',
-  },
+  divider: { height: StyleSheet.hairlineWidth, backgroundColor: colors.separator },
+  showAllButton: { alignSelf: 'flex-start', paddingTop: 2, paddingBottom: 10 },
+  showAllLabel: { color: accentDark, fontSize: 10, fontWeight: '600' },
   unavailableMessage: {
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: PlatformColor('separatorColor'),
+    borderTopColor: colors.separator,
     paddingHorizontal: 16,
     paddingVertical: 13,
-    color: PlatformColor('secondaryLabelColor'),
+    color: colors.secondaryLabel,
     fontSize: 10,
   },
   actionRow: {
@@ -493,39 +405,23 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'flex-end',
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: PlatformColor('separatorColor'),
+    borderTopColor: colors.separator,
     paddingHorizontal: 14,
     paddingVertical: 9,
     gap: 8,
-    backgroundColor: PlatformColor('underPageBackgroundColor'),
+    backgroundColor: colors.underPage,
   },
-  actionHint: {
-    flex: 1,
-    color: PlatformColor('tertiaryLabelColor'),
-    fontSize: 9,
-  },
+  actionHint: { flex: 1, color: colors.tertiaryLabel, fontSize: 9 },
   emptyCard: {
     minHeight: 86,
     flexDirection: 'row',
     alignItems: 'center',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: PlatformColor('separatorColor'),
-    borderRadius: 14,
-    borderCurve: 'continuous',
     paddingHorizontal: 18,
     gap: 12,
-    backgroundColor: PlatformColor('controlBackgroundColor'),
   },
   emptyCopy: { flex: 1, gap: 2 },
-  emptyTitle: {
-    color: PlatformColor('labelColor'),
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  emptyDescription: {
-    color: PlatformColor('secondaryLabelColor'),
-    fontSize: 11,
-  },
+  emptyTitle: { color: colors.label, fontSize: 14, fontWeight: '600' },
+  emptyDescription: { color: colors.secondaryLabel, fontSize: 11 },
   blockedSection: { gap: 7, paddingTop: 2 },
   blockedDisclosure: {
     minHeight: 36,
@@ -537,25 +433,8 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     borderCurve: 'continuous',
   },
-  blockedDisclosureLabel: {
-    color: PlatformColor('secondaryLabelColor'),
-    fontSize: 11,
-    fontWeight: '600',
-  },
-  blockedDisclosureCount: {
-    minWidth: 18,
-    color: PlatformColor('tertiaryLabelColor'),
-    fontSize: 10,
-    fontVariant: ['tabular-nums'],
-  },
-  blockedList: {
-    overflow: 'hidden',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: PlatformColor('separatorColor'),
-    borderRadius: 12,
-    borderCurve: 'continuous',
-    backgroundColor: PlatformColor('controlBackgroundColor'),
-  },
+  blockedDisclosureLabel: { color: colors.secondaryLabel, fontSize: 11, fontWeight: '600' },
+  blockedList: { overflow: 'hidden', borderRadius: 12 },
   blockedRow: {
     minHeight: 62,
     flexDirection: 'row',
@@ -565,46 +444,22 @@ const styles = StyleSheet.create({
     gap: 11,
   },
   blockedCount: {
-    color: PlatformColor('tertiaryLabelColor'),
+    color: colors.tertiaryLabel,
     fontSize: 9,
     fontVariant: ['tabular-nums'],
   },
   blockedDivider: {
     height: StyleSheet.hairlineWidth,
     marginLeft: 57,
-    backgroundColor: PlatformColor('separatorColor'),
+    backgroundColor: colors.separator,
   },
   activationNote: {
     alignSelf: 'center',
-    color: PlatformColor('tertiaryLabelColor'),
+    color: colors.tertiaryLabel,
     fontSize: 9,
     paddingTop: 5,
   },
-  stateText: {
-    padding: 20,
-    color: PlatformColor('secondaryLabelColor'),
-    fontSize: 12,
-    textAlign: 'center',
-  },
-  errorCard: {
-    alignItems: 'center',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: PlatformColor('separatorColor'),
-    borderRadius: 14,
-    borderCurve: 'continuous',
-    padding: 20,
-    gap: 7,
-    backgroundColor: PlatformColor('controlBackgroundColor'),
-  },
-  errorTitle: {
-    color: PlatformColor('labelColor'),
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  errorCopy: {
-    color: PlatformColor('systemRedColor'),
-    fontSize: 10,
-    paddingBottom: 4,
-  },
-  pressed: { opacity: 0.58 },
+  errorCard: { alignItems: 'center', padding: 20, gap: 7 },
+  errorTitle: { color: colors.label, fontSize: 14, fontWeight: '600' },
+  errorCopy: { color: colors.red, fontSize: 10, paddingBottom: 4 },
 });

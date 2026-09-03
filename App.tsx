@@ -1,54 +1,42 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import {
-  Alert,
-  PlatformColor,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import { Alert, StyleSheet, Text, View } from 'react-native';
 
-import { NativeMailViewer } from './modules/native-mail-viewer/src';
 import {
   NativeWindowToolbar,
-  type NativeToolbarItem,
   type NativeWindowToolbarRef,
+  type ToolbarItemPressEvent,
+  type ToolbarMenuItemPressEvent,
   type ToolbarSegment,
+  type ToolbarSegmentChangeEvent,
 } from './modules/native-window-toolbar/src';
-import { clearLocalDatabase } from './src/db/clear-database';
 import { GatekeeperView } from './src/components/gatekeeper-view';
-import { MailboxThreadList } from './src/components/mailbox-thread-list';
+import { NativeActionButton } from './src/components/native';
 import { SettingsView } from './src/components/settings-view';
-import { gmailAccountAuth } from './src/mail/account-auth';
-import { archiveGmailThread, GmailApiError, setGmailThreadReadState } from './src/mail/gmail';
+import { ThreadDetail } from './src/components/thread-detail';
+import { ThreadList } from './src/components/thread-list';
+import { clearLocalDatabase } from './src/db/db';
+import {
+  accountInitials,
+  gmailAccountAuth,
+  loadAccountAvatars,
+} from './src/mail/accounts';
+import { DEFAULT_INBOX_DOWNLOAD_LIMIT, downloadInbox } from './src/mail/download';
 import {
   loadGatekeeperOverview,
   setGatekeeperSenderStatus,
   type GatekeeperOverview,
   type GatekeeperStatus,
 } from './src/mail/gatekeeper';
+import { archiveGmailThread, setGmailThreadReadState, withGmailReauth } from './src/mail/gmail';
+import { inboxLayoutMode, type InboxSectionFocus } from './src/mail/inbox-layout';
 import {
-  DEFAULT_INBOX_DOWNLOAD_LIMIT,
-  downloadInbox,
-  type InboxDownloadProgress,
-} from './src/mail/inbox-download';
-import {
-  startInboxReconciliation,
-  type InboxReconciliationController,
-} from './src/mail/inbox-reconciliation';
-import {
-  inboxLayoutMode,
-  type InboxLayoutMode,
-  type InboxSectionFocus,
-} from './src/mail/inbox-layout';
-import {
-  loadDownloadedThreadDetail,
-  loadDownloadedThreads,
-  removeDownloadedInboxThread,
-  setDownloadedThreadReadState,
-  setDownloadedThreadPinnedState,
-} from './src/mail/offline-mail';
+  loadThreadDetail,
+  loadThreads,
+  removeInboxThread,
+  setThreadPinnedState,
+  setThreadReadState,
+} from './src/mail/store';
+import { startInboxSync, type SyncController } from './src/mail/sync';
 import type {
   ConnectedAccount,
   MailboxView,
@@ -59,139 +47,64 @@ import {
   loadMailPreferences,
   saveMailPreference,
   type MailPreferences,
-} from './src/settings/mail-preferences';
-import {
-  loadInboxLayoutMode,
-  saveInboxLayoutMode,
-} from './src/settings/inbox-layout-preference';
-
-const appModuleStartedAt = globalThis.performance.now();
+} from './src/settings/preferences';
+import { colors, shared } from './src/theme';
+import { buildToolbarItems, toolbarIdentifier, type AppSurface, type ToolbarInput } from './src/toolbar';
 
 function messageFor(error: unknown): string {
   return error instanceof Error ? error.message : 'Something went wrong.';
 }
 
-function initials(account: ConnectedAccount): string {
-  const source = account.displayName || account.email;
-  return source
-    .split(/\s+/)
-    .map((part) => part[0])
-    .join('')
-    .slice(0, 2)
-    .toUpperCase();
-}
-
-type ToolbarDownloadState = {
-  status: 'idle' | 'running' | 'complete' | 'failed';
+/** Download progress; undefined while no download is running. */
+type DownloadState = {
   fraction: number;
-  accountCount: number;
-  completedAccountCount: number;
-  currentAccountId?: string;
-  currentProgress?: InboxDownloadProgress;
-  inboxEmailsSelected: number;
-  messagesStored: number;
-  attachmentsStored: number;
-  error?: string;
-};
-
-const idleDownloadState: ToolbarDownloadState = {
-  status: 'idle',
-  fraction: 0,
-  accountCount: 0,
-  completedAccountCount: 0,
-  inboxEmailsSelected: 0,
-  messagesStored: 0,
-  attachmentsStored: 0,
-};
-
-type AppSurface = 'mail' | 'gatekeeper' | 'settings';
-
-function bytesToBase64(buffer: ArrayBuffer): string {
-  const bytes = new Uint8Array(buffer);
-  let binary = '';
-  for (let offset = 0; offset < bytes.length; offset += 8192) {
-    binary += String.fromCharCode(...bytes.subarray(offset, offset + 8192));
-  }
-  return globalThis.btoa(binary);
-}
-
-function fetchArrayBuffer(url: string): Promise<ArrayBuffer> {
-  return new Promise((resolve, reject) => {
-    const request = new XMLHttpRequest();
-    request.open('GET', url, true);
-    request.responseType = 'arraybuffer';
-    request.onload = () => {
-      if (request.status >= 200 && request.status < 300 && request.response instanceof ArrayBuffer) {
-        resolve(request.response);
-      } else {
-        reject(new Error(`Avatar request failed (${request.status})`));
-      }
-    };
-    request.onerror = () => reject(new Error('Avatar request failed.'));
-    request.send();
-  });
-}
-
-type MailLoadPerformance = {
-  threadCount: number;
-  databaseFetchMs: number;
+  label: string;
+  accountId?: string;
 };
 
 export default function App() {
   const toolbarRef = useRef<NativeWindowToolbarRef>(null);
-  const reconciliationRef = useRef<InboxReconciliationController>(null);
+  const syncRef = useRef<SyncController>(null);
   const downloadActiveRef = useRef(false);
-  const lastDownloadProgressUpdateRef = useRef(0);
-  const [accounts, setAccounts] = useState<ConnectedAccount[]>([]);
-  const [surface, setSurface] = useState<AppSurface>('mail');
-  const [preferences, setPreferences] = useState<MailPreferences>(
-    loadMailPreferences,
-  );
-  const [mailboxView, setMailboxView] = useState<MailboxView>({ kind: 'all' });
-  const [inboxLayout, setInboxLayout] = useState<InboxLayoutMode>(loadInboxLayoutMode);
-  const [focusedInboxSection, setFocusedInboxSection] = useState<InboxSectionFocus>();
-  const [loadingAccounts, setLoadingAccounts] = useState(true);
-  const [connectError, setConnectError] = useState<string>();
+  const lastProgressUpdateRef = useRef(0);
+  const mailboxFrameRef = useRef<number | null>(null);
+
+  const [accounts, setAccounts] = useState<ConnectedAccount[]>();
   const [avatarData, setAvatarData] = useState<Record<string, string>>({});
-  const [downloadState, setDownloadState] = useState<ToolbarDownloadState>(idleDownloadState);
-  const [isClearingData, setIsClearingData] = useState(false);
-  const [reconciliationRevision, setReconciliationRevision] = useState(0);
-  const [syncingInbox, setSyncingInbox] = useState(false);
-  const [syncStatusLabel, setSyncStatusLabel] = useState('Check Gmail for new mail');
-  const [downloadedThreads, setDownloadedThreads] = useState<MailThreadSummary[]>();
-  const [mailLoadError, setMailLoadError] = useState<string>();
-  const [mailLoadPerformance, setMailLoadPerformance] = useState<MailLoadPerformance>();
-  const [gatekeeperOverview, setGatekeeperOverview] = useState<GatekeeperOverview>();
+  const [surface, setSurface] = useState<AppSurface>('mail');
+  const [mailboxView, setMailboxView] = useState<MailboxView>({ kind: 'all' });
+  const [preferences, setPreferences] = useState(loadMailPreferences);
+  const [focusedSection, setFocusedSection] = useState<InboxSectionFocus>();
+  const [threads, setThreads] = useState<MailThreadSummary[]>();
+  const [threadsError, setThreadsError] = useState<string>();
+  const [selectedThread, setSelectedThread] = useState<MailThreadSummary>();
+  const [detail, setDetail] = useState<MailThreadDetail>();
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState<string>();
+  const [gatekeeper, setGatekeeper] = useState<GatekeeperOverview>();
   const [gatekeeperLoading, setGatekeeperLoading] = useState(true);
   const [gatekeeperError, setGatekeeperError] = useState<string>();
   const [gatekeeperActionEmail, setGatekeeperActionEmail] = useState<string>();
-  const [selectedThread, setSelectedThread] = useState<MailThreadSummary>();
-  const [threadDetail, setThreadDetail] = useState<MailThreadDetail>();
-  const [detailLoading, setDetailLoading] = useState(false);
-  const [detailError, setDetailError] = useState<string>();
-  const [readStateActionKey, setReadStateActionKey] = useState<string>();
-  const [archiveActionKey, setArchiveActionKey] = useState<string>();
-  const [pinActionKey, setPinActionKey] = useState<string>();
-  const listPerformanceLoggedRef = useRef(false);
-  const mailboxSelectionFrameRef = useRef<number | null>(null);
+  const [syncing, setSyncing] = useState(false);
+  const [syncLabel, setSyncLabel] = useState('Check Gmail for new mail');
+  const [syncRevision, setSyncRevision] = useState(0);
+  const [download, setDownload] = useState<DownloadState>();
+  const [clearing, setClearing] = useState(false);
+  const [busyAction, setBusyAction] = useState<string>();
+  const [connectError, setConnectError] = useState<string>();
+
   const accountsById = useMemo(
-    () => new Map(accounts.map((account) => [account.id, account])),
-    [accounts]
+    () => new Map((accounts ?? []).map((account) => [account.id, account])),
+    [accounts],
   );
 
-  const changePreference = useCallback(
-    (key: keyof MailPreferences, value: boolean) => {
-      setPreferences((current) => ({ ...current, [key]: value }));
-      saveMailPreference(key, value);
-    },
-    [],
-  );
+  // --- Data loading ---
 
   const refreshGatekeeper = useCallback(async (showLoading = true) => {
     if (showLoading) setGatekeeperLoading(true);
     setGatekeeperError(undefined);
     try {
-      setGatekeeperOverview(await loadGatekeeperOverview());
+      setGatekeeper(await loadGatekeeperOverview());
     } catch (error) {
       setGatekeeperError(messageFor(error));
     } finally {
@@ -199,110 +112,33 @@ export default function App() {
     }
   }, []);
 
-  const loadAllDownloadedMail = useCallback(async (showLoading = true) => {
-    if (showLoading) setDownloadedThreads(undefined);
-    setMailLoadError(undefined);
-    const startedAt = globalThis.performance.now();
+  const refreshThreads = useCallback(async () => {
+    setThreadsError(undefined);
     try {
-      const threads = await loadDownloadedThreads();
-      const databaseFetchMs = globalThis.performance.now() - startedAt;
-      setMailLoadPerformance({
-        threadCount: threads.length,
-        databaseFetchMs,
-      });
-      setDownloadedThreads(threads);
-      listPerformanceLoggedRef.current = false;
-      if (__DEV__) {
-        console.info('[MiwaPerformance] database-fetch', JSON.stringify({
-          threadCount: threads.length,
-          durationMs: Number(databaseFetchMs.toFixed(2)),
-        }));
-      }
+      setThreads(await loadThreads());
       void refreshGatekeeper(false);
     } catch (error) {
-      setDownloadedThreads([]);
-      setMailLoadError(messageFor(error));
+      setThreads([]);
+      setThreadsError(messageFor(error));
     }
   }, [refreshGatekeeper]);
 
   useEffect(() => {
-    void loadAllDownloadedMail();
-  }, [loadAllDownloadedMail]);
-
-  useEffect(() => () => {
-    if (mailboxSelectionFrameRef.current !== null) {
-      cancelAnimationFrame(mailboxSelectionFrameRef.current);
-    }
-  }, []);
-
-  useEffect(() => {
-    const reconciliation = startInboxReconciliation({
-      onCycleStart: () => {
-        setSyncingInbox(true);
-        setSyncStatusLabel('Checking Gmail for new mail…');
-      },
-      onCycleComplete: (cycle) => {
-        if (__DEV__) {
-          console.info('[MiwaReconciliation] cycle complete', JSON.stringify({
-            durationMs: cycle.completedAt - cycle.startedAt,
-            accounts: cycle.accounts,
-            failureCount: cycle.failures.length,
-          }));
-        }
-        const changed = cycle.accounts.some(
-          (account) =>
-            account.threadsUpserted > 0 || account.threadsRemoved > 0,
-        );
-        const updated = cycle.accounts.reduce(
-          (total, account) => total + account.threadsUpserted,
-          0,
-        );
-        const removed = cycle.accounts.reduce(
-          (total, account) => total + account.threadsRemoved,
-          0,
-        );
-        setSyncStatusLabel(
-          cycle.failures.length > 0
-            ? `Mail sync finished with ${cycle.failures.length.toLocaleString()} ${cycle.failures.length === 1 ? 'account error' : 'account errors'}`
-            : changed
-            ? `Mail updated: ${updated.toLocaleString()} changed, ${removed.toLocaleString()} removed`
-            : 'Mail is up to date',
-        );
-        if (changed) void loadAllDownloadedMail(false);
-      },
-      onError: (error) => {
-        setSyncStatusLabel(`Mail sync failed: ${messageFor(error)}`);
-        if (__DEV__) {
-          console.warn(
-            '[MiwaReconciliation] Gmail INBOX reconciliation failed',
-            messageFor(error),
-          );
-        }
-      },
-      onCycleEnd: () => setSyncingInbox(false),
-    });
-    reconciliationRef.current = reconciliation;
-    return () => {
-      if (reconciliationRef.current === reconciliation) {
-        reconciliationRef.current = null;
-      }
-      reconciliation.stop();
-    };
-  }, [loadAllDownloadedMail, reconciliationRevision]);
+    void refreshThreads();
+  }, [refreshThreads]);
 
   useEffect(() => {
     let active = true;
     gmailAccountAuth
       .listAccounts()
       .then((connected) => {
-        if (!active) return;
-        setAccounts(connected);
+        if (active) setAccounts(connected);
       })
       .catch((error) => {
-        if (active) Alert.alert('Unable to load Gmail accounts', messageFor(error));
-      })
-      .finally(() => {
-        if (active) setLoadingAccounts(false);
+        if (active) {
+          setAccounts([]);
+          Alert.alert('Unable to load Gmail accounts', messageFor(error));
+        }
       });
     return () => {
       active = false;
@@ -310,18 +146,11 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (!accounts?.length) return;
     let active = true;
-    Promise.all(
-      accounts.map(async (account) => {
-        if (!account.avatarUrl || avatarData[account.id]) return;
-        try {
-          const encoded = bytesToBase64(await fetchArrayBuffer(account.avatarUrl));
-          if (active) setAvatarData((current) => ({ ...current, [account.id]: encoded }));
-        } catch {
-          // Initials remain available when a profile image cannot be loaded.
-        }
-      })
-    );
+    void loadAccountAvatars(accounts).then((loaded) => {
+      if (active) setAvatarData((current) => ({ ...current, ...loaded }));
+    });
     return () => {
       active = false;
     };
@@ -329,18 +158,17 @@ export default function App() {
 
   useEffect(() => {
     if (!selectedThread) {
-      setThreadDetail(undefined);
+      setDetail(undefined);
       setDetailError(undefined);
       return;
     }
-
     let active = true;
-    setThreadDetail(undefined);
+    setDetail(undefined);
     setDetailError(undefined);
     setDetailLoading(true);
-    loadDownloadedThreadDetail(selectedThread.accountId, selectedThread.threadId)
-      .then((detail) => {
-        if (active) setThreadDetail(detail);
+    loadThreadDetail(selectedThread.accountId, selectedThread.threadId)
+      .then((loaded) => {
+        if (active) setDetail(loaded);
       })
       .catch((error) => {
         if (active) setDetailError(messageFor(error));
@@ -348,20 +176,59 @@ export default function App() {
       .finally(() => {
         if (active) setDetailLoading(false);
       });
-
     return () => {
       active = false;
     };
   }, [selectedThread]);
 
+  // Poll Gmail for changes; refresh the list whenever a sync cycle changed mail.
+  useEffect(() => {
+    const sync = startInboxSync({
+      onCycleStart: () => {
+        setSyncing(true);
+        setSyncLabel('Checking Gmail for new mail…');
+      },
+      onCycleComplete: (cycle) => {
+        const changed = cycle.accounts.some(
+          (account) => account.threadsUpserted > 0 || account.threadsRemoved > 0,
+        );
+        if (changed) void refreshThreads();
+        setSyncLabel(
+          cycle.failures.length > 0
+            ? 'Mail sync finished with errors'
+            : changed
+              ? 'Mail updated'
+              : 'Mail is up to date',
+        );
+      },
+      onError: () => setSyncLabel('Mail sync failed'),
+      onCycleEnd: () => setSyncing(false),
+    });
+    syncRef.current = sync;
+    return () => {
+      if (syncRef.current === sync) syncRef.current = null;
+      sync.stop();
+    };
+  }, [refreshThreads, syncRevision]);
+
+  useEffect(
+    () => () => {
+      if (mailboxFrameRef.current !== null) cancelAnimationFrame(mailboxFrameRef.current);
+    },
+    [],
+  );
+
+  // --- Account actions ---
+
   const connectAccount = useCallback(async () => {
     setConnectError(undefined);
     try {
       const account = await gmailAccountAuth.connectAccount();
-      setAccounts((current) => {
-        const next = current.filter((item) => item.id !== account.id);
-        return [...next, account].sort((a, b) => a.order - b.order);
-      });
+      setAccounts((current) =>
+        [...(current ?? []).filter((item) => item.id !== account.id), account].sort(
+          (a, b) => a.order - b.order,
+        ),
+      );
       setMailboxView({ kind: 'account', accountId: account.id });
     } catch (error) {
       const message = messageFor(error);
@@ -370,144 +237,130 @@ export default function App() {
     }
   }, []);
 
-  const disconnect = useCallback((account: ConnectedAccount) => {
-    Alert.alert(
-      'Remove Gmail account?',
-      `${account.email} will be removed from Miwa. Your Gmail data will not be deleted.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Remove',
-          style: 'destructive',
-          onPress: () => {
-            void gmailAccountAuth.disconnectAccount(account.id).then(() => {
-              setAccounts((current) => current.filter((item) => item.id !== account.id));
-              setMailboxView({ kind: 'all' });
-              if (selectedThread?.accountId === account.id) setSelectedThread(undefined);
-            }).catch((error) => Alert.alert('Could not disconnect Gmail', messageFor(error)));
-          },
-        },
-      ]
-    );
-  }, [selectedThread]);
-
-  const downloadAccounts = useCallback(async (targets: readonly ConnectedAccount[]) => {
-    if (downloadActiveRef.current || targets.length === 0) return;
-    downloadActiveRef.current = true;
-    lastDownloadProgressUpdateRef.current = 0;
-    let completedAccountCount = 0;
-    let inboxEmailsSelected = 0;
-    let messagesStored = 0;
-    let attachmentsStored = 0;
-
-    setDownloadState({
-      ...idleDownloadState,
-      status: 'running',
-      accountCount: targets.length,
-    });
-
-    try {
-      for (const account of targets) {
-        const result = await downloadInbox(account.id, {
-          maxEmails: DEFAULT_INBOX_DOWNLOAD_LIMIT,
-          onProgress: (progress) => {
-            const now = Date.now();
-            if (
-              progress.phase !== 'complete' &&
-              now - lastDownloadProgressUpdateRef.current < 500
-            ) {
-              return;
-            }
-            lastDownloadProgressUpdateRef.current = now;
-            setDownloadState({
-              status: 'running',
-              fraction: (completedAccountCount + progress.fraction) / targets.length,
-              accountCount: targets.length,
-              completedAccountCount,
-              currentAccountId: account.id,
-              currentProgress: progress,
-              inboxEmailsSelected: inboxEmailsSelected + progress.inboxEmailsSelected,
-              messagesStored: messagesStored + progress.messagesStored,
-              attachmentsStored: attachmentsStored + progress.attachmentsStored,
-            });
-          },
-        });
-        completedAccountCount += 1;
-        inboxEmailsSelected += result.inboxEmailsSelected;
-        messagesStored += result.messagesStored;
-        attachmentsStored += result.attachmentsStored;
-        setDownloadState({
-          status: 'running',
-          fraction: completedAccountCount / targets.length,
-          accountCount: targets.length,
-          completedAccountCount,
-          inboxEmailsSelected,
-          messagesStored,
-          attachmentsStored,
-        });
-      }
-
-      await loadAllDownloadedMail(false);
-      setDownloadState({
-        status: 'complete',
-        fraction: 1,
-        accountCount: targets.length,
-        completedAccountCount,
-        inboxEmailsSelected,
-        messagesStored,
-        attachmentsStored,
-      });
+  const disconnectAccount = useCallback(
+    (account: ConnectedAccount) => {
       Alert.alert(
-        'Inbox download complete',
-        `${inboxEmailsSelected.toLocaleString()} INBOX emails selected across ${targets.length.toLocaleString()} ${targets.length === 1 ? 'inbox' : 'inboxes'}. ${messagesStored.toLocaleString()} conversation messages and ${attachmentsStored.toLocaleString()} attachments are available offline.`
+        'Remove Gmail account?',
+        `${account.email} will be removed from Miwa. Your Gmail data will not be deleted.`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Remove',
+            style: 'destructive',
+            onPress: () => {
+              void gmailAccountAuth
+                .disconnectAccount(account.id)
+                .then(() => {
+                  setAccounts((current) => current?.filter((item) => item.id !== account.id));
+                  setMailboxView({ kind: 'all' });
+                  setSelectedThread((current) =>
+                    current?.accountId === account.id ? undefined : current,
+                  );
+                })
+                .catch((error) => Alert.alert('Could not disconnect Gmail', messageFor(error)));
+            },
+          },
+        ],
       );
-    } catch (error) {
-      const failure = messageFor(error);
-      setDownloadState((current) => ({
-        ...current,
-        status: 'failed',
-        error: failure,
-      }));
-      Alert.alert('Inbox download failed', failure);
-    } finally {
-      downloadActiveRef.current = false;
-    }
-  }, [loadAllDownloadedMail]);
+    },
+    [],
+  );
 
-  const clearDatabase = useCallback(() => {
+  // --- Preferences ---
+
+  const changePreference = useCallback(
+    <K extends keyof MailPreferences>(key: K, value: MailPreferences[K]) => {
+      setPreferences((current) => ({ ...current, [key]: value }));
+      saveMailPreference(key, value);
+    },
+    [],
+  );
+
+  // --- Downloads and maintenance ---
+
+  const downloadAccounts = useCallback(
+    async (targets: readonly ConnectedAccount[]) => {
+      if (downloadActiveRef.current || targets.length === 0) return;
+      downloadActiveRef.current = true;
+      lastProgressUpdateRef.current = 0;
+      const totals = { selected: 0, messages: 0, attachments: 0 };
+
+      try {
+        for (const [index, account] of targets.entries()) {
+          const result = await downloadInbox(account.id, {
+            onProgress: (progress) => {
+              const now = Date.now();
+              if (progress.phase !== 'complete' && now - lastProgressUpdateRef.current < 500) {
+                return;
+              }
+              lastProgressUpdateRef.current = now;
+              const position = Math.min(index + 1, targets.length);
+              setDownload({
+                fraction: (index + progress.fraction) / targets.length,
+                accountId: account.id,
+                label:
+                  progress.phase === 'downloading'
+                    ? `Downloading ${account.email} (${position} of ${targets.length}): ` +
+                      `${progress.threadsDownloaded.toLocaleString()} of ${progress.totalThreads.toLocaleString()} conversations`
+                    : `Scanning ${account.email} (${position} of ${targets.length})`,
+              });
+            },
+          });
+          totals.selected += result.inboxEmailsSelected;
+          totals.messages += result.messagesStored;
+          totals.attachments += result.attachmentsStored;
+        }
+
+        await refreshThreads();
+        setDownload(undefined);
+        Alert.alert(
+          'Inbox download complete',
+          `${totals.selected.toLocaleString()} INBOX emails selected across ${targets.length.toLocaleString()} ` +
+            `${targets.length === 1 ? 'inbox' : 'inboxes'}. ${totals.messages.toLocaleString()} conversation messages ` +
+            `and ${totals.attachments.toLocaleString()} attachments are available offline.`,
+        );
+      } catch (error) {
+        setDownload(undefined);
+        Alert.alert('Inbox download failed', messageFor(error));
+      } finally {
+        downloadActiveRef.current = false;
+      }
+    },
+    [refreshThreads],
+  );
+
+  const clearData = useCallback(() => {
     Alert.alert(
       'Clear all local data?',
-      'Every downloaded message and attachment, cached account record, sync cursor, and preference will be removed from Miwa. Your Gmail accounts and Gmail messages will not be changed.',
+      'Every downloaded message and attachment, cached account record, sync cursor, and preference ' +
+        'will be removed from Miwa. Your Gmail accounts and Gmail messages will not be changed.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
           text: 'Clear Everything',
           style: 'destructive',
           onPress: () => {
-            setIsClearingData(true);
-            reconciliationRef.current?.stop();
-            reconciliationRef.current = null;
+            setClearing(true);
+            syncRef.current?.stop();
+            syncRef.current = null;
             try {
               clearLocalDatabase();
-              setDownloadedThreads([]);
-              setMailLoadError(undefined);
-              setMailLoadPerformance(undefined);
+              setThreads([]);
+              setThreadsError(undefined);
               setSelectedThread(undefined);
-              setThreadDetail(undefined);
+              setDetail(undefined);
               setDetailError(undefined);
               setMailboxView({ kind: 'all' });
               setPreferences(loadMailPreferences());
-              setInboxLayout(loadInboxLayoutMode());
-              setDownloadState(idleDownloadState);
-              setSyncStatusLabel('No downloaded mail to sync');
+              setDownload(undefined);
+              setSyncLabel('No downloaded mail to sync');
               void refreshGatekeeper();
-              setReconciliationRevision((current) => current + 1);
               Alert.alert('Local data cleared', 'Miwa is ready for a fresh download.');
             } catch (error) {
               Alert.alert('Could not clear local data', messageFor(error));
-              setReconciliationRevision((current) => current + 1);
             } finally {
-              setIsClearingData(false);
+              setClearing(false);
+              setSyncRevision((current) => current + 1);
             }
           },
         },
@@ -515,549 +368,312 @@ export default function App() {
     );
   }, [refreshGatekeeper]);
 
-  const decideGatekeeperSender = useCallback(async (
-    email: string,
-    status: GatekeeperStatus,
-  ) => {
-    setGatekeeperActionEmail(email);
-    setGatekeeperError(undefined);
-    try {
-      await setGatekeeperSenderStatus(email, status);
-      await Promise.all([
-        refreshGatekeeper(false),
-        loadAllDownloadedMail(false),
-      ]);
-    } catch (error) {
-      const failure = messageFor(error);
-      setGatekeeperError(failure);
-      Alert.alert('Could not update Gatekeeper', failure);
-    } finally {
-      setGatekeeperActionEmail(undefined);
-    }
-  }, [loadAllDownloadedMail, refreshGatekeeper]);
+  // --- Gatekeeper ---
 
-  const changeThreadReadState = useCallback(async (thread: MailThreadSummary) => {
-    const actionKey = `${thread.accountId}:${thread.threadId}`;
-    if (readStateActionKey === actionKey) return;
-    const unread = !thread.unread;
-    const updateVisibleState = (nextUnread: boolean) => {
-      setDownloadedThreads((current) => current?.map((item) =>
-        item.accountId === thread.accountId && item.threadId === thread.threadId
-          ? { ...item, unread: nextUnread }
-          : item
-      ));
-      setSelectedThread((current) =>
-        current?.accountId === thread.accountId && current.threadId === thread.threadId
-          ? { ...current, unread: nextUnread }
-          : current
-      );
-    };
-
-    setReadStateActionKey(actionKey);
-    updateVisibleState(unread);
-    let gmailUpdated = false;
-    try {
+  const decideGatekeeperSender = useCallback(
+    async (email: string, status: GatekeeperStatus) => {
+      setGatekeeperActionEmail(email);
+      setGatekeeperError(undefined);
       try {
-        await setGmailThreadReadState(thread.accountId, thread.threadId, unread);
+        await setGatekeeperSenderStatus(email, status);
+        await Promise.all([refreshGatekeeper(false), refreshThreads()]);
       } catch (error) {
-        if (!(error instanceof GmailApiError) || !error.requiresReauthentication) throw error;
-        await gmailAccountAuth.reauthorizeAccount(thread.accountId);
-        await setGmailThreadReadState(thread.accountId, thread.threadId, unread);
+        setGatekeeperError(messageFor(error));
+        Alert.alert('Could not update Gatekeeper', messageFor(error));
+      } finally {
+        setGatekeeperActionEmail(undefined);
       }
-      gmailUpdated = true;
-      await setDownloadedThreadReadState(thread.accountId, thread.threadId, unread);
-      reconciliationRef.current?.runNow();
-    } catch (error) {
-      if (!gmailUpdated) updateVisibleState(thread.unread);
-      else reconciliationRef.current?.runNow();
-      Alert.alert(
-        gmailUpdated ? 'Gmail updated, but Miwa could not refresh' : 'Could not update Gmail',
-        messageFor(error),
-      );
-    } finally {
-      setReadStateActionKey((current) => current === actionKey ? undefined : current);
-    }
-  }, [readStateActionKey]);
-
-  const archiveThread = useCallback(async (thread: MailThreadSummary) => {
-    const actionKey = `${thread.accountId}:${thread.threadId}`;
-    if (archiveActionKey === actionKey) return;
-
-    setArchiveActionKey(actionKey);
-    setDownloadedThreads((current) => current?.filter((item) =>
-      item.accountId !== thread.accountId || item.threadId !== thread.threadId
-    ));
-
-    let gmailUpdated = false;
-    try {
-      try {
-        await archiveGmailThread(thread.accountId, thread.threadId);
-      } catch (error) {
-        if (!(error instanceof GmailApiError) || !error.requiresReauthentication) throw error;
-        await gmailAccountAuth.reauthorizeAccount(thread.accountId);
-        await archiveGmailThread(thread.accountId, thread.threadId);
-      }
-      gmailUpdated = true;
-      await removeDownloadedInboxThread(thread.accountId, thread.threadId);
-      void refreshGatekeeper(false);
-      reconciliationRef.current?.runNow();
-    } catch (error) {
-      await loadAllDownloadedMail(false);
-      if (gmailUpdated) reconciliationRef.current?.runNow();
-      Alert.alert(
-        gmailUpdated ? 'Gmail archived the conversation, but Miwa could not refresh' : 'Could not archive conversation',
-        messageFor(error),
-      );
-    } finally {
-      setArchiveActionKey((current) => current === actionKey ? undefined : current);
-    }
-  }, [archiveActionKey, loadAllDownloadedMail, refreshGatekeeper]);
-
-  const setThreadPinned = useCallback(async (
-    thread: MailThreadSummary,
-    pinned: boolean,
-  ) => {
-    const actionKey = `${thread.accountId}:${thread.threadId}`;
-    if (pinActionKey === actionKey) return;
-    const updateVisibleState = (nextPinned: boolean) => {
-      setDownloadedThreads((current) => current?.map((item) =>
-        item.accountId === thread.accountId && item.threadId === thread.threadId
-          ? { ...item, pinned: nextPinned }
-          : item
-      ));
-      setSelectedThread((current) =>
-        current?.accountId === thread.accountId && current.threadId === thread.threadId
-          ? { ...current, pinned: nextPinned }
-          : current
-      );
-    };
-
-    setPinActionKey(actionKey);
-    updateVisibleState(pinned);
-    try {
-      await setDownloadedThreadPinnedState(thread.accountId, thread.threadId, pinned);
-    } catch (error) {
-      updateVisibleState(thread.pinned);
-      Alert.alert('Could not update pin', messageFor(error));
-    } finally {
-      setPinActionKey((current) => current === actionKey ? undefined : current);
-    }
-  }, [pinActionKey]);
-
-  const accountSegments = useMemo<ToolbarSegment[]>(() => [
-    { id: 'all', label: 'All inboxes', systemImage: 'tray.full' },
-    ...accounts.map((account) => ({
-      id: `account:${account.id}`,
-      label: account.email,
-      imageData: avatarData[account.id],
-      fallbackText: initials(account),
-    })),
-  ], [accounts, avatarData]);
-  const selectedAccountIndex = mailboxView.kind === 'all'
-    ? 0
-    : Math.max(0, accounts.findIndex((account) => account.id === mailboxView.accountId) + 1);
-  const downloadStatusLabel = useMemo(() => {
-    if (downloadState.status === 'idle') return 'No inbox download running';
-    if (downloadState.status === 'failed') {
-      return `Inbox download failed${downloadState.error ? `: ${downloadState.error}` : ''}`;
-    }
-    if (downloadState.status === 'complete') {
-      return `Download complete: ${downloadState.inboxEmailsSelected.toLocaleString()} INBOX emails selected, ${downloadState.messagesStored.toLocaleString()} messages stored`;
-    }
-    const account = downloadState.currentAccountId
-      ? accountsById.get(downloadState.currentAccountId)
-      : undefined;
-    const progress = downloadState.currentProgress;
-    const accountPosition = Math.min(
-      downloadState.completedAccountCount + 1,
-      downloadState.accountCount
-    );
-    if (!progress) {
-      return `Preparing inbox ${accountPosition} of ${downloadState.accountCount}`;
-    }
-    if (progress.phase === 'listing') {
-      return `Scanning ${account?.email ?? 'inbox'} (${accountPosition} of ${downloadState.accountCount}): ${progress.inboxEmailsSelected.toLocaleString()} of up to ${progress.targetInboxEmails.toLocaleString()} emails`;
-    }
-    return `Downloading ${account?.email ?? 'inbox'} (${accountPosition} of ${downloadState.accountCount}): ${progress.threadsDownloaded.toLocaleString()} of ${progress.totalThreads.toLocaleString()} conversations`;
-  }, [accountsById, downloadState]);
-  const mailboxName = mailboxView.kind === 'account'
-    ? accountsById.get(mailboxView.accountId)?.email
-    : undefined;
-  const inboxTitle = mailboxView.kind === 'all'
-    ? 'All Inboxes'
-    : mailboxName ?? 'Inbox';
-
-  const toolbarItems = useMemo<NativeToolbarItem[]>(() => [
-    ...(selectedThread || focusedInboxSection || surface !== 'mail'
-      ? [{
-          id: 'back',
-          kind: 'button' as const,
-          label: surface !== 'mail' ? 'Back to inbox' : `Back to ${inboxTitle}`,
-          systemImage: 'chevron.left',
-          toolTip: surface !== 'mail' ? 'Back to inbox' : `Back to ${inboxTitle}`,
-          immovable: true,
-          navigational: true,
-        }]
-      : []),
-    ...(surface === 'mail'
-      ? [{
-          id: 'accounts',
-          kind: 'segmented' as const,
-          label: 'Inbox account',
-          selectionMode: 'selectOne' as const,
-          selectedIndex: selectedAccountIndex,
-          segments: accountSegments,
-          immovable: true,
-          navigational: true,
-        }]
-      : []),
-    ...(surface === 'mail' && !selectedThread && !focusedInboxSection
-      ? [{
-          id: 'inbox-layout',
-          kind: 'segmented' as const,
-          label: 'Inbox layout',
-          selectionMode: 'selectOne' as const,
-          selectedIndex: inboxLayout === 'categorized' ? 0 : 1,
-          segments: [
-            { id: 'categorized', label: 'Categorized', systemImage: 'rectangle.grid.1x2' },
-            { id: 'single', label: 'Single card', systemImage: 'rectangle' },
-          ],
-          toolTip: 'Switch inbox layout',
-          immovable: true,
-          navigational: true,
-        }]
-      : []),
-    { id: 'toolbar-spacer', kind: 'flexibleSpace' },
-    ...(surface === 'mail' && selectedThread
-      ? [
-        {
-          id: 'message-read-toggle',
-          kind: 'button' as const,
-          label: selectedThread.unread ? 'Mark as read' : 'Mark as unread',
-          systemImage: selectedThread.unread ? 'envelope.badge' : 'envelope.open',
-          toolTip: selectedThread.unread ? 'Mark as read' : 'Mark as unread',
-          enabled: readStateActionKey !== `${selectedThread.accountId}:${selectedThread.threadId}`,
-          immovable: true,
-        },
-        {
-          id: 'message-archive',
-          kind: 'button' as const,
-          label: 'Archive',
-          systemImage: 'archivebox',
-          toolTip: 'Archive conversation',
-          enabled: archiveActionKey !== `${selectedThread.accountId}:${selectedThread.threadId}`,
-          immovable: true,
-        },
-        {
-          id: 'message-pin',
-          kind: 'button' as const,
-          label: selectedThread.pinned ? 'Unpin' : 'Pin',
-          systemImage: selectedThread.pinned ? 'pin.slash' : 'pin',
-          toolTip: selectedThread.pinned ? 'Unpin conversation' : 'Pin conversation',
-          enabled: pinActionKey !== `${selectedThread.accountId}:${selectedThread.threadId}`,
-          immovable: true,
-        },
-        {
-          id: 'message-delete',
-          kind: 'button' as const,
-          label: 'Delete',
-          systemImage: 'trash',
-          toolTip: 'Delete conversation',
-          immovable: true,
-        },
-        { id: 'message-action-space', kind: 'space' as const, immovable: true },
-        {
-          id: 'message-reply',
-          kind: 'button' as const,
-          label: 'Reply',
-          systemImage: 'arrowshape.turn.up.left',
-          toolTip: 'Reply',
-          immovable: true,
-        },
-        {
-          id: 'message-reply-all',
-          kind: 'button' as const,
-          label: 'Reply All',
-          systemImage: 'arrowshape.turn.up.left.2',
-          toolTip: 'Reply all',
-          immovable: true,
-        },
-        {
-          id: 'message-forward',
-          kind: 'button' as const,
-          label: 'Forward',
-          systemImage: 'arrowshape.turn.up.right',
-          toolTip: 'Forward',
-          immovable: true,
-        },
-      ]
-      : []),
-    ...(syncingInbox
-      ? [{
-          id: 'sync-inbox',
-          kind: 'progress' as const,
-          label: 'Syncing Mail',
-          toolTip: syncStatusLabel,
-          indeterminate: true,
-          immovable: true,
-        }]
-      : []),
-    ...(downloadState.status === 'running'
-      ? [{
-          id: 'download-progress',
-          kind: 'progress' as const,
-          label: 'Download Progress',
-          toolTip: downloadStatusLabel,
-          progress: downloadState.fraction,
-          indeterminate: !downloadState.currentProgress,
-          immovable: true,
-        }]
-      : []),
-    { id: 'connect-account', kind: 'button', label: 'Connect Gmail', systemImage: 'plus', toolTip: 'Connect another Gmail account', enabled: downloadState.status !== 'running', immovable: true },
-    ...(surface === 'mail'
-      ? [
-        {
-          id: 'gatekeeper',
-          kind: 'button' as const,
-          label: 'Gatekeeper',
-          systemImage: 'checkmark.shield',
-          badgeCount: gatekeeperOverview?.pending.length ?? 0,
-          toolTip: gatekeeperOverview?.pending.length
-            ? `Review ${gatekeeperOverview.pending.length.toLocaleString()} new ${
-                gatekeeperOverview.pending.length === 1 ? 'sender' : 'senders'
-              }`
-            : 'No new senders to review',
-          immovable: true,
-        },
-        {
-          id: 'settings',
-          kind: 'button' as const,
-          label: 'Settings',
-          systemImage: 'gearshape',
-          toolTip: 'Open Miwa settings',
-          immovable: true,
-        },
-      ]
-      : []),
-    {
-      id: 'more',
-      kind: 'menu',
-      label: 'More',
-      systemImage: 'ellipsis.circle',
-      options: [
-        ...accounts.map((account) => ({
-          id: `disconnect:${account.id}`,
-          label: `Disconnect ${account.email}`,
-          enabled: downloadState.status !== 'running',
-        })),
-        { id: 'customize', label: 'Customize Toolbar…' },
-        { id: 'reset', label: 'Reset Toolbar' },
-      ],
     },
-  ], [
-    accountSegments,
-    accounts,
-    downloadState,
-    downloadStatusLabel,
-    gatekeeperOverview?.pending.length,
-    focusedInboxSection,
-    inboxLayout,
-    inboxTitle,
-    selectedAccountIndex,
-    selectedThread,
-    archiveActionKey,
-    pinActionKey,
-    readStateActionKey,
+    [refreshGatekeeper, refreshThreads],
+  );
+
+  // --- Thread actions (optimistic, then confirmed against Gmail) ---
+
+  const patchThread = useCallback(
+    (thread: MailThreadSummary, patch: Partial<MailThreadSummary>) => {
+      const matches = (item: MailThreadSummary) =>
+        item.accountId === thread.accountId && item.threadId === thread.threadId;
+      setThreads((current) =>
+        current?.map((item) => (matches(item) ? { ...item, ...patch } : item)),
+      );
+      setSelectedThread((current) =>
+        current && matches(current) ? { ...current, ...patch } : current,
+      );
+    },
+    [],
+  );
+
+  const toggleRead = useCallback(
+    async (thread: MailThreadSummary) => {
+      const key = `read:${thread.accountId}:${thread.threadId}`;
+      if (busyAction === key) return;
+      const unread = !thread.unread;
+
+      setBusyAction(key);
+      patchThread(thread, { unread });
+      let gmailUpdated = false;
+      try {
+        await withGmailReauth(thread.accountId, () =>
+          setGmailThreadReadState(thread.accountId, thread.threadId, unread),
+        );
+        gmailUpdated = true;
+        await setThreadReadState(thread.accountId, thread.threadId, unread);
+        syncRef.current?.runNow();
+      } catch (error) {
+        if (!gmailUpdated) patchThread(thread, { unread: thread.unread });
+        else syncRef.current?.runNow();
+        Alert.alert(
+          gmailUpdated ? 'Gmail updated, but Miwa could not refresh' : 'Could not update Gmail',
+          messageFor(error),
+        );
+      } finally {
+        setBusyAction((current) => (current === key ? undefined : current));
+      }
+    },
+    [busyAction, patchThread],
+  );
+
+  const archiveThread = useCallback(
+    async (thread: MailThreadSummary) => {
+      const key = `archive:${thread.accountId}:${thread.threadId}`;
+      if (busyAction === key) return;
+
+      setBusyAction(key);
+      setThreads((current) =>
+        current?.filter(
+          (item) => item.accountId !== thread.accountId || item.threadId !== thread.threadId,
+        ),
+      );
+      let gmailUpdated = false;
+      try {
+        await withGmailReauth(thread.accountId, () =>
+          archiveGmailThread(thread.accountId, thread.threadId),
+        );
+        gmailUpdated = true;
+        await removeInboxThread(thread.accountId, thread.threadId);
+        void refreshGatekeeper(false);
+        syncRef.current?.runNow();
+      } catch (error) {
+        await refreshThreads();
+        if (gmailUpdated) syncRef.current?.runNow();
+        Alert.alert(
+          gmailUpdated
+            ? 'Gmail archived the conversation, but Miwa could not refresh'
+            : 'Could not archive conversation',
+          messageFor(error),
+        );
+      } finally {
+        setBusyAction((current) => (current === key ? undefined : current));
+      }
+    },
+    [busyAction, refreshGatekeeper, refreshThreads],
+  );
+
+  const setPinned = useCallback(
+    async (thread: MailThreadSummary, pinned: boolean) => {
+      const key = `pin:${thread.accountId}:${thread.threadId}`;
+      if (busyAction === key) return;
+
+      setBusyAction(key);
+      patchThread(thread, { pinned });
+      try {
+        await setThreadPinnedState(thread.accountId, thread.threadId, pinned);
+      } catch (error) {
+        patchThread(thread, { pinned: thread.pinned });
+        Alert.alert('Could not update pin', messageFor(error));
+      } finally {
+        setBusyAction((current) => (current === key ? undefined : current));
+      }
+    },
+    [busyAction, patchThread],
+  );
+
+  // --- Toolbar ---
+
+  const accountSegments = useMemo<ToolbarSegment[]>(
+    () => [
+      { id: 'all', label: 'All inboxes', systemImage: 'tray.full' },
+      ...(accounts ?? []).map((account) => ({
+        id: `account:${account.id}`,
+        label: account.email,
+        imageData: avatarData[account.id],
+        fallbackText: accountInitials(account),
+      })),
+    ],
+    [accounts, avatarData],
+  );
+
+  const selectedAccountIndex =
+    mailboxView.kind === 'all'
+      ? 0
+      : Math.max(
+          0,
+          (accounts ?? []).findIndex((account) => account.id === mailboxView.accountId) + 1,
+        );
+  const mailboxName =
+    mailboxView.kind === 'account' ? accountsById.get(mailboxView.accountId)?.email : undefined;
+  const inboxTitle = mailboxView.kind === 'all' ? 'All Inboxes' : mailboxName ?? 'Inbox';
+
+  const toolbarInput: ToolbarInput = {
     surface,
-    syncingInbox,
-    syncStatusLabel,
-  ]);
+    inboxTitle,
+    thread:
+      surface === 'mail' && selectedThread
+        ? {
+            unread: selectedThread.unread,
+            pinned: selectedThread.pinned,
+            busy: busyAction !== undefined,
+          }
+        : undefined,
+    sectionFocused: focusedSection !== undefined,
+    inboxLayout: preferences.inboxLayout,
+    accountSegments,
+    selectedAccountIndex,
+    syncing,
+    syncLabel,
+    download,
+    gatekeeperPending: gatekeeper?.pending.length ?? 0,
+    accounts: (accounts ?? []).map((account) => ({ id: account.id, email: account.email })),
+  };
+  const toolbarItems = buildToolbarItems(toolbarInput);
 
-  const mailboxLists = useMemo(() => [
-    {
-      key: 'all',
-      mailboxName: undefined,
-      threads: downloadedThreads ?? [],
-    },
-    ...accounts.map((account) => ({
-      key: `account:${account.id}`,
-      mailboxName: account.email,
-      threads: (downloadedThreads ?? []).filter(
-        (thread) => thread.accountId === account.id,
-      ),
-    })),
-  ], [accounts, downloadedThreads]);
-  const activeMailboxKey = mailboxView.kind === 'all'
-    ? 'all'
-    : `account:${mailboxView.accountId}`;
-  const selectMailboxSegment = useCallback((segmentId: string) => {
-    if (mailboxSelectionFrameRef.current !== null) {
-      cancelAnimationFrame(mailboxSelectionFrameRef.current);
-    }
-    mailboxSelectionFrameRef.current = requestAnimationFrame(() => {
-      mailboxSelectionFrameRef.current = null;
+  const selectMailbox = useCallback((segmentId: string) => {
+    if (mailboxFrameRef.current !== null) cancelAnimationFrame(mailboxFrameRef.current);
+    mailboxFrameRef.current = requestAnimationFrame(() => {
+      mailboxFrameRef.current = null;
       setSelectedThread(undefined);
-      setFocusedInboxSection(undefined);
+      setFocusedSection(undefined);
       setSurface('mail');
-      setMailboxView(segmentId === 'all'
-        ? { kind: 'all' }
-        : { kind: 'account', accountId: segmentId.replace('account:', '') });
+      setMailboxView(
+        segmentId === 'all'
+          ? { kind: 'all' }
+          : { kind: 'account', accountId: segmentId.replace('account:', '') },
+      );
     });
   }, []);
-  const handleListLoad = useCallback(({ elapsedTimeInMs }: { elapsedTimeInMs: number }) => {
-    if (!__DEV__ || listPerformanceLoggedRef.current || !mailLoadPerformance) return;
-    listPerformanceLoggedRef.current = true;
-    console.info('[MiwaPerformance] list-ready', JSON.stringify({
-      threadCount: mailLoadPerformance.threadCount,
-      databaseFetchMs: Number(mailLoadPerformance.databaseFetchMs.toFixed(2)),
-      legendInitialRenderMs: Number(elapsedTimeInMs.toFixed(2)),
-      appModuleToListMs: Number(
-        (globalThis.performance.now() - appModuleStartedAt).toFixed(2)
-      ),
-    }));
-  }, [mailLoadPerformance]);
-  const mainContent = useMemo(() => {
-    if (loadingAccounts || downloadedThreads === undefined) {
-      return <Text selectable style={styles.stateText}>Loading downloaded mail…</Text>;
-    }
-    if (mailLoadError) {
-      return (
-        <View style={styles.emptyState}>
-          <Text selectable style={styles.emptyTitle}>The mail drawer is stuck.</Text>
-          <Text selectable style={styles.connectError}>{mailLoadError}</Text>
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => void loadAllDownloadedMail()}
-            style={({ pressed }) => [styles.connectButton, pressed && styles.connectButtonPressed]}
-          >
-            <Text style={styles.connectButtonText}>Try Again</Text>
-          </Pressable>
-        </View>
-      );
-    }
-    if (!accounts.length && downloadedThreads.length === 0) {
-      return (
-        <View style={styles.emptyState}>
-          <Text selectable style={styles.emptyTitle}>No mailbox has wandered in yet.</Text>
-          <Text selectable style={styles.emptyCopy}>Connect a Gmail account, then download an inbox for offline reading.</Text>
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => void connectAccount()}
-            style={({ pressed }) => [styles.connectButton, pressed && styles.connectButtonPressed]}
-          >
-            <Text style={styles.connectButtonText}>Connect Gmail</Text>
-          </Pressable>
-          {connectError ? <Text style={styles.connectError}>{connectError}</Text> : null}
-        </View>
-      );
-    }
-    const activeList = mailboxLists.find((list) => list.key === activeMailboxKey);
-    if (!activeList) return null;
 
-    return (
-      <View style={styles.mailboxListStack}>
-        <MailboxThreadList
-          key={activeList.key}
-          accountsById={accountsById}
-          focusedSection={focusedInboxSection}
-          layoutMode={inboxLayout}
-          emptyMailboxName={activeList.mailboxName}
-          onFocusSection={setFocusedInboxSection}
-          onListLoad={handleListLoad}
-          onOpenThread={setSelectedThread}
-          onArchive={(thread) => void archiveThread(thread)}
-          onSetPinned={(thread, pinned) => void setThreadPinned(thread, pinned)}
-          onToggleRead={(thread) => void changeThreadReadState(thread)}
-          preferences={preferences}
-          threads={activeList.threads}
+  const handleToolbarPress = useCallback(
+    ({ nativeEvent }: ToolbarItemPressEvent) => {
+      const id = nativeEvent.id;
+      if (id === 'back') {
+        if (selectedThread) setSelectedThread(undefined);
+        else setFocusedSection(undefined);
+        setSurface('mail');
+      } else if (id === 'message-read-toggle' && selectedThread) {
+        void toggleRead(selectedThread);
+      } else if (id === 'message-archive' && selectedThread) {
+        void archiveThread(selectedThread);
+      } else if (id === 'message-pin' && selectedThread) {
+        void setPinned(selectedThread, !selectedThread.pinned);
+      } else if (id === 'connect-account') {
+        void connectAccount();
+      } else if (id === 'gatekeeper' || id === 'settings') {
+        setSelectedThread(undefined);
+        setFocusedSection(undefined);
+        setSurface(id);
+      }
+    },
+    [archiveThread, connectAccount, selectedThread, setPinned, toggleRead],
+  );
+
+  const handleSegmentChange = useCallback(
+    ({ nativeEvent }: ToolbarSegmentChangeEvent) => {
+      if (nativeEvent.id === 'inbox-layout') {
+        setFocusedSection(undefined);
+        changePreference('inboxLayout', inboxLayoutMode(nativeEvent.segmentId));
+      } else {
+        selectMailbox(nativeEvent.segmentId);
+      }
+    },
+    [changePreference, selectMailbox],
+  );
+
+  const handleMenuPress = useCallback(
+    ({ nativeEvent }: ToolbarMenuItemPressEvent) => {
+      if (nativeEvent.optionId === 'customize') {
+        void toolbarRef.current?.showCustomizationPalette();
+      } else if (nativeEvent.optionId === 'reset') {
+        void toolbarRef.current?.resetConfiguration();
+      } else if (nativeEvent.optionId.startsWith('disconnect:')) {
+        const account = accountsById.get(nativeEvent.optionId.replace('disconnect:', ''));
+        if (account) disconnectAccount(account);
+      }
+    },
+    [accountsById, disconnectAccount],
+  );
+
+  // --- Main content ---
+
+  const visibleThreads = useMemo(() => {
+    if (mailboxView.kind === 'all') return threads ?? [];
+    return (threads ?? []).filter((thread) => thread.accountId === mailboxView.accountId);
+  }, [threads, mailboxView]);
+
+  let mainContent: React.ReactNode = null;
+  if (accounts === undefined || threads === undefined) {
+    mainContent = (
+      <Text selectable style={shared.stateText}>Loading downloaded mail…</Text>
+    );
+  } else if (threadsError) {
+    mainContent = (
+      <View style={styles.emptyState}>
+        <Text selectable style={styles.emptyTitle}>The mail drawer is stuck.</Text>
+        <Text selectable style={styles.errorText}>{threadsError}</Text>
+        <NativeActionButton
+          label="Try Again"
+          onPress={() => void refreshThreads()}
+          variant="glassProminent"
         />
       </View>
     );
-  }, [
-    accountsById,
-    accounts.length,
-    activeMailboxKey,
-    archiveThread,
-    connectAccount,
-    connectError,
-    downloadedThreads,
-    handleListLoad,
-    loadAllDownloadedMail,
-    loadingAccounts,
-    mailboxLists,
-    mailLoadError,
-    focusedInboxSection,
-    inboxLayout,
-    preferences,
-    setThreadPinned,
-  ]);
+  } else if (accounts.length === 0 && threads.length === 0) {
+    mainContent = (
+      <View style={styles.emptyState}>
+        <Text selectable style={styles.emptyTitle}>No mailbox has wandered in yet.</Text>
+        <Text selectable style={styles.emptyCopy}>
+          Connect a Gmail account, then download an inbox for offline reading.
+        </Text>
+        <NativeActionButton
+          label="Connect Gmail"
+          onPress={() => void connectAccount()}
+          variant="glassProminent"
+        />
+        {connectError ? <Text style={styles.errorText}>{connectError}</Text> : null}
+      </View>
+    );
+  } else {
+    mainContent = (
+      <ThreadList
+        key={mailboxView.kind === 'all' ? 'all' : mailboxView.accountId}
+        accountsById={accountsById}
+        focusedSection={focusedSection}
+        layoutMode={preferences.inboxLayout}
+        emptyMailboxName={mailboxName}
+        onFocusSection={setFocusedSection}
+        onOpenThread={setSelectedThread}
+        onArchive={(thread) => void archiveThread(thread)}
+        onSetPinned={(thread, pinned) => void setPinned(thread, pinned)}
+        onToggleRead={(thread) => void toggleRead(thread)}
+        preferences={preferences}
+        threads={visibleThreads}
+      />
+    );
+  }
 
   return (
     <View style={styles.appRoot}>
       <NativeWindowToolbar
         ref={toolbarRef}
-        style={styles.nativeToolbarBridge}
-        identifier={
-          surface === 'settings'
-            ? 'MiwaSettingsToolbar'
-            : surface === 'gatekeeper'
-              ? 'MiwaGatekeeperToolbar'
-            : selectedThread
-              ? 'MiwaMessageToolbar'
-              : focusedInboxSection
-                ? 'MiwaSectionToolbar'
-                : 'MiwaLeadingInboxToolbar'
-        }
+        style={styles.toolbarBridge}
+        identifier={toolbarIdentifier(toolbarInput)}
         items={toolbarItems}
         customizable
         autosavesConfiguration
         displayMode="iconOnly"
         toolbarStyle="unified"
-        onItemPress={({ nativeEvent }) => {
-          if (nativeEvent.id === 'back') {
-            if (selectedThread) setSelectedThread(undefined);
-            else if (focusedInboxSection) setFocusedInboxSection(undefined);
-            setSurface('mail');
-          }
-          else if (nativeEvent.id === 'message-read-toggle' && selectedThread) {
-            void changeThreadReadState(selectedThread);
-          }
-          else if (nativeEvent.id === 'message-archive' && selectedThread) {
-            void archiveThread(selectedThread);
-          }
-          else if (nativeEvent.id === 'message-pin' && selectedThread) {
-            void setThreadPinned(selectedThread, !selectedThread.pinned);
-          }
-          else if (nativeEvent.id === 'connect-account') void connectAccount();
-          else if (nativeEvent.id === 'gatekeeper') {
-            setSelectedThread(undefined);
-            setFocusedInboxSection(undefined);
-            setSurface('gatekeeper');
-          }
-          else if (nativeEvent.id === 'settings') {
-            setSelectedThread(undefined);
-            setFocusedInboxSection(undefined);
-            setSurface('settings');
-          }
-        }}
-        onSegmentChange={({ nativeEvent }) => {
-          if (nativeEvent.id === 'inbox-layout') {
-            const layout = inboxLayoutMode(nativeEvent.segmentId);
-            setInboxLayout(layout);
-            setFocusedInboxSection(undefined);
-            saveInboxLayoutMode(layout);
-          } else {
-            selectMailboxSegment(nativeEvent.segmentId);
-          }
-        }}
-        onMenuItemPress={({ nativeEvent }) => {
-          if (nativeEvent.optionId === 'customize') void toolbarRef.current?.showCustomizationPalette();
-          else if (nativeEvent.optionId === 'reset') void toolbarRef.current?.resetConfiguration();
-          else if (nativeEvent.optionId.startsWith('disconnect:')) {
-            const account = accountsById.get(nativeEvent.optionId.replace('disconnect:', ''));
-            if (account) disconnect(account);
-          }
-        }}
+        onItemPress={handleToolbarPress}
+        onSegmentChange={handleSegmentChange}
+        onMenuItemPress={handleMenuPress}
       />
 
       <View style={styles.mainPane}>
@@ -1068,20 +684,20 @@ export default function App() {
         {surface === 'settings' ? (
           <View style={styles.contentLayer}>
             <SettingsView
-              accounts={accounts}
-              clearEnabled={downloadState.status !== 'running' && !syncingInbox}
-              downloadEnabled={accounts.length > 0}
+              accounts={accounts ?? []}
+              clearEnabled={!download && !syncing}
+              downloadEnabled={(accounts ?? []).length > 0}
               downloadLimit={DEFAULT_INBOX_DOWNLOAD_LIMIT}
-              downloadStatus={downloadStatusLabel}
-              downloadingAccountId={downloadState.currentAccountId}
-              isClearingData={isClearingData}
-              isDownloading={downloadState.status === 'running'}
+              downloadStatus={download?.label ?? ''}
+              downloadingAccountId={download?.accountId}
+              isClearingData={clearing}
+              isDownloading={download !== undefined}
               onChangePreference={changePreference}
-              onClearDatabase={clearDatabase}
+              onClearDatabase={clearData}
               onConnectAccount={() => void connectAccount()}
-              onDownloadMail={() => void downloadAccounts(accounts)}
+              onDownloadMail={() => void downloadAccounts(accounts ?? [])}
               onDownloadMailbox={(account) => void downloadAccounts([account])}
-              onDisconnectAccount={disconnect}
+              onDisconnectAccount={disconnectAccount}
               preferences={preferences}
             />
           </View>
@@ -1096,77 +712,16 @@ export default function App() {
               onBlock={(email) => void decideGatekeeperSender(email, 'blocked')}
               onRetry={() => void refreshGatekeeper()}
               onUnblock={(email) => void decideGatekeeperSender(email, 'pending')}
-              overview={gatekeeperOverview}
+              overview={gatekeeper}
             />
           </View>
         ) : null}
         {surface === 'mail' && !selectedThread ? (
-          <View style={styles.contentLayer}>
-            {mainContent}
-          </View>
+          <View style={styles.contentLayer}>{mainContent}</View>
         ) : null}
-        {selectedThread && surface === 'mail' ? (
+        {surface === 'mail' && selectedThread ? (
           <View style={styles.contentLayer}>
-            <ScrollView
-              contentContainerStyle={styles.detailContent}
-              contentInsetAdjustmentBehavior="automatic"
-              style={styles.scrollView}
-            >
-              {detailLoading ? <Text selectable style={styles.stateText}>Opening downloaded conversation…</Text> : null}
-              {detailError ? <Text selectable style={styles.connectError}>{detailError}</Text> : null}
-              {threadDetail ? (
-                <>
-                  <Text selectable style={styles.detailSubject}>
-                    {threadDetail.subject || '(No subject)'}
-                  </Text>
-                  <View style={styles.messageStack}>
-                    {threadDetail.messages.map((message) => (
-                      <View key={message.id} style={styles.messageCard}>
-                        <View style={styles.messageHeader}>
-                          <View style={styles.senderMonogram}>
-                            <Text selectable style={styles.senderMonogramText}>
-                              {message.sender.slice(0, 1).toUpperCase()}
-                            </Text>
-                          </View>
-                          <View style={styles.messageIdentity}>
-                            <Text selectable style={styles.messageSender}>
-                              {message.sender}
-                            </Text>
-                            {message.recipients ? (
-                              <Text numberOfLines={1} selectable style={styles.recipients}>
-                                to {message.recipients}
-                              </Text>
-                            ) : null}
-                          </View>
-                          <Text selectable style={styles.messageDate}>
-                            {new Date(message.sentAt).toLocaleString()}
-                          </Text>
-                        </View>
-                        <View style={styles.messageRule} />
-                        <NativeMailViewer
-                          html={message.safeHtml}
-                          plainText={message.plainText || 'This message has no readable body.'}
-                          style={styles.mailViewer}
-                        />
-                        {message.attachments.length ? (
-                          <View style={styles.attachmentList}>
-                            {message.attachments.map((attachment) => (
-                              <Text
-                                key={attachment.id ?? attachment.filename}
-                                selectable
-                                style={styles.attachmentText}
-                              >
-                                {attachment.filename || 'Attachment'}
-                              </Text>
-                            ))}
-                          </View>
-                        ) : null}
-                      </View>
-                    ))}
-                  </View>
-                </>
-              ) : null}
-            </ScrollView>
+            <ThreadDetail detail={detail} loading={detailLoading} error={detailError} />
           </View>
         ) : null}
       </View>
@@ -1175,8 +730,8 @@ export default function App() {
 }
 
 const styles = StyleSheet.create({
-  appRoot: { flex: 1, backgroundColor: PlatformColor('windowBackgroundColor') },
-  nativeToolbarBridge: { position: 'absolute', width: 1, height: 1, opacity: 0 },
+  appRoot: { flex: 1, backgroundColor: colors.window },
+  toolbarBridge: { position: 'absolute', width: 1, height: 1, opacity: 0 },
   mainPane: {
     flex: 1,
     alignItems: 'stretch',
@@ -1204,102 +759,34 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 116, 177, 0.14)',
     transform: [{ rotate: '14deg' }],
   },
-  scrollView: { flex: 1 },
-  mailboxListStack: { flex: 1, position: 'relative' },
   contentLayer: { ...StyleSheet.absoluteFillObject },
-  detailContent: {
-    flexGrow: 1,
-    width: '100%',
-    maxWidth: 1080,
-    alignSelf: 'center',
-    paddingHorizontal: 38,
-    paddingTop: 16,
-    paddingBottom: 16,
-    gap: 16,
-  },
-  detailEyebrow: {
-    color: '#E86E5A',
-    fontSize: 9,
-    fontWeight: '800',
-    letterSpacing: 1.3,
-    paddingTop: 6,
-  },
-  detailSubject: {
-    color: PlatformColor('labelColor'),
-    fontSize: 30,
-    fontWeight: '700',
-    letterSpacing: -0.8,
-  },
-  messageStack: {
-    flexGrow: 1,
-    gap: 16,
-  },
-  messageCard: {
-    flexGrow: 1,
-    padding: 20,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: PlatformColor('separatorColor'),
-    borderRadius: 14,
-    borderCurve: 'continuous',
-    backgroundColor: PlatformColor('controlBackgroundColor'),
-    boxShadow: '0 8px 26px rgba(0, 0, 0, 0.055)',
-    gap: 12,
-  },
-  messageHeader: { flexDirection: 'row', alignItems: 'center', gap: 11 },
-  senderMonogram: {
-    width: 34,
-    height: 34,
+  emptyState: {
+    flex: 1,
+    minHeight: 360,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 11,
-    borderCurve: 'continuous',
-    backgroundColor: '#E86E5A',
+    padding: 28,
+    gap: 9,
   },
-  senderMonogramText: { color: '#fff', fontSize: 13, fontWeight: '700' },
-  messageIdentity: { flex: 1, minWidth: 0, gap: 2 },
-  messageSender: {
-    color: PlatformColor('labelColor'),
+  emptyTitle: {
+    color: colors.label,
+    fontSize: 18,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  emptyCopy: {
+    maxWidth: 320,
+    color: colors.secondaryLabel,
     fontSize: 13,
-    fontWeight: '600',
+    lineHeight: 18,
+    textAlign: 'center',
   },
-  messageDate: {
-    color: PlatformColor('secondaryLabelColor'),
-    fontSize: 10,
-    fontVariant: ['tabular-nums'],
-  },
-  recipients: { color: PlatformColor('secondaryLabelColor'), fontSize: 10 },
-  messageRule: {
-    height: StyleSheet.hairlineWidth,
-    backgroundColor: PlatformColor('separatorColor'),
-  },
-  mailViewer: {
-    flex: 1,
-    minHeight: 320,
-    width: '100%',
-  },
-  attachmentList: {
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: PlatformColor('separatorColor'),
-    paddingTop: 10,
-    gap: 5,
-  },
-  attachmentText: {
-    alignSelf: 'flex-start',
-    color: '#C95243',
+  errorText: {
+    maxWidth: 460,
+    marginTop: 6,
+    color: colors.red,
     fontSize: 11,
-    fontWeight: '600',
-    paddingHorizontal: 9,
-    paddingVertical: 6,
-    borderRadius: 7,
-    borderCurve: 'continuous',
-    backgroundColor: 'rgba(232, 110, 90, 0.09)',
+    lineHeight: 15,
+    textAlign: 'center',
   },
-  emptyState: { flex: 1, minHeight: 360, alignItems: 'center', justifyContent: 'center', padding: 28, gap: 9 },
-  emptyTitle: { color: PlatformColor('labelColor'), fontSize: 18, fontWeight: '600', textAlign: 'center' },
-  emptyCopy: { maxWidth: 320, color: PlatformColor('secondaryLabelColor'), fontSize: 13, lineHeight: 18, textAlign: 'center' },
-  connectButton: { width: 150, height: 32, marginTop: 8, borderRadius: 7, borderCurve: 'continuous', alignItems: 'center', justifyContent: 'center', backgroundColor: '#E86E5A' },
-  connectButtonPressed: { opacity: 0.72 },
-  connectButtonText: { color: '#fff', fontSize: 13, fontWeight: '600' },
-  connectError: { maxWidth: 460, marginTop: 6, color: PlatformColor('systemRedColor'), fontSize: 11, lineHeight: 15, textAlign: 'center' },
-  stateText: { padding: 16, color: PlatformColor('secondaryLabelColor'), fontSize: 12, textAlign: 'center' },
 });

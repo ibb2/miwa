@@ -1,18 +1,15 @@
-import {
-  PlatformColor,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import { NativeActionButton } from './native-action-button';
-import { NativeDivider } from './native-divider';
-import { NativePreferenceSwitch } from './native-preference-switch';
-import { NativeSectionLabel } from './native-section-label';
-import { NativeSymbol } from './native-symbol';
 import type { ConnectedAccount } from '../mail/types';
-import type { MailPreferences } from '../settings/mail-preferences';
+import type { MailPreferences } from '../settings/preferences';
+import { accentDark, colors, shared } from '../theme';
+import {
+  NativeActionButton,
+  NativeDivider,
+  NativeSectionLabel,
+  NativeSwitch,
+  NativeSymbol,
+} from './native';
 
 type SettingsViewProps = {
   accounts: ConnectedAccount[];
@@ -24,7 +21,10 @@ type SettingsViewProps = {
   isClearingData: boolean;
   isDownloading: boolean;
   preferences: MailPreferences;
-  onChangePreference: (key: keyof MailPreferences, value: boolean) => void;
+  onChangePreference: <K extends keyof MailPreferences>(
+    key: K,
+    value: MailPreferences[K],
+  ) => void;
   onClearDatabase: () => void;
   onConnectAccount: () => void;
   onDownloadMail: () => void;
@@ -44,16 +44,12 @@ function PreferenceRow({
   value: boolean;
 }) {
   return (
-    <View style={styles.preferenceRow}>
-      <View style={styles.preferenceCopy}>
-        <Text selectable style={styles.preferenceLabel}>{label}</Text>
-        <Text selectable style={styles.preferenceDescription}>{description}</Text>
+    <View style={styles.row}>
+      <View style={styles.rowCopy}>
+        <Text selectable style={styles.rowLabel}>{label}</Text>
+        <Text selectable style={styles.rowDescription}>{description}</Text>
       </View>
-      <NativePreferenceSwitch
-        label={label}
-        onValueChange={onValueChange}
-        value={value}
-      />
+      <NativeSwitch label={label} onValueChange={onValueChange} value={value} />
     </View>
   );
 }
@@ -79,23 +75,23 @@ export function SettingsView({
     <ScrollView
       contentContainerStyle={styles.content}
       contentInsetAdjustmentBehavior="automatic"
-      style={styles.scrollView}
+      style={shared.screenScroll}
     >
       <View style={styles.titleBlock}>
-        <Text selectable style={styles.eyebrow}>MIWA</Text>
-        <Text selectable style={styles.title}>Settings</Text>
-        <Text selectable style={styles.subtitle}>
+        <Text selectable style={shared.eyebrow}>MIWA</Text>
+        <Text selectable style={[shared.screenTitle, styles.title]}>Settings</Text>
+        <Text selectable style={[shared.screenSubtitle, styles.subtitle]}>
           Shape the reading desk around the way you work.
         </Text>
       </View>
 
       <View style={styles.section}>
         <NativeSectionLabel label="OFFLINE MAIL" systemImage="arrow.down.circle" />
-        <View style={styles.group}>
-          <View style={styles.downloadRow}>
-            <View style={styles.preferenceCopy}>
-              <Text selectable style={styles.preferenceLabel}>Initial mail download</Text>
-              <Text selectable style={styles.preferenceDescription}>
+        <View style={shared.card}>
+          <View style={styles.row}>
+            <View style={styles.rowCopy}>
+              <Text selectable style={styles.rowLabel}>Initial mail download</Text>
+              <Text selectable style={styles.rowDescription}>
                 Download up to {downloadLimit.toLocaleString()} inbox emails per account.
                 New mail will be synced incrementally afterwards.
               </Text>
@@ -113,16 +109,16 @@ export function SettingsView({
           {accounts.map((account) => (
             <View key={account.id}>
               <NativeDivider />
-              <View style={styles.mailboxDownloadRow}>
+              <View style={styles.row}>
                 <NativeSymbol
                   fallback={(account.displayName || account.email).slice(0, 1).toUpperCase()}
                   systemName="tray"
                 />
-                <View style={styles.accountCopy}>
-                  <Text numberOfLines={1} selectable style={styles.accountEmail}>
+                <View style={styles.rowCopy}>
+                  <Text numberOfLines={1} selectable style={styles.rowLabel}>
                     {account.email}
                   </Text>
-                  <Text selectable style={styles.preferenceDescription}>
+                  <Text selectable style={styles.rowDescription}>
                     Download up to {downloadLimit.toLocaleString()} inbox emails.
                   </Text>
                   {isDownloading && downloadingAccountId === account.id ? (
@@ -148,7 +144,7 @@ export function SettingsView({
 
       <View style={styles.section}>
         <NativeSectionLabel label="INBOX" systemImage="tray.full" />
-        <View style={styles.group}>
+        <View style={shared.card}>
           <PreferenceRow
             description="Include a short excerpt in every email row."
             label="Show message previews"
@@ -168,24 +164,22 @@ export function SettingsView({
       <View style={styles.section}>
         <View style={styles.sectionHeading}>
           <NativeSectionLabel label="ACCOUNTS" systemImage="person.crop.circle" />
-          <Text selectable style={styles.sectionCount}>
-            {accounts.length.toLocaleString()}
-          </Text>
+          <Text selectable style={styles.sectionCount}>{accounts.length.toLocaleString()}</Text>
         </View>
-        <View style={styles.group}>
+        <View style={shared.card}>
           {accounts.map((account, index) => (
             <View key={account.id}>
               {index > 0 ? <NativeDivider /> : null}
-              <View style={styles.accountRow}>
+              <View style={styles.row}>
                 <NativeSymbol
                   fallback={(account.displayName || account.email).slice(0, 1).toUpperCase()}
                   systemName="envelope.fill"
                 />
-                <View style={styles.accountCopy}>
-                  <Text numberOfLines={1} selectable style={styles.accountName}>
+                <View style={styles.rowCopy}>
+                  <Text numberOfLines={1} selectable style={styles.rowLabel}>
                     {account.displayName || 'Gmail'}
                   </Text>
-                  <Text numberOfLines={1} selectable style={styles.accountEmail}>
+                  <Text numberOfLines={1} selectable style={styles.rowDescription}>
                     {account.email}
                   </Text>
                 </View>
@@ -213,11 +207,11 @@ export function SettingsView({
 
       <View style={styles.section}>
         <NativeSectionLabel label="LOCAL DATA" systemImage="internaldrive" />
-        <View style={styles.group}>
-          <View style={styles.clearDataRow}>
-            <View style={styles.preferenceCopy}>
-              <Text selectable style={styles.preferenceLabel}>Clear local database</Text>
-              <Text selectable style={styles.preferenceDescription}>
+        <View style={shared.card}>
+          <View style={styles.row}>
+            <View style={styles.rowCopy}>
+              <Text selectable style={styles.rowLabel}>Clear local database</Text>
+              <Text selectable style={styles.rowDescription}>
                 Remove downloaded messages, attachments, account cache and sync history,
                 then reset preferences. Your Gmail accounts remain connected.
               </Text>
@@ -244,7 +238,6 @@ export function SettingsView({
 }
 
 const styles = StyleSheet.create({
-  scrollView: { flex: 1 },
   content: {
     width: '100%',
     maxWidth: 760,
@@ -255,23 +248,8 @@ const styles = StyleSheet.create({
     gap: 34,
   },
   titleBlock: { gap: 5 },
-  eyebrow: {
-    color: '#E86E5A',
-    fontSize: 10,
-    fontWeight: '800',
-    letterSpacing: 1.6,
-  },
-  title: {
-    color: PlatformColor('labelColor'),
-    fontSize: 32,
-    fontWeight: '700',
-    letterSpacing: -0.8,
-  },
-  subtitle: {
-    color: PlatformColor('secondaryLabelColor'),
-    fontSize: 14,
-    lineHeight: 20,
-  },
+  title: { fontSize: 32 },
+  subtitle: { fontSize: 14, lineHeight: 20 },
   section: { gap: 9 },
   sectionHeading: {
     flexDirection: 'row',
@@ -280,19 +258,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 2,
   },
   sectionCount: {
-    color: PlatformColor('tertiaryLabelColor'),
+    color: colors.tertiaryLabel,
     fontSize: 10,
     fontVariant: ['tabular-nums'],
   },
-  group: {
-    overflow: 'hidden',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: PlatformColor('separatorColor'),
-    borderRadius: 14,
-    borderCurve: 'continuous',
-    backgroundColor: PlatformColor('controlBackgroundColor'),
-  },
-  preferenceRow: {
+  row: {
     minHeight: 66,
     flexDirection: 'row',
     alignItems: 'center',
@@ -300,73 +270,17 @@ const styles = StyleSheet.create({
     paddingVertical: 11,
     gap: 18,
   },
-  preferenceCopy: { flex: 1, gap: 2 },
-  preferenceLabel: {
-    color: PlatformColor('labelColor'),
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  preferenceDescription: {
-    color: PlatformColor('secondaryLabelColor'),
-    fontSize: 11,
-    lineHeight: 15,
-  },
-  downloadRow: {
-    minHeight: 84,
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 13,
-    gap: 18,
-  },
-  mailboxDownloadRow: {
-    minHeight: 68,
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    gap: 11,
-  },
-  downloadStatus: {
-    color: '#C95243',
-    fontSize: 10,
-    lineHeight: 14,
-    paddingTop: 3,
-  },
-  accountRow: {
-    minHeight: 66,
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 9,
-    gap: 11,
-  },
-  accountCopy: { flex: 1, gap: 2 },
-  accountName: {
-    color: PlatformColor('labelColor'),
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  accountEmail: { color: PlatformColor('secondaryLabelColor'), fontSize: 11 },
+  rowCopy: { flex: 1, gap: 2 },
+  rowLabel: { color: colors.label, fontSize: 13, fontWeight: '600' },
+  rowDescription: { color: colors.secondaryLabel, fontSize: 11, lineHeight: 15 },
+  downloadStatus: { color: accentDark, fontSize: 10, lineHeight: 14, paddingTop: 3 },
   connectRow: {
     minHeight: 50,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 12,
   },
-  clearDataRow: {
-    minHeight: 84,
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 13,
-    gap: 18,
-  },
   aboutRow: { alignItems: 'center', gap: 3, paddingTop: 2 },
-  aboutTitle: { color: PlatformColor('secondaryLabelColor'), fontSize: 11, fontWeight: '600' },
-  aboutCopy: {
-    color: PlatformColor('tertiaryLabelColor'),
-    fontSize: 10,
-    textAlign: 'center',
-  },
+  aboutTitle: { color: colors.secondaryLabel, fontSize: 11, fontWeight: '600' },
+  aboutCopy: { color: colors.tertiaryLabel, fontSize: 10, textAlign: 'center' },
 });

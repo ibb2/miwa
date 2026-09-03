@@ -1,64 +1,27 @@
-import { gmailAccountAuth } from './account-auth';
-import { mailCategoryForLabels } from './mail-category';
-import {
-  compareThreads,
-  extractMailBody,
-  gmailThreadArchiveModification,
-  gmailThreadReadStateModification,
-  sanitizeEmailHtml,
-  stripHtml,
-  type GmailPart,
-} from './gmail-utils';
-import type {
-  AccountInboxPage,
-  MailMessage,
-  MailThreadDetail,
-  MailThreadSummary,
-} from './types';
+import { gmailAccountAuth } from './accounts';
 
 const GMAIL_API = 'https://gmail.googleapis.com/gmail/v1/users/me';
-const PAGE_SIZE = 25;
-const TRANSIENT_STATUSES = new Set([429, 500, 502, 503, 504]);
-
-type XhrResponse = {
-  status: number;
-  text: string;
-};
-
-type GmailHeader = { name: string; value: string };
-type GmailMessage = {
-  id: string;
-  labelIds?: string[];
-  snippet?: string;
-  internalDate?: string;
-  payload?: GmailPart;
-};
-type GmailThread = { id: string; messages?: GmailMessage[] };
-type GmailThreadList = {
-  threads?: Array<{ id: string }>;
-  nextPageToken?: string;
-};
+const RETRYABLE_STATUSES = new Set([429, 500, 502, 503, 504]);
 
 export class GmailApiError extends Error {
   constructor(
     message: string,
     readonly status: number,
-    readonly requiresReauthentication = false
+    readonly requiresReauthentication = false,
   ) {
     super(message);
     this.name = 'GmailApiError';
   }
 }
 
-const wait = (milliseconds: number) =>
-  new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
+type XhrResponse = { status: number; text: string };
 
-function gmailRequest(
+function xhrRequest(
+  method: string,
   url: string,
   accessToken: string,
-  signal?: AbortSignal,
-  method = 'GET',
   body?: string,
+  signal?: AbortSignal,
 ): Promise<XhrResponse> {
   return new Promise((resolve, reject) => {
     const request = new XMLHttpRequest();
@@ -92,214 +55,106 @@ function gmailRequest(
   });
 }
 
-function gmailError(response: XhrResponse): GmailApiError {
-  const payload = (() => {
-    try {
-      return JSON.parse(response.text) as {
-        error?: {
-          message?: string;
-          errors?: Array<{ reason?: string }>;
-        };
-      };
-    } catch {
-      return null;
-    }
-  })();
+function toGmailError(response: XhrResponse): GmailApiError {
+  let payload: { error?: { message?: string; errors?: Array<{ reason?: string }> } } | null = null;
+  try {
+    payload = JSON.parse(response.text);
+  } catch {
+    // Non-JSON error bodies fall through to the generic message below.
+  }
   const message = payload?.error?.message ?? `Gmail request failed (${response.status})`;
-  const insufficientScope = payload?.error?.errors?.some(
-    (error) => error.reason === 'insufficientPermissions',
-  ) || /insufficient (authentication )?scopes?/i.test(message);
-  return new GmailApiError(
-    message,
-    response.status,
-    response.status === 401 || insufficientScope,
-  );
+  const insufficientScope =
+    payload?.error?.errors?.some((error) => error.reason === 'insufficientPermissions') ||
+    /insufficient (authentication )?scopes?/i.test(message);
+  return new GmailApiError(message, response.status, response.status === 401 || insufficientScope);
 }
 
+const wait = (milliseconds: number) =>
+  new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
+
 /**
- * Performs an authenticated, read-only Gmail API GET request.
- *
- * Keep mutation endpoints out of this helper so download/sync services cannot
- * accidentally alter labels, read state, or delete server-side mail.
+ * Performs one authenticated Gmail API call. A 401 retries once with a fresh
+ * access token; transient server errors retry twice with backoff.
  */
-export async function gmailGet<T>(
+async function gmailFetch(
   accountId: string,
+  method: 'GET' | 'POST',
   path: string,
+  body?: string,
   signal?: AbortSignal,
   attempt = 0,
-  forceRefresh = false
-): Promise<T> {
-  const token = await gmailAccountAuth.getAccessToken(accountId, forceRefresh);
+  refreshed = false,
+): Promise<XhrResponse> {
+  const token = await gmailAccountAuth.getAccessToken(accountId, refreshed);
   let response: XhrResponse;
-
   try {
-    response = await gmailRequest(`${GMAIL_API}${path}`, token.accessToken, signal);
+    response = await xhrRequest(method, `${GMAIL_API}${path}`, token.accessToken, body, signal);
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') throw error;
     throw new GmailApiError('Unable to reach Gmail. Check your connection.', 0);
   }
 
-  if (response.status === 401 && !forceRefresh) {
-    return gmailGet(accountId, path, signal, attempt, true);
+  if (response.status === 401 && !refreshed) {
+    return gmailFetch(accountId, method, path, body, signal, attempt, true);
   }
-
-  if (TRANSIENT_STATUSES.has(response.status) && attempt < 2) {
+  if (RETRYABLE_STATUSES.has(response.status) && attempt < 2) {
     await wait(400 * 2 ** attempt);
-    return gmailGet(accountId, path, signal, attempt + 1, forceRefresh);
+    return gmailFetch(accountId, method, path, body, signal, attempt + 1, refreshed);
   }
+  if (response.status < 200 || response.status >= 300) throw toGmailError(response);
+  return response;
+}
 
-  if (response.status < 200 || response.status >= 300) {
-    throw gmailError(response);
-  }
-
+/** Authenticated read-only Gmail GET. Never mutates server-side mail. */
+export async function gmailGet<T>(accountId: string, path: string, signal?: AbortSignal): Promise<T> {
+  const response = await gmailFetch(accountId, 'GET', path, undefined, signal);
   return JSON.parse(response.text) as T;
 }
 
-async function modifyGmailThread(
+function modifyThread(
   accountId: string,
   threadId: string,
   modification: { addLabelIds?: string[]; removeLabelIds?: string[] },
-  attempt = 0,
-  forceRefresh = false,
 ): Promise<void> {
-  const token = await gmailAccountAuth.getAccessToken(accountId, forceRefresh);
-  let response: XhrResponse;
-  try {
-    response = await gmailRequest(
-      `${GMAIL_API}/threads/${encodeURIComponent(threadId)}/modify`,
-      token.accessToken,
-      undefined,
-      'POST',
-      JSON.stringify(modification),
-    );
-  } catch {
-    throw new GmailApiError('Unable to reach Gmail. Check your connection.', 0);
-  }
-
-  if (response.status === 401 && !forceRefresh) {
-    return modifyGmailThread(accountId, threadId, modification, attempt, true);
-  }
-  if (TRANSIENT_STATUSES.has(response.status) && attempt < 2) {
-    await wait(400 * 2 ** attempt);
-    return modifyGmailThread(accountId, threadId, modification, attempt + 1, forceRefresh);
-  }
-  if (response.status < 200 || response.status >= 300) throw gmailError(response);
+  return gmailFetch(
+    accountId,
+    'POST',
+    `/threads/${encodeURIComponent(threadId)}/modify`,
+    JSON.stringify(modification),
+  ).then(() => undefined);
 }
 
-/** Updates the UNREAD label for every message in a Gmail thread. */
+/** Marks every message in a Gmail thread read or unread. */
 export function setGmailThreadReadState(
   accountId: string,
   threadId: string,
   unread: boolean,
 ): Promise<void> {
-  return modifyGmailThread(accountId, threadId, gmailThreadReadStateModification(unread));
+  return modifyThread(
+    accountId,
+    threadId,
+    unread ? { addLabelIds: ['UNREAD'] } : { removeLabelIds: ['UNREAD'] },
+  );
 }
 
 /** Removes a Gmail thread from the inbox without deleting it. */
 export function archiveGmailThread(accountId: string, threadId: string): Promise<void> {
-  return modifyGmailThread(accountId, threadId, gmailThreadArchiveModification());
+  return modifyThread(accountId, threadId, { removeLabelIds: ['INBOX'] });
 }
 
-function header(headers: GmailHeader[] | undefined, name: string): string {
-  return headers?.find((item) => item.name.toLowerCase() === name.toLowerCase())?.value ?? '';
-}
-
-
-function toSummary(accountId: string, thread: GmailThread): MailThreadSummary {
-  const messages = thread.messages ?? [];
-  const latest = messages.at(-1);
-  const headers = latest?.payload?.headers;
-  return {
-    provider: 'gmail',
-    accountId,
-    threadId: thread.id,
-    sender: header(headers, 'From') || 'Unknown sender',
-    subject: header(headers, 'Subject') || '(No subject)',
-    snippet: latest?.snippet ?? '',
-    receivedAt: Number(latest?.internalDate ?? 0),
-    unread: messages.some((message) => message.labelIds?.includes('UNREAD')),
-    pinned: false,
-    messageCount: messages.length,
-    category: mailCategoryForLabels(latest?.labelIds ?? []),
-  };
-}
-
-async function mapWithConcurrency<T, R>(
-  values: T[],
-  limit: number,
-  transform: (value: T) => Promise<R>
-): Promise<R[]> {
-  const results = new Array<R>(values.length);
-  let cursor = 0;
-  await Promise.all(
-    Array.from({ length: Math.min(limit, values.length) }, async () => {
-      while (cursor < values.length) {
-        const index = cursor++;
-        results[index] = await transform(values[index]);
-      }
-    })
-  );
-  return results;
-}
-
-export async function fetchInboxPage(
+/**
+ * Runs a Gmail mutation, re-authorizing the account once when the stored
+ * OAuth grant no longer covers the required scope.
+ */
+export async function withGmailReauth<T>(
   accountId: string,
-  pageToken?: string,
-  signal?: AbortSignal
-): Promise<AccountInboxPage> {
-  const query = new URLSearchParams({ maxResults: String(PAGE_SIZE), labelIds: 'INBOX' });
-  if (pageToken) query.set('pageToken', pageToken);
-  const list = await gmailGet<GmailThreadList>(accountId, `/threads?${query}`, signal);
-  const threads = await mapWithConcurrency(list.threads ?? [], 5, async ({ id }) => {
-    const params = new URLSearchParams({ format: 'metadata' });
-    ['From', 'Subject', 'Date'].forEach((name) => params.append('metadataHeaders', name));
-    const thread = await gmailGet<GmailThread>(
-      accountId,
-      `/threads/${encodeURIComponent(id)}?${params}`,
-      signal
-    );
-    return toSummary(accountId, thread);
-  });
-
-  return {
-    accountId,
-    threads: threads.sort(compareThreads),
-    nextPageToken: list.nextPageToken,
-  };
-}
-
-function toMessage(message: GmailMessage): MailMessage {
-  const bodies = extractMailBody(message.payload);
-  const html = bodies.html.join('\n');
-  const plainText = bodies.plain.join('\n').trim() || stripHtml(html);
-  return {
-    id: message.id,
-    sender: header(message.payload?.headers, 'From') || 'Unknown sender',
-    recipients: header(message.payload?.headers, 'To'),
-    sentAt: Number(message.internalDate ?? 0),
-    subject: header(message.payload?.headers, 'Subject') || '(No subject)',
-    plainText,
-    safeHtml: html ? sanitizeEmailHtml(html) : undefined,
-    attachments: bodies.attachments,
-  };
-}
-
-export async function fetchThreadDetail(
-  accountId: string,
-  threadId: string,
-  signal?: AbortSignal
-): Promise<MailThreadDetail> {
-  const thread = await gmailGet<GmailThread>(
-    accountId,
-    `/threads/${encodeURIComponent(threadId)}?format=full`,
-    signal
-  );
-  const messages = (thread.messages ?? []).map(toMessage).sort((a, b) => a.sentAt - b.sentAt);
-  return {
-    provider: 'gmail',
-    accountId,
-    threadId,
-    subject: messages.at(-1)?.subject ?? '(No subject)',
-    messages,
-  };
+  action: () => Promise<T>,
+): Promise<T> {
+  try {
+    return await action();
+  } catch (error) {
+    if (!(error instanceof GmailApiError) || !error.requiresReauthentication) throw error;
+    await gmailAccountAuth.reauthorizeAccount(accountId);
+    return action();
+  }
 }

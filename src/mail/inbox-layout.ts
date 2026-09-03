@@ -16,6 +16,27 @@ export type InboxSection = {
   presentation: 'card' | 'plain';
 };
 
+/** Persisted layout preference; anything unknown falls back to categorized. */
+export function inboxLayoutMode(value: unknown): InboxLayoutMode {
+  return value === 'single' ? 'single' : 'categorized';
+}
+
+const categoryLabels: ReadonlyArray<readonly [string, MailCategory]> = [
+  ['CATEGORY_PRIMARY', 'primary'],
+  ['CATEGORY_PROMOTIONS', 'promotions'],
+  ['CATEGORY_UPDATES', 'updates'],
+  ['CATEGORY_SOCIAL', 'social'],
+  ['CATEGORY_FORUMS', 'forums'],
+];
+
+/** Maps Gmail's CATEGORY_* labels onto Miwa's inbox sections. */
+export function mailCategoryForLabels(labels: readonly string[]): MailCategory {
+  for (const [label, category] of categoryLabels) {
+    if (labels.includes(label)) return category;
+  }
+  return 'primary';
+}
+
 const categorySections: ReadonlyArray<{
   id: MailCategory;
   title: string;
@@ -28,10 +49,30 @@ const categorySections: ReadonlyArray<{
   { id: 'forums', title: 'Forums', systemImage: 'text.bubble.fill' },
 ];
 
-export function inboxLayoutMode(value: unknown): InboxLayoutMode {
-  return value === 'single' ? 'single' : 'categorized';
+const MAX_PREVIEW_THREADS = 5;
+
+function section(
+  definition: { id: InboxSectionId; title: string; systemImage: SFSymbol },
+  threads: MailThreadSummary[],
+  expandable: boolean,
+  presentation: 'card' | 'plain',
+): InboxSection {
+  return {
+    ...definition,
+    threads: expandable ? threads.slice(0, MAX_PREVIEW_THREADS) : threads,
+    totalCount: threads.length,
+    expandable,
+    presentation,
+  };
 }
 
+/**
+ * Groups inbox threads into display sections.
+ *
+ * Categorized mode shows unread mail grouped under Pinned + category cards
+ * (five previews each) with read mail in a plain "Seen" list. A focused
+ * section drills into that section's unread mail. Single mode is one card.
+ */
 export function buildInboxSections(
   threads: MailThreadSummary[],
   layoutMode: InboxLayoutMode,
@@ -39,83 +80,49 @@ export function buildInboxSections(
 ): InboxSection[] {
   if (focusedSection === 'pinned') {
     const pinned = threads.filter((thread) => thread.pinned && thread.unread);
-    return pinned.length ? [{
-      id: 'pinned',
-      title: 'Pinned',
-      systemImage: 'pin.fill',
-      threads: pinned,
-      totalCount: pinned.length,
-      expandable: false,
-      presentation: 'card',
-    }] : [];
+    return pinned.length
+      ? [section({ id: 'pinned', title: 'Pinned', systemImage: 'pin.fill' }, pinned, false, 'card')]
+      : [];
   }
 
   if (layoutMode === 'single') {
-    return [{
-      id: 'inbox',
-      title: 'Inbox',
-      systemImage: 'tray.full.fill',
-      threads,
-      totalCount: threads.length,
-      expandable: false,
-      presentation: 'card',
-    }];
+    return [
+      section({ id: 'inbox', title: 'Inbox', systemImage: 'tray.full.fill' }, threads, false, 'card'),
+    ];
   }
 
   if (focusedSection) {
-    const definition = categorySections.find((section) => section.id === focusedSection)!;
+    const definition = categorySections.find((item) => item.id === focusedSection)!;
     const categoryThreads = threads.filter(
       (thread) => thread.unread && thread.category === focusedSection,
     );
-    return categoryThreads.length ? [{
-      ...definition,
-      threads: categoryThreads,
-      totalCount: categoryThreads.length,
-      expandable: false,
-      presentation: 'card',
-    }] : [];
+    return categoryThreads.length
+      ? [section(definition, categoryThreads, false, 'card')]
+      : [];
   }
 
   const sections: InboxSection[] = [];
   const pinned = threads.filter((thread) => thread.pinned && thread.unread);
   if (pinned.length) {
-    sections.push({
-      id: 'pinned',
-      title: 'Pinned',
-      systemImage: 'pin.fill',
-      threads: pinned.slice(0, 5),
-      totalCount: pinned.length,
-      expandable: true,
-      presentation: 'card',
-    });
+    sections.push(
+      section({ id: 'pinned', title: 'Pinned', systemImage: 'pin.fill' }, pinned, true, 'card'),
+    );
   }
 
-  for (const section of categorySections) {
+  for (const definition of categorySections) {
     const categoryThreads = threads.filter(
-      (thread) => thread.unread && !thread.pinned && thread.category === section.id,
+      (thread) => thread.unread && !thread.pinned && thread.category === definition.id,
     );
     if (categoryThreads.length) {
-      sections.push({
-        ...section,
-        threads: categoryThreads.slice(0, 5),
-        totalCount: categoryThreads.length,
-        expandable: true,
-        presentation: 'card',
-      });
+      sections.push(section(definition, categoryThreads, true, 'card'));
     }
   }
 
   const seen = threads.filter((thread) => !thread.unread);
   if (seen.length) {
-    sections.push({
-      id: 'seen',
-      title: 'Seen',
-      systemImage: 'envelope.open.fill',
-      threads: seen,
-      totalCount: seen.length,
-      expandable: false,
-      presentation: 'plain',
-    });
+    sections.push(
+      section({ id: 'seen', title: 'Seen', systemImage: 'envelope.open.fill' }, seen, false, 'plain'),
+    );
   }
 
   return sections;

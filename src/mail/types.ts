@@ -9,13 +9,13 @@ export type ConnectedAccount = {
   order: number;
 };
 
-export type MailboxView =
-  | { kind: 'all' }
-  | { kind: 'account'; accountId: string };
+/** Which mailbox the inbox screen is showing. */
+export type MailboxView = { kind: 'all' } | { kind: 'account'; accountId: string };
 
 export type MailCategory = 'primary' | 'promotions' | 'updates' | 'social' | 'forums';
+
+/** One conversation row in the inbox list. */
 export type MailThreadSummary = {
-  provider: MailProvider;
   accountId: string;
   threadId: string;
   sender: string;
@@ -46,22 +46,10 @@ export type MailMessage = {
   attachments: MailAttachment[];
 };
 
+/** A fully downloaded conversation, ready to read offline. */
 export type MailThreadDetail = {
-  provider: MailProvider;
   accountId: string;
   threadId: string;
   subject: string;
   messages: MailMessage[];
-};
-
-export type AccountInboxPage = {
-  accountId: string;
-  threads: MailThreadSummary[];
-  nextPageToken?: string;
-};
-
-export type AccountLoadError = {
-  accountId: string;
-  message: string;
-  requiresReauthentication: boolean;
 };

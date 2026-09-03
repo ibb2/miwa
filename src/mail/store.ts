@@ -1,6 +1,6 @@
 import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
 
-import db from '../db/db';
+import { db } from '../db/db';
 import {
   gatekeeperSenders,
   mailAttachments,
@@ -8,13 +8,11 @@ import {
   mailMessages,
   mailThreads,
 } from '../db/schema';
-import type {
-  MailThreadDetail,
-  MailThreadSummary,
-} from './types';
-import { mailCategoryForLabels } from './mail-category';
+import { mailCategoryForLabels } from './inbox-layout';
+import type { MailThreadDetail, MailThreadSummary } from './types';
 
-export async function loadDownloadedThreads(): Promise<MailThreadSummary[]> {
+/** Loads every downloaded thread, newest first, hiding Gatekeeper-blocked senders. */
+export async function loadThreads(): Promise<MailThreadSummary[]> {
   const [rows, messageLabelRows, blockedMessageRows] = await Promise.all([
     db
       .select({
@@ -41,29 +39,27 @@ export async function loadDownloadedThreads(): Promise<MailThreadSummary[]> {
       .from(mailMessages)
       .orderBy(desc(mailMessages.sentAt)),
     db
-      .select({
-        threadId: mailMessages.threadId,
-        labelIds: mailMessages.labelIds,
-      })
+      .select({ threadId: mailMessages.threadId, labelIds: mailMessages.labelIds })
       .from(mailMessages)
-      .innerJoin(
-        mailMessageAddresses,
-        eq(mailMessageAddresses.messageId, mailMessages.id),
-      )
+      .innerJoin(mailMessageAddresses, eq(mailMessageAddresses.messageId, mailMessages.id))
       .innerJoin(
         gatekeeperSenders,
         sql`lower(trim(${mailMessageAddresses.address})) = ${gatekeeperSenders.email}`,
       )
-      .where(and(
-        eq(mailMessageAddresses.kind, 'from'),
-        eq(gatekeeperSenders.status, 'blocked'),
-      )),
+      .where(
+        and(
+          eq(mailMessageAddresses.kind, 'from'),
+          eq(gatekeeperSenders.status, 'blocked'),
+        ),
+      ),
   ]);
+
   const blockedThreadIds = new Set(
     blockedMessageRows
       .filter((message) => message.labelIds.includes('INBOX'))
       .map((message) => message.threadId),
   );
+  // Rows arrive newest first, so the first label set seen per thread is latest.
   const categoryByThreadId = new Map<string, MailThreadSummary['category']>();
   for (const message of messageLabelRows) {
     if (!categoryByThreadId.has(message.threadId)) {
@@ -74,7 +70,6 @@ export async function loadDownloadedThreads(): Promise<MailThreadSummary[]> {
   return rows
     .filter((row) => !blockedThreadIds.has(row.id))
     .map((row) => ({
-      provider: 'gmail',
       accountId: row.accountId,
       threadId: row.providerThreadId,
       sender: row.sender,
@@ -88,20 +83,20 @@ export async function loadDownloadedThreads(): Promise<MailThreadSummary[]> {
     }));
 }
 
-export async function loadDownloadedThreadDetail(
+/** Loads one downloaded conversation with its messages and attachments. */
+export async function loadThreadDetail(
   accountId: string,
   providerThreadId: string,
 ): Promise<MailThreadDetail> {
   const thread = await db
-    .select({
-      id: mailThreads.id,
-      subject: mailThreads.subject,
-    })
+    .select({ id: mailThreads.id, subject: mailThreads.subject })
     .from(mailThreads)
-    .where(and(
-      eq(mailThreads.accountId, accountId),
-      eq(mailThreads.providerThreadId, providerThreadId),
-    ))
+    .where(
+      and(
+        eq(mailThreads.accountId, accountId),
+        eq(mailThreads.providerThreadId, providerThreadId),
+      ),
+    )
     .get();
 
   if (!thread) {
@@ -133,21 +128,22 @@ export async function loadDownloadedThreadDetail(
           size: mailAttachments.size,
         })
         .from(mailAttachments)
-        .where(and(
-          inArray(mailAttachments.messageId, messageIds),
-          eq(mailAttachments.downloadState, 'complete'),
-        ))
+        .where(
+          and(
+            inArray(mailAttachments.messageId, messageIds),
+            eq(mailAttachments.downloadState, 'complete'),
+          ),
+        )
     : [];
 
   const attachmentsByMessage = new Map<string, typeof attachments>();
   for (const attachment of attachments) {
-    const existing = attachmentsByMessage.get(attachment.messageId) ?? [];
-    existing.push(attachment);
-    attachmentsByMessage.set(attachment.messageId, existing);
+    const list = attachmentsByMessage.get(attachment.messageId) ?? [];
+    list.push(attachment);
+    attachmentsByMessage.set(attachment.messageId, list);
   }
 
   return {
-    provider: 'gmail',
     accountId,
     threadId: providerThreadId,
     subject: thread.subject,
@@ -169,71 +165,73 @@ export async function loadDownloadedThreadDetail(
   };
 }
 
-export async function setDownloadedThreadReadState(
+async function findThreadId(accountId: string, providerThreadId: string): Promise<string> {
+  const thread = await db
+    .select({ id: mailThreads.id })
+    .from(mailThreads)
+    .where(
+      and(
+        eq(mailThreads.accountId, accountId),
+        eq(mailThreads.providerThreadId, providerThreadId),
+      ),
+    )
+    .get();
+  if (!thread) throw new Error('This downloaded conversation is no longer available.');
+  return thread.id;
+}
+
+/** Mirrors a Gmail read/unread change in the local database. */
+export async function setThreadReadState(
   accountId: string,
   providerThreadId: string,
   unread: boolean,
 ): Promise<void> {
-  const thread = await db
-    .select({ id: mailThreads.id })
-    .from(mailThreads)
-    .where(and(
-      eq(mailThreads.accountId, accountId),
-      eq(mailThreads.providerThreadId, providerThreadId),
-    ))
-    .get();
-  if (!thread) throw new Error('This downloaded conversation is no longer available.');
-
+  const threadId = await findThreadId(accountId, providerThreadId);
   const messages = await db
     .select({ id: mailMessages.id, labelIds: mailMessages.labelIds })
     .from(mailMessages)
-    .where(eq(mailMessages.threadId, thread.id));
+    .where(eq(mailMessages.threadId, threadId));
+
   const updatedAt = Date.now();
   db.transaction((transaction) => {
-    transaction
-      .update(mailThreads)
-      .set({ unread, updatedAt })
-      .where(eq(mailThreads.id, thread.id))
-      .run();
+    transaction.update(mailThreads).set({ unread, updatedAt }).where(eq(mailThreads.id, threadId)).run();
     for (const message of messages) {
-      const labels = unread
-        ? Array.from(new Set([...message.labelIds, 'UNREAD']))
+      const labelIds = unread
+        ? [...new Set([...message.labelIds, 'UNREAD'])]
         : message.labelIds.filter((label) => label !== 'UNREAD');
       transaction
         .update(mailMessages)
-        .set({ labelIds: labels, updatedAt })
+        .set({ labelIds, updatedAt })
         .where(eq(mailMessages.id, message.id))
         .run();
     }
   });
 }
 
-export async function setDownloadedThreadPinnedState(
+/** Pins are local-only; Gmail has no equivalent label to keep in sync. */
+export async function setThreadPinnedState(
   accountId: string,
   providerThreadId: string,
   pinned: boolean,
 ): Promise<void> {
-  const result = await db
+  const threadId = await findThreadId(accountId, providerThreadId);
+  await db
     .update(mailThreads)
     .set({ pinned, updatedAt: Date.now() })
-    .where(and(
-      eq(mailThreads.accountId, accountId),
-      eq(mailThreads.providerThreadId, providerThreadId),
-    ))
-    .run();
-  if (result.changes === 0) {
-    throw new Error('This downloaded conversation is no longer available.');
-  }
+    .where(eq(mailThreads.id, threadId));
 }
 
-export async function removeDownloadedInboxThread(
+/** Removes a thread from the local inbox (cascades to messages and attachments). */
+export async function removeInboxThread(
   accountId: string,
   providerThreadId: string,
 ): Promise<void> {
   await db
     .delete(mailThreads)
-    .where(and(
-      eq(mailThreads.accountId, accountId),
-      eq(mailThreads.providerThreadId, providerThreadId),
-    ));
+    .where(
+      and(
+        eq(mailThreads.accountId, accountId),
+        eq(mailThreads.providerThreadId, providerThreadId),
+      ),
+    );
 }
