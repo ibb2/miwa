@@ -49,7 +49,7 @@ const categorySections: ReadonlyArray<{
   { id: 'forums', title: 'Forums', systemImage: 'text.bubble.fill' },
 ];
 
-const MAX_PREVIEW_THREADS = 5;
+const MAX_PREVIEW_THREADS = 3;
 
 function section(
   definition: { id: InboxSectionId; title: string; systemImage: SFSymbol },
