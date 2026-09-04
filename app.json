@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "Miwa",
-    "slug": "Miwa",
+    "slug": "miwa",
     "version": "0.1.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -28,21 +28,42 @@
     "web": {
       "favicon": "./assets/favicon.png"
     },
-    "platforms": [
-      "android",
-      "ios",
-      "macos",
-      "windows"
-    ],
+    "platforms": ["android", "ios", "macos", "windows"],
+    "experiments": {
+      "outOfTreePlatforms": true
+    },
     "macos": {
-      "bundleIdentifier": "com.ib.miwa"
+      "bundleIdentifier": "com.ib.miwa",
+      "appleTeamId": "66J2NVMT6Z",
+      "deploymentTarget": "14.0",
+      "infoPlist": {
+        "CFBundleName": "Miwa"
+      }
+    },
+    "windows": {
+      "displayName": "Miwa",
+      "packageName": "Miwa",
+      "namespace": "com.ib.miwa",
+      "packageGuid": "83E52756-6C5E-409F-84EA-A69EA056E71B",
+      "projectGuid": "39EB17BE-4ED2-46F7-83FE-3424D32A7064"
     },
     "plugins": [
       [
         "expo-desktop-config-plugins",
         {
           "displayName": "Miwa",
-          "bundleIdentifier": "com.ib.miwa"
+          "filesafeName": "Miwa",
+          "bundleIdentifier": "com.ib.miwa",
+          "windowsNamespace": "com.ib.miwa",
+          "windowsPackageGuid": "83E52756-6C5E-409F-84EA-A69EA056E71B",
+          "windowsProjectGuid": "39EB17BE-4ED2-46F7-83FE-3424D32A7064"
+        }
+      ],
+      [
+        "./plugins/with-google-sign-in",
+        {
+          "clientId": "611007919856-aj6ui4cnma1qojqi0iggbo1g8emg8p66.apps.googleusercontent.com",
+          "reversedClientId": "com.googleusercontent.apps.611007919856-aj6ui4cnma1qojqi0iggbo1g8emg8p66"
         }
       ],
       "expo-sqlite"

@@ -1,0 +1,28 @@
+#!/bin/zsh
+
+set -euo pipefail
+
+if [[ -z "${NVM_DIR:-}" ]]; then
+  NVM_DIR="${HOME}/.nvm"
+fi
+
+if [[ -s "${NVM_DIR}/nvm.sh" ]]; then
+  source "${NVM_DIR}/nvm.sh" --no-use
+fi
+
+if ! command -v nvm >/dev/null 2>&1; then
+  echo "Node.js 26 is required. Install nvm, then run this command again." >&2
+  exit 1
+fi
+
+nvm use --silent 26
+
+if [[ -z "${npm_config_cache:-}" ]]; then
+  export npm_config_cache="${TMPDIR:-/tmp}/miwa-npm-cache-${UID}"
+fi
+
+if [[ -z "${CP_HOME_DIR:-}" ]]; then
+  export CP_HOME_DIR="${TMPDIR:-/tmp}/miwa-cocoapods-${UID}"
+fi
+
+exec node ./node_modules/expo-desktop/build/cli.js "$@"

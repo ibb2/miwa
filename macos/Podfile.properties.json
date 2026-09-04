@@ -1,1 +1,3 @@
-{}
+{
+  "macos.deploymentTarget": "14.0"
+}
