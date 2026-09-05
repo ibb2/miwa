@@ -1,0 +1,350 @@
+diff --git a/node_modules/@expo/ui/ios/Button/Button.swift b/node_modules/@expo/ui/ios/Button/Button.swift
+index b61515b..2ec6c37 100644
+--- a/node_modules/@expo/ui/ios/Button/Button.swift
++++ b/node_modules/@expo/ui/ios/Button/Button.swift
+@@ -52,21 +52,12 @@ struct Button: ExpoSwiftUI.View {
+     #endif
+ 
+     #if os(macOS)
+-    .if(props.variant == .accessoryBar, {
+-      $0.buttonStyle(.accessoryBar)
+-    })
+-    .if(props.variant == .accessoryBarAction, {
+-      $0.buttonStyle(.accessoryBarAction)
+-    })
+-    .if(props.variant == .card, {
+-      $0.buttonStyle(.card)
+-    })
+-    .if(props.variant == .link, {
+-      $0.buttonStyle(.link)
+-    })
++    // Collapsed into a single @ViewBuilder switch (see below) to keep the
++    // modifier chain short enough for the Swift type-checker on macOS.
++    .macOSButtonStyle(for: props.variant)
+     #endif
+ 
+-    if #available(iOS 26.0, tvOS 26.0, *) {
++    if #available(iOS 26.0, tvOS 26.0, macOS 26.0, *) {
+       #if compiler(>=6.2) // Xcode 26
+       switch props.variant {
+       case .glass:
+@@ -85,3 +76,21 @@ struct Button: ExpoSwiftUI.View {
+   }
+ }
+ 
++#if os(macOS)
++private extension View {
++  @ViewBuilder
++  func macOSButtonStyle(for variant: ButtonVariant?) -> some View {
++    switch variant {
++    case .accessoryBar:
++      self.buttonStyle(.accessoryBar)
++    case .accessoryBarAction:
++      self.buttonStyle(.accessoryBarAction)
++    case .link:
++      self.buttonStyle(.link)
++    default:
++      self
++    }
++  }
++}
++#endif
++
+diff --git a/node_modules/@expo/ui/ios/ColorPickerView.swift b/node_modules/@expo/ui/ios/ColorPickerView.swift
+index b96ac45..b21c511 100644
+--- a/node_modules/@expo/ui/ios/ColorPickerView.swift
++++ b/node_modules/@expo/ui/ios/ColorPickerView.swift
+@@ -43,7 +43,11 @@ struct ColorPickerView: ExpoSwiftUI.View {
+   }
+ 
+   private func colorToHex(_ color: Color) -> String {
++#if os(macOS)
++    let newColor = NSColor(color)
++#else
+     let newColor = UIColor(color)
++#endif
+     guard let components = newColor.cgColor.components else {
+       return ""
+     }
+diff --git a/node_modules/@expo/ui/ios/ConcentricRectangleView.swift b/node_modules/@expo/ui/ios/ConcentricRectangleView.swift
+index 094adcd..462682a 100644
+--- a/node_modules/@expo/ui/ios/ConcentricRectangleView.swift
++++ b/node_modules/@expo/ui/ios/ConcentricRectangleView.swift
+@@ -35,7 +35,7 @@ internal struct ConcentricRectangleView: ExpoSwiftUI.View {
+   @ObservedObject var props: ConcentricRectangleViewProps
+ 
+   #if compiler(>=6.2) // Xcode 26
+-  @available(iOS 26.0, tvOS 26.0, *)
++  @available(iOS 26.0, tvOS 26.0, macOS 26.0, *)
+   private func cornerStyle(from config: CornerStyleConfig?) -> Edge.Corner.Style {
+     // default to concentric
+     guard let config = config else {
+@@ -59,7 +59,7 @@ internal struct ConcentricRectangleView: ExpoSwiftUI.View {
+ 
+   var body: some View {
+     #if compiler(>=6.2) // Xcode 26
+-    if #available(iOS 26.0, tvOS 26.0, *) {
++    if #available(iOS 26.0, tvOS 26.0, macOS 26.0, *) {
+       let topLeadingCorner = cornerStyle(from: props.corners?.topLeadingCorner)
+       let topTrailingCorner = cornerStyle(from: props.corners?.topTrailingCorner)
+       let bottomLeadingCorner = cornerStyle(from: props.corners?.bottomLeadingCorner)
+diff --git a/node_modules/@expo/ui/ios/DateTimePickerView.swift b/node_modules/@expo/ui/ios/DateTimePickerView.swift
+index b34600c..a0fdf73 100644
+--- a/node_modules/@expo/ui/ios/DateTimePickerView.swift
++++ b/node_modules/@expo/ui/ios/DateTimePickerView.swift
+@@ -52,7 +52,11 @@ private extension View {
+   func applyDatePickerStyle(for style: PickerStyle) -> some View {
+     switch style {
+     case .wheel:
++    #if os(macOS)
++      self
++    #else
+       self.datePickerStyle(.wheel)
++    #endif
+     case .graphical:
+       self.datePickerStyle(.graphical)
+     case .compact:
+diff --git a/node_modules/@expo/ui/ios/ExpoUI.podspec b/node_modules/@expo/ui/ios/ExpoUI.podspec
+index 53a9c1a..35ce27e 100644
+--- a/node_modules/@expo/ui/ios/ExpoUI.podspec
++++ b/node_modules/@expo/ui/ios/ExpoUI.podspec
+@@ -12,7 +12,8 @@ Pod::Spec.new do |s|
+   s.homepage       = package['homepage']
+   s.platforms      = {
+     :ios => '15.1',
+-    :tvos => '15.1'
++    :tvos => '15.1',
++    :osx => '14.0'
+   }
+   s.swift_version  = '5.9'
+   s.source         = { git: 'https://github.com/expo/expo.git' }
+diff --git a/node_modules/@expo/ui/ios/FormView.swift b/node_modules/@expo/ui/ios/FormView.swift
+index 3ef7ca5..ad1485e 100644
+--- a/node_modules/@expo/ui/ios/FormView.swift
++++ b/node_modules/@expo/ui/ios/FormView.swift
+@@ -21,6 +21,7 @@ internal struct FormView: ExpoSwiftUI.View {
+       Children()
+     }
+     .modifier(CommonViewModifiers(props: props))
++    .applyExpoUIFormStyle()
+ 
+     if #available(iOS 16.0, tvOS 16.0, *) {
+       form.scrollDisabled(!props.scrollEnabled)
+@@ -29,3 +30,24 @@ internal struct FormView: ExpoSwiftUI.View {
+     }
+   }
+ }
++
++private extension View {
++  // On macOS a bare `Form` uses the plain columns style and only takes its
++  // intrinsic size, so it renders cramped in the top-leading corner of the host.
++  // Use the grouped (inset) style and fill the host to match the modern macOS look.
++  // iOS/tvOS are left untouched.
++  @ViewBuilder
++  func applyExpoUIFormStyle() -> some View {
++#if os(macOS)
++    if #available(macOS 13.0, *) {
++      self
++        .formStyle(.grouped)
++        .frame(maxWidth: .infinity, maxHeight: .infinity)
++    } else {
++      self
++    }
++#else
++    self
++#endif
++  }
++}
+diff --git a/node_modules/@expo/ui/ios/HostView.swift b/node_modules/@expo/ui/ios/HostView.swift
+index aea5549..8dd3907 100644
+--- a/node_modules/@expo/ui/ios/HostView.swift
++++ b/node_modules/@expo/ui/ios/HostView.swift
+@@ -57,6 +57,9 @@ struct HostView: ExpoSwiftUI.View, ExpoSwiftUI.WithHostingView {
+   }
+ 
+   private func safeAreaSize() -> CGSize {
++#if os(macOS)
++    return NSScreen.main?.visibleFrame.size ?? .zero
++#else
+     let safeSize = UIApplication
+       .shared
+       .connectedScenes
+@@ -71,6 +74,7 @@ struct HostView: ExpoSwiftUI.View, ExpoSwiftUI.WithHostingView {
+     let width = safeSize.width > 0 ? safeSize.width : UIScreen.main.bounds.width
+     let height = safeSize.height > 0 ? safeSize.height : UIScreen.main.bounds.height
+     return CGSize(width: width, height: height)
++#endif
+   }
+ }
+ 
+@@ -107,6 +111,9 @@ private struct ViewportSizeMeasurementLayout: Layout {
+   }
+ 
+   private func safeAreaSize() -> CGSize {
++#if os(macOS)
++    return NSScreen.main?.visibleFrame.size ?? .zero
++#else
+     let screenSize = UIScreen.main.bounds.size
+     let safeSize = UIApplication
+       .shared
+@@ -122,6 +129,7 @@ private struct ViewportSizeMeasurementLayout: Layout {
+     let width = safeSize.width > 0 ? safeSize.width : screenSize.width
+     let height = safeSize.height > 0 ? safeSize.height : screenSize.height
+     return CGSize(width: width, height: height)
++#endif
+   }
+ }
+ 
+diff --git a/node_modules/@expo/ui/ios/List.swift b/node_modules/@expo/ui/ios/List.swift
+index c71e9b0..f99a827 100644
+--- a/node_modules/@expo/ui/ios/List.swift
++++ b/node_modules/@expo/ui/ios/List.swift
+@@ -24,7 +24,6 @@ final class ListProps: ExpoSwiftUI.ViewProps, CommonViewModifierProps {
+ struct ListView: ExpoSwiftUI.View {
+   @ObservedObject var props: ListProps
+   @State private var selection: Set<Int> = []
+-  @State var editModeEnabled: EditMode = .inactive
+   @State var search: String = ""
+ 
+   init(props: ListProps) {
+@@ -41,19 +40,11 @@ struct ListView: ExpoSwiftUI.View {
+     }
+       .modifier(ListStyleModifer(style: props.listStyle))
+       .modifier(CommonViewModifiers(props: props))
+-      .onAppear {
+-        editModeEnabled = props.editModeEnabled ? .active : .inactive
+-      }
+-      .onChange(of: props.editModeEnabled) { newValue in
+-        withAnimation {
+-          editModeEnabled = newValue ? .active : .inactive
+-        }
+-      }
+       .onChange(of: selection) { selection in
+         handleSelectionChange(selection: selection)
+       }
+       .modifier(ScrollDisabledModifier(scrollEnabled: props.scrollEnabled))
+-      .environment(\.editMode, $editModeEnabled)
++      .modifier(EditModeModifier(enabled: props.editModeEnabled))
+     if #available(iOS 16.0, tvOS 16.0, *) {
+       list.scrollDisabled(!props.scrollEnabled)
+     } else {
+@@ -90,10 +81,16 @@ struct ListStyleModifer: ViewModifier {
+   @ViewBuilder func body(content: Content) -> some View {
+     switch style {
+     case "grouped":
++    #if os(macOS)
++      content
++    #else
+       content.listStyle(.grouped)
++    #endif
+     case "insetGrouped":
+-    #if !os(tvOS)
++    #if !os(tvOS) && !os(macOS)
+       content.listStyle(.insetGrouped)
++    #else
++      content
+     #endif
+     case "inset":
+     #if !os(tvOS)
+@@ -113,6 +110,32 @@ struct ListStyleModifer: ViewModifier {
+   }
+ }
+ 
++struct EditModeModifier: ViewModifier {
++  let enabled: Bool
++
++#if os(macOS)
++  // `EditMode` and the `editMode` environment key are unavailable on macOS.
++  func body(content: Content) -> some View {
++    content
++  }
++#else
++  @State private var editMode: EditMode = .inactive
++
++  func body(content: Content) -> some View {
++    content
++      .onAppear {
++        editMode = enabled ? .active : .inactive
++      }
++      .onChange(of: enabled) { newValue in
++        withAnimation {
++          editMode = newValue ? .active : .inactive
++        }
++      }
++      .environment(\.editMode, $editMode)
++  }
++#endif
++}
++
+ struct ScrollDisabledModifier: ViewModifier {
+   let scrollEnabled: Bool
+ 
+diff --git a/node_modules/@expo/ui/ios/PickerView.swift b/node_modules/@expo/ui/ios/PickerView.swift
+index 18d40e0..3047a77 100644
+--- a/node_modules/@expo/ui/ios/PickerView.swift
++++ b/node_modules/@expo/ui/ios/PickerView.swift
+@@ -36,8 +36,10 @@ struct PickerView: ExpoSwiftUI.View {
+       }
+       .tint(props.color)
+       .modifier(CommonViewModifiers(props: props))
+-#if !os(tvOS)
++#if !os(tvOS) && !os(macOS)
+       .if(props.variant == "wheel", { $0.pickerStyle(.wheel) })
++#endif
++#if !os(tvOS)
+       .if(props.variant == "palette", { $0.pickerStyle(.palette) })
+ #endif
+       .if(props.variant == "segmented", { $0.pickerStyle(.segmented) })
+diff --git a/node_modules/@expo/ui/ios/SecureField/SecureFieldView.swift b/node_modules/@expo/ui/ios/SecureField/SecureFieldView.swift
+index 2bbf4eb..6292faf 100644
+--- a/node_modules/@expo/ui/ios/SecureField/SecureFieldView.swift
++++ b/node_modules/@expo/ui/ios/SecureField/SecureFieldView.swift
+@@ -37,6 +37,6 @@ struct SecureFieldView: ExpoSwiftUI.View {
+       .onChange(of: textManager.text) { newValue in
+         props.onValueChanged(["value": newValue])
+       }
+-      .keyboardType(getKeyboardType(props.keyboardType))
++      .compatKeyboardType(props.keyboardType)
+   }
+ }
+diff --git a/node_modules/@expo/ui/ios/TextField/TextFieldView.swift b/node_modules/@expo/ui/ios/TextField/TextFieldView.swift
+index 3d86c25..1d6e9e8 100644
+--- a/node_modules/@expo/ui/ios/TextField/TextFieldView.swift
++++ b/node_modules/@expo/ui/ios/TextField/TextFieldView.swift
+@@ -33,6 +33,7 @@ final class TextFieldProps: ExpoSwiftUI.ViewProps, CommonViewModifierProps {
+   var onValueChanged = EventDispatcher()
+ }
+ 
++#if !os(macOS)
+ func getKeyboardType(_ keyboardType: KeyboardType?) -> UIKeyboardType {
+   guard let keyboardType = keyboardType else {
+     return .default
+@@ -64,6 +65,19 @@ func getKeyboardType(_ keyboardType: KeyboardType?) -> UIKeyboardType {
+     return .asciiCapableNumberPad
+   }
+ }
++#endif
++
++extension View {
++  // `keyboardType` is unavailable on macOS, so this is a no-op there.
++  @ViewBuilder
++  func compatKeyboardType(_ keyboardType: KeyboardType?) -> some View {
++#if os(macOS)
++    self
++#else
++    self.keyboardType(getKeyboardType(keyboardType))
++#endif
++  }
++}
+ 
+ class TextFieldManager: ObservableObject {
+   @Published var text: String
+@@ -110,7 +124,7 @@ struct TextFieldView: ExpoSwiftUI.View {
+     return text.lineLimit((props.multiline && allowMultiLine()) ? props.numberOfLines : 1)
+       .modifier(CommonViewModifiers(props: props))
+       .fixedSize(horizontal: false, vertical: true)
+-      .keyboardType(getKeyboardType(props.keyboardType))
++      .compatKeyboardType(props.keyboardType)
+       .autocorrectionDisabled(!props.autocorrection)
+       .if(props.allowNewlines, {
+         $0.focused($isFocused).onSubmit({

@@ -2,7 +2,6 @@ import type {
   NativeToolbarItem,
   ToolbarSegment,
 } from '../modules/native-window-toolbar/src';
-import type { InboxLayoutMode } from './mail/inbox-layout';
 
 export type AppSurface = 'mail' | 'gatekeeper' | 'settings';
 
@@ -11,8 +10,6 @@ export type ToolbarInput = {
   inboxTitle: string;
   /** The open conversation, if any. `busy` disables its action buttons. */
   thread?: { unread: boolean; pinned: boolean; busy: boolean };
-  sectionFocused: boolean;
-  inboxLayout: InboxLayoutMode;
   accountSegments: ToolbarSegment[];
   selectedAccountIndex: number;
   syncing: boolean;
@@ -28,7 +25,6 @@ export function toolbarIdentifier(input: ToolbarInput): string {
   if (input.surface === 'settings') return 'MiwaSettingsToolbar';
   if (input.surface === 'gatekeeper') return 'MiwaGatekeeperToolbar';
   if (input.thread) return 'MiwaMessageToolbar';
-  if (input.sectionFocused) return 'MiwaSectionToolbar';
   return 'MiwaLeadingInboxToolbar';
 }
 
@@ -37,7 +33,7 @@ export function buildToolbarItems(input: ToolbarInput): NativeToolbarItem[] {
   const items: NativeToolbarItem[] = [];
   const onMailScreen = input.surface === 'mail';
 
-  if (input.thread || input.sectionFocused || !onMailScreen) {
+  if (input.thread || !onMailScreen) {
     items.push({
       id: 'back',
       kind: 'button',
@@ -57,23 +53,6 @@ export function buildToolbarItems(input: ToolbarInput): NativeToolbarItem[] {
       selectionMode: 'selectOne',
       selectedIndex: input.selectedAccountIndex,
       segments: input.accountSegments,
-      immovable: true,
-      navigational: true,
-    });
-  }
-
-  if (onMailScreen && !input.thread && !input.sectionFocused) {
-    items.push({
-      id: 'inbox-layout',
-      kind: 'segmented',
-      label: 'Inbox layout',
-      selectionMode: 'selectOne',
-      selectedIndex: input.inboxLayout === 'categorized' ? 0 : 1,
-      segments: [
-        { id: 'categorized', label: 'Categorized', systemImage: 'rectangle.grid.1x2' },
-        { id: 'single', label: 'Single card', systemImage: 'rectangle' },
-      ],
-      toolTip: 'Switch inbox layout',
       immovable: true,
       navigational: true,
     });

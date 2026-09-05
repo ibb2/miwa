@@ -64,6 +64,7 @@ public final class NativeWindowToolbarView: ExpoView, NSToolbarDelegate, NSSearc
 
   private weak var installedWindow: NSWindow?
   private var installedToolbar: NSToolbar?
+  private weak var glassBackgroundView: NSVisualEffectView?
   private var itemByIdentifier: [NSToolbarItem.Identifier: ToolbarItemRecord] = [:]
   private var identifierByItemId: [String: NSToolbarItem.Identifier] = [:]
   private var searchItemIdByField: [ObjectIdentifier: String] = [:]
@@ -103,8 +104,30 @@ public final class NativeWindowToolbarView: ExpoView, NSToolbarDelegate, NSSearc
     let toolbar = makeToolbar()
     installedWindow = window
     installedToolbar = toolbar
+    installGlassBackground(in: window)
     window.toolbarStyle = resolvedToolbarStyle
     window.toolbar = toolbar
+  }
+
+  private func installGlassBackground(in window: NSWindow) {
+    window.isOpaque = false
+    window.backgroundColor = .clear
+    window.titlebarAppearsTransparent = true
+
+    guard let contentView = window.contentView else {
+      return
+    }
+
+    if glassBackgroundView?.superview !== contentView {
+      glassBackgroundView?.removeFromSuperview()
+      let effectView = NSVisualEffectView(frame: contentView.bounds)
+      effectView.autoresizingMask = [.width, .height]
+      effectView.blendingMode = .behindWindow
+      effectView.material = .underWindowBackground
+      effectView.state = .active
+      contentView.addSubview(effectView, positioned: .below, relativeTo: nil)
+      glassBackgroundView = effectView
+    }
   }
 
   public func showCustomizationPalette() {

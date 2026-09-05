@@ -1,15 +1,16 @@
 import {
   Button,
+  ContentUnavailableView,
   Divider,
   Host,
   Image as SwiftUIImage,
-  Switch,
+  VStack,
   type ButtonProps,
   type ImageProps,
 } from '@expo/ui/swift-ui';
 import { accessibilityLabel as accessibilityLabelModifier } from '@expo/ui/swift-ui/modifiers';
 import type { SFSymbol } from 'sf-symbols-typescript';
-import { Image, StyleSheet, Text, View } from 'react-native';
+import { Image, StyleSheet, Switch, Text, View } from 'react-native';
 
 import { accent } from '../theme';
 
@@ -23,7 +24,7 @@ type NativeActionButtonProps = {
   variant?: ButtonProps['variant'];
 };
 
-/** A real SwiftUI button. Icon buttons render as circles, text buttons size to their label. */
+/** A real SwiftUI button. Icon buttons render compactly; text buttons size to their label. */
 export function NativeActionButton({
   accessibilityLabel,
   disabled = false,
@@ -36,30 +37,49 @@ export function NativeActionButton({
   const width = systemImage ? 34 : Math.max(80, Math.min(184, label.length * 7 + 34));
 
   return (
-    <View
-      accessible
-      accessibilityLabel={accessibilityLabel ?? label}
-      accessibilityRole="button"
-      onAccessibilityTap={onPress}
-      style={{ width, height: 34 }}
-    >
-      <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-        <Host style={{ width, height: 34 }}>
-          <Button
-            color={role === 'destructive' ? 'red' : accent}
-            controlSize="small"
-            disabled={disabled}
-            modifiers={[accessibilityLabelModifier(accessibilityLabel ?? label)]}
-            onPress={onPress}
-            role={role}
-            systemImage={systemImage}
-            variant={variant}
-          >
-            {systemImage ? ' ' : label}
-          </Button>
-        </Host>
-      </View>
-    </View>
+    <Host style={{ width, height: 34 }}>
+      <Button
+        color={role === 'destructive' ? 'red' : accent}
+        controlSize="small"
+        disabled={disabled}
+        modifiers={[accessibilityLabelModifier(accessibilityLabel ?? label)]}
+        onPress={onPress}
+        role={role}
+        systemImage={systemImage}
+        variant={variant}
+      >
+        {systemImage ? ' ' : label}
+      </Button>
+    </Host>
+  );
+}
+
+export function NativeTabButton({
+  count,
+  label,
+  onPress,
+  selected,
+}: {
+  count: number;
+  label: string;
+  onPress: () => void;
+  selected: boolean;
+}) {
+  const title = `${label}  ${count.toLocaleString()}`;
+  const width = Math.max(84, title.length * 7 + 30);
+
+  return (
+    <Host style={{ width, height: 38 }}>
+      <Button
+        color={accent}
+        controlSize="regular"
+        modifiers={[accessibilityLabelModifier(`${label}, ${count.toLocaleString()} emails`)]}
+        onPress={onPress}
+        variant={selected ? 'glassProminent' : 'plain'}
+      >
+        {title}
+      </Button>
+    </Host>
   );
 }
 
@@ -114,9 +134,13 @@ type NativeSwitchProps = {
 
 export function NativeSwitch({ label, onValueChange, value }: NativeSwitchProps) {
   return (
-    <Host style={{ width: 44, height: 24 }}>
-      <Switch color={accent} label={label} onValueChange={onValueChange} value={value} variant="switch" />
-    </Host>
+    <Switch
+      accessibilityLabel={label}
+      onTintColor={accent}
+      onValueChange={onValueChange}
+      style={{ width: 38, height: 22 }}
+      value={value}
+    />
   );
 }
 
@@ -127,23 +151,41 @@ type NativeSectionLabelProps = {
 
 /** A small gray section heading, optionally preceded by an SF Symbol. */
 export function NativeSectionLabel({ label, systemImage }: NativeSectionLabelProps) {
-  const labelWidth = Math.max(72, Math.min(240, label.length * 7 + 24));
-
   return (
     <View style={styles.sectionLabel}>
       {systemImage ? (
-        <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-          <Host style={{ width: 24, height: 34 }}>
-            <Button color="gray" controlSize="mini" systemImage={systemImage} variant="plain">
-            </Button>
-          </Host>
-        </View>
-      ) : null}
-      <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-        <Host matchContents>
-          <Text style={{ fontSize: 10}}>{label}</Text>
+        <Host style={styles.sectionIcon}>
+          <SwiftUIImage color="secondary" size={12} systemName={systemImage} />
         </Host>
-      </View>
+      ) : null}
+      <Text style={styles.sectionText}>{label}</Text>
+    </View>
+  );
+}
+
+export function NativeEmptyState({
+  actionLabel,
+  description,
+  onAction,
+  systemImage = 'tray',
+  title,
+}: {
+  actionLabel?: string;
+  description: string;
+  onAction?: () => void;
+  systemImage?: ImageProps['systemName'];
+  title: string;
+}) {
+  return (
+    <View style={styles.emptyContainer}>
+      <Host style={styles.emptyHost}>
+        <VStack alignment="center" spacing={14}>
+          <ContentUnavailableView description={description} systemImage={systemImage} title={title} />
+          {actionLabel && onAction ? (
+            <Button color={accent} onPress={onAction} variant="borderedProminent">{actionLabel}</Button>
+          ) : null}
+        </VStack>
+      </Host>
     </View>
   );
 }
@@ -160,5 +202,9 @@ const styles = StyleSheet.create({
   },
   iconHost: { width: 18, height: 18 },
   initials: { color: '#FFFFFF', fontSize: 12, fontWeight: '700' },
-  sectionLabel: { height: 34, flexDirection: 'row', alignItems: 'center'},
+  sectionLabel: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  sectionIcon: { width: 14, height: 14 },
+  sectionText: { color: '#6E6E73', fontSize: 10, fontWeight: '600', letterSpacing: 0.5 },
+  emptyContainer: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  emptyHost: { width: 460, height: 220 },
 });

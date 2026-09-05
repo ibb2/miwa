@@ -102,15 +102,13 @@ function SenderReviewCard({
             </View>
           ))}
           {!expanded && sender.messages.length > 1 ? (
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => setExpanded(true)}
-              style={({ pressed }) => [styles.showAllButton, pressed && shared.pressed]}
-            >
-              <Text style={styles.showAllLabel}>
-                Show all {sender.messages.length.toLocaleString()} emails
-              </Text>
-            </Pressable>
+            <View style={styles.showAllButton}>
+              <NativeActionButton
+                label={`Show all ${sender.messages.length.toLocaleString()} emails`}
+                onPress={() => setExpanded(true)}
+                variant="link"
+              />
+            </View>
           ) : null}
         </View>
       ) : (
@@ -267,22 +265,14 @@ export function GatekeeperView({
 
           {overview.blocked.length ? (
             <View style={styles.blockedSection}>
-              <Pressable
-                accessibilityLabel={`${showBlocked ? 'Hide' : 'Show'} ${
-                  overview.blocked.length
-                } blocked senders`}
-                accessibilityRole="button"
-                onPress={() => setShowBlocked((current) => !current)}
-                style={({ pressed }) => [styles.blockedDisclosure, pressed && shared.pressed]}
-              >
-                <Text selectable style={styles.blockedDisclosureLabel}>Blocked senders</Text>
-                <Text selectable style={styles.metaText}>
-                  {overview.blocked.length.toLocaleString()}
-                </Text>
-                <Text accessibilityElementsHidden style={styles.disclosure}>
-                  {showBlocked ? '⌃' : '⌄'}
-                </Text>
-              </Pressable>
+              <View style={styles.blockedDisclosure}>
+                <NativeActionButton
+                  accessibilityLabel={`${showBlocked ? 'Hide' : 'Show'} ${overview.blocked.length} blocked senders`}
+                  label={`${showBlocked ? 'Hide' : 'Show'} ${overview.blocked.length.toLocaleString()} blocked senders`}
+                  onPress={() => setShowBlocked((current) => !current)}
+                  variant="plain"
+                />
+              </View>
               {showBlocked ? (
                 <View style={[shared.card, styles.blockedList]}>
                   {overview.blocked.map((sender, index) => (

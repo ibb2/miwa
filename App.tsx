@@ -10,7 +10,7 @@ import {
   type ToolbarSegmentChangeEvent,
 } from './modules/native-window-toolbar/src';
 import { GatekeeperView } from './src/components/gatekeeper-view';
-import { NativeActionButton } from './src/components/native';
+import { NativeEmptyState } from './src/components/native';
 import { SettingsView } from './src/components/settings-view';
 import { ThreadDetail } from './src/components/thread-detail';
 import { ThreadList } from './src/components/thread-list';
@@ -28,7 +28,6 @@ import {
   type GatekeeperStatus,
 } from './src/mail/gatekeeper';
 import { archiveGmailThread, setGmailThreadReadState, withGmailReauth } from './src/mail/gmail';
-import { inboxLayoutMode, type InboxSectionFocus } from './src/mail/inbox-layout';
 import {
   loadThreadDetail,
   loadThreads,
@@ -48,7 +47,7 @@ import {
   saveMailPreference,
   type MailPreferences,
 } from './src/settings/preferences';
-import { colors, shared } from './src/theme';
+import { shared } from './src/theme';
 import { buildToolbarItems, toolbarIdentifier, type AppSurface, type ToolbarInput } from './src/toolbar';
 
 function messageFor(error: unknown): string {
@@ -74,7 +73,6 @@ export default function App() {
   const [surface, setSurface] = useState<AppSurface>('mail');
   const [mailboxView, setMailboxView] = useState<MailboxView>({ kind: 'all' });
   const [preferences, setPreferences] = useState(loadMailPreferences);
-  const [focusedSection, setFocusedSection] = useState<InboxSectionFocus>();
   const [threads, setThreads] = useState<MailThreadSummary[]>();
   const [threadsError, setThreadsError] = useState<string>();
   const [selectedThread, setSelectedThread] = useState<MailThreadSummary>();
@@ -525,8 +523,6 @@ export default function App() {
             busy: busyAction !== undefined,
           }
         : undefined,
-    sectionFocused: focusedSection !== undefined,
-    inboxLayout: preferences.inboxLayout,
     accountSegments,
     selectedAccountIndex,
     syncing,
@@ -542,7 +538,6 @@ export default function App() {
     mailboxFrameRef.current = requestAnimationFrame(() => {
       mailboxFrameRef.current = null;
       setSelectedThread(undefined);
-      setFocusedSection(undefined);
       setSurface('mail');
       setMailboxView(
         segmentId === 'all'
@@ -557,7 +552,6 @@ export default function App() {
       const id = nativeEvent.id;
       if (id === 'back') {
         if (selectedThread) setSelectedThread(undefined);
-        else setFocusedSection(undefined);
         setSurface('mail');
       } else if (id === 'message-read-toggle' && selectedThread) {
         void toggleRead(selectedThread);
@@ -569,7 +563,6 @@ export default function App() {
         void connectAccount();
       } else if (id === 'gatekeeper' || id === 'settings') {
         setSelectedThread(undefined);
-        setFocusedSection(undefined);
         setSurface(id);
       }
     },
@@ -578,14 +571,9 @@ export default function App() {
 
   const handleSegmentChange = useCallback(
     ({ nativeEvent }: ToolbarSegmentChangeEvent) => {
-      if (nativeEvent.id === 'inbox-layout') {
-        setFocusedSection(undefined);
-        changePreference('inboxLayout', inboxLayoutMode(nativeEvent.segmentId));
-      } else {
-        selectMailbox(nativeEvent.segmentId);
-      }
+      selectMailbox(nativeEvent.segmentId);
     },
-    [changePreference, selectMailbox],
+    [selectMailbox],
   );
 
   const handleMenuPress = useCallback(
@@ -616,40 +604,30 @@ export default function App() {
     );
   } else if (threadsError) {
     mainContent = (
-      <View style={styles.emptyState}>
-        <Text selectable style={styles.emptyTitle}>The mail drawer is stuck.</Text>
-        <Text selectable style={styles.errorText}>{threadsError}</Text>
-        <NativeActionButton
-          label="Try Again"
-          onPress={() => void refreshThreads()}
-          variant="glassProminent"
-        />
-      </View>
+      <NativeEmptyState
+        actionLabel="Try Again"
+        description={threadsError}
+        onAction={() => void refreshThreads()}
+        systemImage="exclamationmark.triangle"
+        title="The mail drawer is stuck."
+      />
     );
   } else if (accounts.length === 0 && threads.length === 0) {
     mainContent = (
-      <View style={styles.emptyState}>
-        <Text selectable style={styles.emptyTitle}>No mailbox has wandered in yet.</Text>
-        <Text selectable style={styles.emptyCopy}>
-          Connect a Gmail account, then download an inbox for offline reading.
-        </Text>
-        <NativeActionButton
-          label="Connect Gmail"
-          onPress={() => void connectAccount()}
-          variant="glassProminent"
-        />
-        {connectError ? <Text style={styles.errorText}>{connectError}</Text> : null}
-      </View>
+      <NativeEmptyState
+        actionLabel="Connect Gmail"
+        description={connectError ?? 'Connect a Gmail account, then download an inbox for offline reading.'}
+        onAction={() => void connectAccount()}
+        systemImage="envelope"
+        title="No mailbox has wandered in yet."
+      />
     );
   } else {
     mainContent = (
       <ThreadList
-        key={mailboxView.kind === 'all' ? 'all' : mailboxView.accountId}
         accountsById={accountsById}
-        focusedSection={focusedSection}
-        layoutMode={preferences.inboxLayout}
+        datasetKey={mailboxView.kind === 'all' ? 'all' : mailboxView.accountId}
         emptyMailboxName={mailboxName}
-        onFocusSection={setFocusedSection}
         onOpenThread={setSelectedThread}
         onArchive={(thread) => void archiveThread(thread)}
         onSetPinned={(thread, pinned) => void setPinned(thread, pinned)}
@@ -677,12 +655,8 @@ export default function App() {
       />
 
       <View style={styles.mainPane}>
-        <View pointerEvents="none" style={styles.backdrop}>
-          <View style={styles.backdropBlue} />
-          <View style={styles.backdropPink} />
-        </View>
         {surface === 'settings' ? (
-          <View style={styles.contentLayer}>
+          <View style={styles.settingsLayer}>
             <SettingsView
               accounts={accounts ?? []}
               clearEnabled={!download && !syncing}
@@ -730,7 +704,7 @@ export default function App() {
 }
 
 const styles = StyleSheet.create({
-  appRoot: { flex: 1, backgroundColor: colors.window },
+  appRoot: { flex: 1, backgroundColor: 'transparent' },
   toolbarBridge: { position: 'absolute', width: 1, height: 1, opacity: 0 },
   mainPane: {
     flex: 1,
@@ -738,55 +712,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: 'transparent',
   },
-  backdrop: { ...StyleSheet.absoluteFillObject, overflow: 'hidden' },
-  backdropBlue: {
-    position: 'absolute',
-    left: -140,
-    top: -120,
-    width: 620,
-    height: 520,
-    borderRadius: 260,
-    backgroundColor: 'rgba(96, 167, 255, 0.12)',
-    transform: [{ rotate: '-10deg' }],
-  },
-  backdropPink: {
-    position: 'absolute',
-    left: 360,
-    top: -180,
-    width: 720,
-    height: 680,
-    borderRadius: 340,
-    backgroundColor: 'rgba(255, 116, 177, 0.14)',
-    transform: [{ rotate: '14deg' }],
-  },
-  contentLayer: { ...StyleSheet.absoluteFillObject },
-  emptyState: {
-    flex: 1,
-    minHeight: 360,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 28,
-    gap: 9,
-  },
-  emptyTitle: {
-    color: colors.label,
-    fontSize: 18,
-    fontWeight: '600',
-    textAlign: 'center',
-  },
-  emptyCopy: {
-    maxWidth: 320,
-    color: colors.secondaryLabel,
-    fontSize: 13,
-    lineHeight: 18,
-    textAlign: 'center',
-  },
-  errorText: {
-    maxWidth: 460,
-    marginTop: 6,
-    color: colors.red,
-    fontSize: 11,
-    lineHeight: 15,
-    textAlign: 'center',
-  },
+  settingsLayer: { flex: 1, alignSelf: 'stretch', zIndex: 1 },
+  contentLayer: { ...StyleSheet.absoluteFillObject, zIndex: 1 },
 });
