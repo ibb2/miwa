@@ -37,17 +37,10 @@ public final class NativeWindowToolbarModule: Module {
         view.toolbarVisible = visible
       }
 
-      Prop("centeredItemIds") {
-        (view: NativeWindowToolbarView, centeredItemIds: [String]) in
-        view.centeredItemIds = centeredItemIds
-      }
-
       Events(
         "onItemPress",
-        "onSearchChange",
         "onMenuItemPress",
-        "onSegmentChange",
-        "onConfigurationChange"
+        "onSegmentChange"
       )
 
       OnViewDidUpdateProps { (view: NativeWindowToolbarView) in
@@ -60,16 +53,6 @@ public final class NativeWindowToolbarModule: Module {
 
       AsyncFunction("resetConfiguration") { (view: NativeWindowToolbarView) in
         view.resetConfiguration()
-      }
-
-      AsyncFunction("focusSearch") {
-        (view: NativeWindowToolbarView, itemId: String) in
-        view.focusSearch(itemId: itemId)
-      }
-
-      AsyncFunction("setItemEnabled") {
-        (view: NativeWindowToolbarView, itemId: String, enabled: Bool) in
-        view.setItemEnabled(itemId: itemId, enabled: enabled)
       }
     }
   }

@@ -1,7 +1,4 @@
-import type {
-  NativeToolbarItem,
-  ToolbarSegment,
-} from '../modules/native-window-toolbar/src';
+import type { NativeToolbarItem, ToolbarSegment } from '../../modules/native-window-toolbar/src';
 
 export type AppSurface = 'mail' | 'gatekeeper' | 'settings';
 

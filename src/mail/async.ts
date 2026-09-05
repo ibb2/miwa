@@ -25,3 +25,7 @@ export function throwIfAborted(signal?: AbortSignal): void {
   error.name = 'AbortError';
   throw error;
 }
+
+export function messageFor(error: unknown): string {
+  return error instanceof Error ? error.message : 'Something went wrong.';
+}

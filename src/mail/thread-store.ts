@@ -8,7 +8,7 @@ import {
   mailMessages,
   mailThreads,
 } from '../db/schema';
-import { mailCategoryForLabels } from './inbox-layout';
+import { mailCategoryForLabels } from './inbox-tabs';
 import type { MailThreadDetail, MailThreadSummary } from './types';
 
 /** Loads every downloaded thread, newest first, hiding Gatekeeper-blocked senders. */
@@ -46,12 +46,7 @@ export async function loadThreads(): Promise<MailThreadSummary[]> {
         gatekeeperSenders,
         sql`lower(trim(${mailMessageAddresses.address})) = ${gatekeeperSenders.email}`,
       )
-      .where(
-        and(
-          eq(mailMessageAddresses.kind, 'from'),
-          eq(gatekeeperSenders.status, 'blocked'),
-        ),
-      ),
+      .where(and(eq(mailMessageAddresses.kind, 'from'), eq(gatekeeperSenders.status, 'blocked'))),
   ]);
 
   const blockedThreadIds = new Set(
@@ -92,10 +87,7 @@ export async function loadThreadDetail(
     .select({ id: mailThreads.id, subject: mailThreads.subject })
     .from(mailThreads)
     .where(
-      and(
-        eq(mailThreads.accountId, accountId),
-        eq(mailThreads.providerThreadId, providerThreadId),
-      ),
+      and(eq(mailThreads.accountId, accountId), eq(mailThreads.providerThreadId, providerThreadId)),
     )
     .get();
 
@@ -170,10 +162,7 @@ async function findThreadId(accountId: string, providerThreadId: string): Promis
     .select({ id: mailThreads.id })
     .from(mailThreads)
     .where(
-      and(
-        eq(mailThreads.accountId, accountId),
-        eq(mailThreads.providerThreadId, providerThreadId),
-      ),
+      and(eq(mailThreads.accountId, accountId), eq(mailThreads.providerThreadId, providerThreadId)),
     )
     .get();
   if (!thread) throw new Error('This downloaded conversation is no longer available.');
@@ -194,7 +183,11 @@ export async function setThreadReadState(
 
   const updatedAt = Date.now();
   db.transaction((transaction) => {
-    transaction.update(mailThreads).set({ unread, updatedAt }).where(eq(mailThreads.id, threadId)).run();
+    transaction
+      .update(mailThreads)
+      .set({ unread, updatedAt })
+      .where(eq(mailThreads.id, threadId))
+      .run();
     for (const message of messages) {
       const labelIds = unread
         ? [...new Set([...message.labelIds, 'UNREAD'])]
@@ -229,9 +222,6 @@ export async function removeInboxThread(
   await db
     .delete(mailThreads)
     .where(
-      and(
-        eq(mailThreads.accountId, accountId),
-        eq(mailThreads.providerThreadId, providerThreadId),
-      ),
+      and(eq(mailThreads.accountId, accountId), eq(mailThreads.providerThreadId, providerThreadId)),
     );
 }

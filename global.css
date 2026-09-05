@@ -1,0 +1,19 @@
+@import 'tailwindcss';
+@import 'uniwind';
+
+@theme {
+  --color-accent: #e86e5a;
+  --color-accent-dark: #c95243;
+}
+
+@utility h-hairline {
+  height: hairlineWidth();
+}
+
+@utility border-hairline {
+  border-width: hairlineWidth();
+}
+
+@utility border-t-hairline {
+  border-top-width: hairlineWidth();
+}

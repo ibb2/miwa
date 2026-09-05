@@ -4,7 +4,8 @@ import { db } from '../db/db';
 import { mailMessages, mailboxSyncState, mailThreads } from '../db/schema';
 import { gmailAccountAuth } from './accounts';
 import { mapWithConcurrency, throwIfAborted } from './async';
-import { listInboxMessageRefs, reconcileThread, type ThreadReconcileResult } from './download';
+import { listInboxMessageRefs } from './download-inbox';
+import { reconcileThread, type ThreadReconcileResult } from './download-thread';
 import { GmailApiError, gmailGet } from './gmail';
 import {
   collectChangedThreadIds,

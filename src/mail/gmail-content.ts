@@ -49,10 +49,19 @@ export function stripHtml(html: string): string {
 export function sanitizeEmailHtml(html: string): string {
   return html
     .replace(/<!--[\s\S]*?-->/g, '')
-    .replace(/<(script|style|iframe|object|embed|form|input|button|video|audio|source|link|meta|base)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, '')
-    .replace(/<(script|style|iframe|object|embed|form|input|button|video|audio|source|link|meta|base)\b[^>]*\/?>/gi, '')
+    .replace(
+      /<(script|style|iframe|object|embed|form|input|button|video|audio|source|link|meta|base)\b[^>]*>[\s\S]*?<\/\1\s*>/gi,
+      '',
+    )
+    .replace(
+      /<(script|style|iframe|object|embed|form|input|button|video|audio|source|link|meta|base)\b[^>]*\/?>/gi,
+      '',
+    )
     .replace(/\s+on[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '')
-    .replace(/\s+(src|srcset|poster|background|xlink:href)\s*=\s*("https?:[^"]*"|'https?:[^']*'|https?:[^\s>]+)/gi, '')
+    .replace(
+      /\s+(src|srcset|poster|background|xlink:href)\s*=\s*("https?:[^"]*"|'https?:[^']*'|https?:[^\s>]+)/gi,
+      '',
+    )
     .replace(/\s+style\s*=\s*("[^"]*url\([^)]*\)[^"]*"|'[^']*url\([^)]*\)[^']*')/gi, '')
     .replace(/javascript\s*:/gi, '');
 }
@@ -126,7 +135,7 @@ export function parseReferences(value: string): Array<{ messageId: string }> {
   return Array.from(value.matchAll(/<([^<>]+)>/g), (match) => ({ messageId: match[1] }));
 }
 
-function removeAngleBrackets(value: string): string {
+export function removeAngleBrackets(value: string): string {
   return value.trim().replace(/^<|>$/g, '');
 }
 
@@ -149,7 +158,7 @@ export function isBodyPart(part: GmailPart): boolean {
   );
 }
 
-export type CollectedPart = { part: GmailPart; path: string };
+type CollectedPart = { part: GmailPart; path: string };
 
 /** Flattens the MIME tree into its leaf parts, remembering each part's path. */
 export function collectLeafParts(part: GmailPart | undefined, path = '0'): CollectedPart[] {
@@ -159,5 +168,3 @@ export function collectLeafParts(part: GmailPart | undefined, path = '0'): Colle
   }
   return [{ part, path }];
 }
-
-export { removeAngleBrackets };

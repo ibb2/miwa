@@ -193,7 +193,7 @@ const migrations = [
   },
 ] as const;
 
-export function migrateDatabase(database: SQLiteDatabase): void {
+export function migrateDatabase(database: Pick<SQLiteDatabase, 'execSync' | 'getFirstSync'>): void {
   database.execSync('PRAGMA foreign_keys = ON;');
   database.execSync('PRAGMA journal_mode = WAL;');
   database.execSync('PRAGMA busy_timeout = 5000;');

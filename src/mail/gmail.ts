@@ -106,7 +106,11 @@ async function gmailFetch(
 }
 
 /** Authenticated read-only Gmail GET. Never mutates server-side mail. */
-export async function gmailGet<T>(accountId: string, path: string, signal?: AbortSignal): Promise<T> {
+export async function gmailGet<T>(
+  accountId: string,
+  path: string,
+  signal?: AbortSignal,
+): Promise<T> {
   const response = await gmailFetch(accountId, 'GET', path, undefined, signal);
   return JSON.parse(response.text) as T;
 }
@@ -146,10 +150,7 @@ export function archiveGmailThread(accountId: string, threadId: string): Promise
  * Runs a Gmail mutation, re-authorizing the account once when the stored
  * OAuth grant no longer covers the required scope.
  */
-export async function withGmailReauth<T>(
-  accountId: string,
-  action: () => Promise<T>,
-): Promise<T> {
+export async function withGmailReauth<T>(accountId: string, action: () => Promise<T>): Promise<T> {
   try {
     return await action();
   } catch (error) {

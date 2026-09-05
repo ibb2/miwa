@@ -1,12 +1,5 @@
 import { sql } from 'drizzle-orm';
-import {
-  blob,
-  index,
-  integer,
-  sqliteTable,
-  text,
-  uniqueIndex,
-} from 'drizzle-orm/sqlite-core';
+import { blob, index, integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
 
 export type StoredMailHeader = { name: string; value: string };
 export type StoredMailReference = { messageId: string };
@@ -30,9 +23,7 @@ export const mailAccounts = sqliteTable(
     createdAt: integer('created_at', { mode: 'number' }).notNull().default(now),
     updatedAt: integer('updated_at', { mode: 'number' }).notNull().default(now),
   },
-  (table) => [
-    uniqueIndex('mail_accounts_provider_email_unique').on(table.provider, table.email),
-  ],
+  (table) => [uniqueIndex('mail_accounts_provider_email_unique').on(table.provider, table.email)],
 );
 
 /**
@@ -99,10 +90,7 @@ export const mailMessages = sqliteTable(
     sentAt: integer('sent_at', { mode: 'number' }).notNull(),
     sizeEstimate: integer('size_estimate'),
     labelIds: text('label_ids', { mode: 'json' }).$type<string[]>().notNull().default([]),
-    headers: text('headers', { mode: 'json' })
-      .$type<StoredMailHeader[]>()
-      .notNull()
-      .default([]),
+    headers: text('headers', { mode: 'json' }).$type<StoredMailHeader[]>().notNull().default([]),
     plainTextBody: text('plain_text_body').notNull().default(''),
     /** Sanitized HTML; remote images are stripped before persistence. */
     htmlBody: text('html_body'),
@@ -170,10 +158,7 @@ export const mailAttachments = sqliteTable(
     downloadedAt: integer('downloaded_at', { mode: 'number' }),
   },
   (table) => [
-    uniqueIndex('mail_attachments_message_part_unique').on(
-      table.messageId,
-      table.providerPartId,
-    ),
+    uniqueIndex('mail_attachments_message_part_unique').on(table.messageId, table.providerPartId),
     index('mail_attachments_message_idx').on(table.messageId),
     index('mail_attachments_content_id_idx').on(table.contentId),
   ],
@@ -184,7 +169,9 @@ export const mailboxSyncState = sqliteTable('mailbox_sync_state', {
   accountId: text('account_id')
     .primaryKey()
     .references(() => mailAccounts.id, { onDelete: 'cascade' }),
-  mailbox: text('mailbox', { enum: ['INBOX'] }).notNull().default('INBOX'),
+  mailbox: text('mailbox', { enum: ['INBOX'] })
+    .notNull()
+    .default('INBOX'),
   nextPageToken: text('next_page_token'),
   historyId: text('history_id'),
   lastAttemptAt: integer('last_attempt_at', { mode: 'number' }),
@@ -218,20 +205,9 @@ export const gatekeeperSenders = sqliteTable(
     messageCount: integer('message_count').notNull().default(1),
     updatedAt: integer('updated_at', { mode: 'number' }).notNull().default(now),
   },
-  (table) => [
-    index('gatekeeper_senders_status_last_seen_idx').on(table.status, table.lastSeenAt),
-  ],
+  (table) => [index('gatekeeper_senders_status_last_seen_idx').on(table.status, table.lastSeenAt)],
 );
 
-export type MailAccountRow = typeof mailAccounts.$inferSelect;
-export type NewMailAccountRow = typeof mailAccounts.$inferInsert;
-export type MailThreadRow = typeof mailThreads.$inferSelect;
-export type NewMailThreadRow = typeof mailThreads.$inferInsert;
-export type MailMessageRow = typeof mailMessages.$inferSelect;
 export type NewMailMessageRow = typeof mailMessages.$inferInsert;
-export type MailMessageAddressRow = typeof mailMessageAddresses.$inferSelect;
 export type NewMailMessageAddressRow = typeof mailMessageAddresses.$inferInsert;
-export type MailAttachmentRow = typeof mailAttachments.$inferSelect;
 export type NewMailAttachmentRow = typeof mailAttachments.$inferInsert;
-export type GatekeeperSenderRow = typeof gatekeeperSenders.$inferSelect;
-export type NewGatekeeperSenderRow = typeof gatekeeperSenders.$inferInsert;

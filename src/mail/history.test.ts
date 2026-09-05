@@ -1,10 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 
-import {
-  collectChangedThreadIds,
-  latestHistoryId,
-  type GmailHistoryRecord,
-} from './history';
+import { collectChangedThreadIds, latestHistoryId, type GmailHistoryRecord } from './history';
 
 describe('Gmail history helpers', () => {
   test('deduplicates thread IDs across every history change type', () => {
@@ -23,8 +19,8 @@ describe('Gmail history helpers', () => {
   });
 
   test('compares uint64 history IDs without numeric precision loss', () => {
-    expect(
-      latestHistoryId(['999999999999999999', null, '1000000000000000000', '00042']),
-    ).toBe('1000000000000000000');
+    expect(latestHistoryId(['999999999999999999', null, '1000000000000000000', '00042'])).toBe(
+      '1000000000000000000',
+    );
   });
 });

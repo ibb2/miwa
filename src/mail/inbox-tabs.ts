@@ -1,6 +1,5 @@
 import type { MailCategory, MailThreadSummary } from './types';
 
-export type InboxLayoutMode = 'categorized' | 'single';
 export type InboxTabId = 'inbox' | 'pinned' | MailCategory | 'seen';
 
 export type InboxTab = {
@@ -8,11 +7,6 @@ export type InboxTab = {
   title: string;
   count: number;
 };
-
-/** Persisted layout preference; anything unknown falls back to categorized. */
-export function inboxLayoutMode(value: unknown): InboxLayoutMode {
-  return value === 'single' ? 'single' : 'categorized';
-}
 
 const categoryLabels: ReadonlyArray<readonly [string, MailCategory]> = [
   ['CATEGORY_PRIMARY', 'primary'],

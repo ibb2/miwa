@@ -1,52 +1,7 @@
 import AppKit
 import ExpoModulesCore
 
-public struct ToolbarMenuOptionRecord: Record {
-  @Field public var id: String = ""
-  @Field public var label: String = ""
-  @Field public var systemImage: String?
-  @Field public var enabled: Bool = true
-  @Field public var state: String = "off"
-
-  public init() {}
-}
-
-public struct ToolbarSegmentRecord: Record {
-  @Field public var id: String = ""
-  @Field public var label: String?
-  @Field public var systemImage: String?
-  @Field public var imageData: String?
-  @Field public var fallbackText: String?
-
-  public init() {}
-}
-
-public struct ToolbarItemRecord: Record {
-  @Field public var id: String = ""
-  @Field public var kind: String = "button"
-  @Field public var label: String?
-  @Field public var paletteLabel: String?
-  @Field public var toolTip: String?
-  @Field public var systemImage: String?
-  @Field public var badgeCount: Int?
-  @Field public var enabled: Bool = true
-  @Field public var selectable: Bool = false
-  @Field public var immovable: Bool = false
-  @Field public var navigational: Bool = false
-  @Field public var placeholder: String?
-  @Field public var value: String?
-  @Field public var preferredWidth: Double = 240
-  @Field public var options: [ToolbarMenuOptionRecord] = []
-  @Field public var progress: Double = 0
-  @Field public var indeterminate: Bool = false
-  @Field public var segments: [ToolbarSegmentRecord] = []
-  @Field public var selectedIndex: Int = -1
-  @Field public var selectionMode: String = "momentary"
-
-  public init() {}
-}
-
-public final class NativeWindowToolbarView: ExpoView, NSToolbarDelegate, NSSearchFieldDelegate {
+public final class NativeWindowToolbarView: ExpoView, NSToolbarDelegate {
   public var toolbarIdentifier = "ExpoWindowToolbar"
   public var items: [ToolbarItemRecord] = []
   public var customizable = true
@@ -54,20 +9,16 @@ public final class NativeWindowToolbarView: ExpoView, NSToolbarDelegate, NSSearc
   public var displayMode = "iconOnly"
   public var toolbarStyle = "unified"
   public var toolbarVisible = true
-  public var centeredItemIds: [String] = []
 
   private let onItemPress = EventDispatcher()
-  private let onSearchChange = EventDispatcher()
   private let onMenuItemPress = EventDispatcher()
   private let onSegmentChange = EventDispatcher()
-  private let onConfigurationChange = EventDispatcher()
 
   private weak var installedWindow: NSWindow?
   private var installedToolbar: NSToolbar?
   private weak var glassBackgroundView: NSVisualEffectView?
   private var itemByIdentifier: [NSToolbarItem.Identifier: ToolbarItemRecord] = [:]
   private var identifierByItemId: [String: NSToolbarItem.Identifier] = [:]
-  private var searchItemIdByField: [ObjectIdentifier: String] = [:]
   private var segmentItemIdByGroup: [ObjectIdentifier: String] = [:]
 
   required public init(appContext: AppContext? = nil) {
@@ -152,25 +103,6 @@ public final class NativeWindowToolbarView: ExpoView, NSToolbarDelegate, NSSearc
         toolbar.insertItem(withItemIdentifier: identifier, at: index)
       }
     }
-    emitConfigurationChange()
-  }
-
-  public func focusSearch(itemId: String) {
-    guard let identifier = identifierByItemId[itemId],
-          let item = installedToolbar?.items.first(where: { $0.itemIdentifier == identifier })
-            as? NSSearchToolbarItem else {
-      return
-    }
-    item.beginSearchInteraction()
-  }
-
-  public func setItemEnabled(itemId: String, enabled: Bool) {
-    guard let identifier = identifierByItemId[itemId] else {
-      return
-    }
-    installedToolbar?.items
-      .filter { $0.itemIdentifier == identifier }
-      .forEach { $0.isEnabled = enabled }
   }
 
   public func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
@@ -179,12 +111,6 @@ public final class NativeWindowToolbarView: ExpoView, NSToolbarDelegate, NSSearc
 
   public func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
     allowedItemIdentifiers
-  }
-
-  public func toolbarSelectableItemIdentifiers(
-    _ toolbar: NSToolbar
-  ) -> [NSToolbarItem.Identifier] {
-    items.filter(\.selectable).compactMap { identifierByItemId[$0.id] }
   }
 
   public func toolbarImmovableItemIdentifiers(
@@ -203,18 +129,12 @@ public final class NativeWindowToolbarView: ExpoView, NSToolbarDelegate, NSSearc
     }
 
     switch definition.kind {
-    case "toggleSidebar":
-      return makeSidebarItem(definition: definition, identifier: itemIdentifier)
-    case "search":
-      return makeSearchItem(definition: definition, identifier: itemIdentifier)
     case "menu":
       return makeMenuItem(definition: definition, identifier: itemIdentifier)
     case "progress":
       return makeProgressItem(definition: definition, identifier: itemIdentifier)
     case "segmented":
       return makeSegmentedItem(definition: definition, identifier: itemIdentifier)
-    case "sidebarTrackingSeparator":
-      return makeTrackingSeparatorItem(identifier: itemIdentifier)
     case "space", "flexibleSpace":
       // AppKit automatically constructs its standard spacing items.
       return nil
@@ -223,29 +143,9 @@ public final class NativeWindowToolbarView: ExpoView, NSToolbarDelegate, NSSearc
     }
   }
 
-  public func toolbarWillAddItem(_ notification: Notification) {
-    dispatchConfigurationChangeAfterToolbarUpdate()
-  }
-
-  public func toolbarDidRemoveItem(_ notification: Notification) {
-    dispatchConfigurationChangeAfterToolbarUpdate()
-  }
-
-  public func controlTextDidChange(_ notification: Notification) {
-    guard let searchField = notification.object as? NSSearchField,
-          let itemId = searchItemIdByField[ObjectIdentifier(searchField)] else {
-      return
-    }
-    onSearchChange(["id": itemId, "value": searchField.stringValue])
-  }
-
   @objc private func handleToolbarItem(_ sender: NSToolbarItem) {
     guard let definition = itemByIdentifier[sender.itemIdentifier] else {
       return
-    }
-
-    if definition.kind == "toggleSidebar" {
-      findSplitViewController(in: installedWindow?.contentViewController)?.toggleSidebar(nil)
     }
 
     onItemPress(["id": definition.id])
@@ -326,9 +226,6 @@ public final class NativeWindowToolbarView: ExpoView, NSToolbarDelegate, NSSearc
     toolbar.allowsUserCustomization = customizable
     toolbar.autosavesConfiguration = customizable && autosavesConfiguration
     toolbar.isVisible = toolbarVisible
-    toolbar.centeredItemIdentifiers = Set(
-      centeredItemIds.compactMap { identifierByItemId[$0] }
-    )
     return toolbar
   }
 
@@ -345,8 +242,6 @@ public final class NativeWindowToolbarView: ExpoView, NSToolbarDelegate, NSSearc
 
   private func nativeIdentifier(for item: ToolbarItemRecord) -> NSToolbarItem.Identifier {
     switch item.kind {
-    case "toggleSidebar":
-      return .toggleSidebar
     case "space":
       return .space
     case "flexibleSpace":
@@ -405,48 +300,6 @@ public final class NativeWindowToolbarView: ExpoView, NSToolbarDelegate, NSSearc
 
     item.view = button
     configure(item, from: definition, includeImage: false)
-    return item
-  }
-
-  private func makeSidebarItem(
-    definition: ToolbarItemRecord,
-    identifier: NSToolbarItem.Identifier
-  ) -> NSToolbarItem {
-    let item = NSToolbarItem(itemIdentifier: identifier)
-    configure(item, from: definition, defaultLabel: "Sidebar", defaultSymbol: "sidebar.left")
-    item.target = self
-    item.action = #selector(handleToolbarItem(_:))
-    return item
-  }
-
-  private func makeTrackingSeparatorItem(
-    identifier: NSToolbarItem.Identifier
-  ) -> NSToolbarItem? {
-    guard let splitView = findSplitViewController(
-      in: installedWindow?.contentViewController
-    )?.splitView else {
-      return nil
-    }
-    return NSTrackingSeparatorToolbarItem(
-      identifier: identifier,
-      splitView: splitView,
-      dividerIndex: 0
-    )
-  }
-
-  private func makeSearchItem(
-    definition: ToolbarItemRecord,
-    identifier: NSToolbarItem.Identifier
-  ) -> NSToolbarItem {
-    let item = NSSearchToolbarItem(itemIdentifier: identifier)
-    let searchField = NSSearchField()
-    searchField.placeholderString = definition.placeholder ?? definition.label ?? "Search"
-    searchField.stringValue = definition.value ?? ""
-    searchField.delegate = self
-    item.searchField = searchField
-    item.preferredWidthForSearchField = CGFloat(max(definition.preferredWidth, 120))
-    configure(item, from: definition, defaultLabel: "Search", includeImage: false)
-    searchItemIdByField[ObjectIdentifier(searchField)] = definition.id
     return item
   }
 
@@ -637,37 +490,6 @@ public final class NativeWindowToolbarView: ExpoView, NSToolbarDelegate, NSSearc
     }
   }
 
-  private func findSplitViewController(in controller: NSViewController?) -> NSSplitViewController? {
-    guard let controller else {
-      return nil
-    }
-    if let splitController = controller as? NSSplitViewController {
-      return splitController
-    }
-    for child in controller.children {
-      if let splitController = findSplitViewController(in: child) {
-        return splitController
-      }
-    }
-    return nil
-  }
-
-  private func dispatchConfigurationChangeAfterToolbarUpdate() {
-    DispatchQueue.main.async { [weak self] in
-      self?.emitConfigurationChange()
-    }
-  }
-
-  private func emitConfigurationChange() {
-    guard let toolbar = installedToolbar else {
-      return
-    }
-    let itemIds = toolbar.items.compactMap { item in
-      itemByIdentifier[item.itemIdentifier]?.id
-    }
-    onConfigurationChange(["itemIds": itemIds])
-  }
-
   private func detachToolbar() {
     if installedWindow?.toolbar === installedToolbar {
       installedWindow?.toolbar = nil
@@ -675,7 +497,6 @@ public final class NativeWindowToolbarView: ExpoView, NSToolbarDelegate, NSSearc
     installedToolbar?.delegate = nil
     installedToolbar = nil
     installedWindow = nil
-    searchItemIdByField.removeAll()
     segmentItemIdByGroup.removeAll()
   }
 }

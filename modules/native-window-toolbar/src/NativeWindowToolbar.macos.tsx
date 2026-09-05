@@ -1,21 +1,9 @@
 import { requireNativeView } from 'expo';
-import { forwardRef, type ComponentType, type RefAttributes } from 'react';
+import { type ComponentType, type RefAttributes } from 'react';
 
-import type {
-  NativeWindowToolbarProps,
-  NativeWindowToolbarRef,
-} from './NativeWindowToolbar.types';
+import type { NativeWindowToolbarProps, NativeWindowToolbarRef } from './NativeWindowToolbar.types';
 
-const NativeView = requireNativeView<NativeWindowToolbarProps>(
+export const NativeWindowToolbar = requireNativeView<NativeWindowToolbarProps>(
   'NativeWindowToolbar',
-  'NativeWindowToolbar'
-) as ComponentType<
-  NativeWindowToolbarProps & RefAttributes<NativeWindowToolbarRef>
->;
-
-export const NativeWindowToolbar = forwardRef<
-  NativeWindowToolbarRef,
-  NativeWindowToolbarProps
->(function NativeWindowToolbar(props, ref) {
-  return <NativeView {...props} ref={ref} />;
-});
+  'NativeWindowToolbar',
+) as ComponentType<NativeWindowToolbarProps & RefAttributes<NativeWindowToolbarRef>>;

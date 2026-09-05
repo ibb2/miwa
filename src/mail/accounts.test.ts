@@ -16,7 +16,10 @@ const removedMetadata: string[] = [];
 const nativeModule = {
   listAccounts: async () => [account('stored'), account('missing')],
   connectAccount: async () => ({ ...account('connected'), credential: 'connected-credential' }),
-  reauthorizeAccount: async (id: string) => ({ ...account(id), credential: 'reauthorized-credential' }),
+  reauthorizeAccount: async (id: string) => ({
+    ...account(id),
+    credential: 'reauthorized-credential',
+  }),
   getAccessToken: async () => ({
     accessToken: 'short-lived-token',
     expiresAt: 123,

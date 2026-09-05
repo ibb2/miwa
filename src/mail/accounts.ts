@@ -20,7 +20,11 @@ type NativeAccessToken = AccessToken & { credential?: string };
 type NativeGmailAccountAuthModule = {
   listAccounts(): Promise<ConnectedAccount[]>;
   connectAccount(): Promise<NativeConnectedAccount>;
-  getAccessToken(accountId: string, credential: string, forceRefresh: boolean): Promise<NativeAccessToken>;
+  getAccessToken(
+    accountId: string,
+    credential: string,
+    forceRefresh: boolean,
+  ): Promise<NativeAccessToken>;
   reauthorizeAccount(accountId: string): Promise<NativeConnectedAccount>;
   disconnectAccount(accountId: string, credential?: string): Promise<void>;
   removeAccountMetadata(accountId: string): Promise<void>;
@@ -121,7 +125,11 @@ function fetchBase64(url: string): Promise<string> {
     request.open('GET', url, true);
     request.responseType = 'arraybuffer';
     request.onload = () => {
-      if (request.status >= 200 && request.status < 300 && request.response instanceof ArrayBuffer) {
+      if (
+        request.status >= 200 &&
+        request.status < 300 &&
+        request.response instanceof ArrayBuffer
+      ) {
         const bytes = new Uint8Array(request.response);
         let binary = '';
         for (let offset = 0; offset < bytes.length; offset += 8192) {

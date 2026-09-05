@@ -2,17 +2,20 @@ import {
   Button,
   ContentUnavailableView,
   Divider,
-  Host,
+  Host as SwiftUIHost,
   Image as SwiftUIImage,
   VStack,
   type ButtonProps,
   type ImageProps,
 } from '@expo/ui/swift-ui';
+import { withUniwind } from 'uniwind';
+
+import { accent } from './native-colors';
 import { accessibilityLabel as accessibilityLabelModifier } from '@expo/ui/swift-ui/modifiers';
 import type { SFSymbol } from 'sf-symbols-typescript';
-import { Image, StyleSheet, Switch, Text, View } from 'react-native';
+import { Image, Text, View } from 'react-native';
 
-import { accent } from '../theme';
+const Host = withUniwind(SwiftUIHost);
 
 type NativeActionButtonProps = {
   accessibilityLabel?: string;
@@ -37,7 +40,7 @@ export function NativeActionButton({
   const width = systemImage ? 34 : Math.max(80, Math.min(184, label.length * 7 + 34));
 
   return (
-    <Host style={{ width, height: 34 }}>
+    <Host className="h-[34px]" style={{ width }}>
       <Button
         color={role === 'destructive' ? 'red' : accent}
         controlSize="small"
@@ -69,7 +72,7 @@ export function NativeTabButton({
   const width = Math.max(84, title.length * 7 + 30);
 
   return (
-    <Host style={{ width, height: 38 }}>
+    <Host className="h-[38px]" style={{ width }}>
       <Button
         color={accent}
         controlSize="regular"
@@ -101,15 +104,22 @@ export function NativeSymbol({
 }: NativeSymbolProps) {
   if (imageUri) {
     return (
-      <Image accessibilityIgnoresInvertColors source={{ uri: imageUri }} style={styles.avatar} />
+      <Image
+        accessibilityIgnoresInvertColors
+        source={{ uri: imageUri }}
+        className="w-[32px] h-[32px] items-center justify-center rounded-[16px] border-continuous overflow-hidden"
+      />
     );
   }
   return (
-    <View style={[styles.avatar, { backgroundColor: color }]}>
+    <View
+      className="w-[32px] h-[32px] items-center justify-center rounded-[16px] border-continuous overflow-hidden"
+      style={{ backgroundColor: color }}
+    >
       {preferFallback ? (
-        <Text style={styles.initials}>{fallback}</Text>
+        <Text className="text-[#FFFFFF] text-[12px] font-bold">{fallback}</Text>
       ) : (
-        <Host style={styles.iconHost}>
+        <Host className="w-[18px] h-[18px]">
           <SwiftUIImage color="white" size={16} systemName={systemName} />
         </Host>
       )}
@@ -120,27 +130,9 @@ export function NativeSymbol({
 /** A hairline row separator, inset past a leading icon. */
 export function NativeDivider() {
   return (
-    <Host style={{ height: 1, marginLeft: 16 }}>
+    <Host className="h-[1px] ml-[16px]">
       <Divider />
     </Host>
-  );
-}
-
-type NativeSwitchProps = {
-  label: string;
-  onValueChange: (value: boolean) => void;
-  value: boolean;
-};
-
-export function NativeSwitch({ label, onValueChange, value }: NativeSwitchProps) {
-  return (
-    <Switch
-      accessibilityLabel={label}
-      onTintColor={accent}
-      onValueChange={onValueChange}
-      style={{ width: 38, height: 22 }}
-      value={value}
-    />
   );
 }
 
@@ -152,13 +144,13 @@ type NativeSectionLabelProps = {
 /** A small gray section heading, optionally preceded by an SF Symbol. */
 export function NativeSectionLabel({ label, systemImage }: NativeSectionLabelProps) {
   return (
-    <View style={styles.sectionLabel}>
+    <View className="flex-row items-center gap-[6px]">
       {systemImage ? (
-        <Host style={styles.sectionIcon}>
+        <Host className="w-[14px] h-[14px]">
           <SwiftUIImage color="secondary" size={12} systemName={systemImage} />
         </Host>
       ) : null}
-      <Text style={styles.sectionText}>{label}</Text>
+      <Text className="text-[#6E6E73] text-[10px] font-semibold tracking-[0.5px]">{label}</Text>
     </View>
   );
 }
@@ -177,34 +169,21 @@ export function NativeEmptyState({
   title: string;
 }) {
   return (
-    <View style={styles.emptyContainer}>
-      <Host style={styles.emptyHost}>
+    <View className="flex-1 items-center justify-center">
+      <Host className="w-[460px] h-[220px]">
         <VStack alignment="center" spacing={14}>
-          <ContentUnavailableView description={description} systemImage={systemImage} title={title} />
+          <ContentUnavailableView
+            description={description}
+            systemImage={systemImage}
+            title={title}
+          />
           {actionLabel && onAction ? (
-            <Button color={accent} onPress={onAction} variant="borderedProminent">{actionLabel}</Button>
+            <Button color={accent} onPress={onAction} variant="borderedProminent">
+              {actionLabel}
+            </Button>
           ) : null}
         </VStack>
       </Host>
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  avatar: {
-    width: 32,
-    height: 32,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 16,
-    borderCurve: 'continuous',
-    overflow: 'hidden',
-  },
-  iconHost: { width: 18, height: 18 },
-  initials: { color: '#FFFFFF', fontSize: 12, fontWeight: '700' },
-  sectionLabel: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  sectionIcon: { width: 14, height: 14 },
-  sectionText: { color: '#6E6E73', fontSize: 10, fontWeight: '600', letterSpacing: 0.5 },
-  emptyContainer: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  emptyHost: { width: 460, height: 220 },
-});

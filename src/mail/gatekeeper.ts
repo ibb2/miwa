@@ -44,7 +44,7 @@ type DiscoveredSender = {
   messagesById: Map<string, GatekeeperMessage>;
 };
 
-export function normalizeSenderAddress(value: string): string {
+function normalizeSenderAddress(value: string): string {
   return value.trim().toLowerCase();
 }
 
@@ -88,9 +88,7 @@ async function discoverSenders(activatedAt: number): Promise<Map<string, Discove
     db.select({ email: mailAccounts.email }).from(mailAccounts),
   ]);
 
-  const ownAddresses = new Set(
-    accountRows.map((account) => normalizeSenderAddress(account.email)),
-  );
+  const ownAddresses = new Set(accountRows.map((account) => normalizeSenderAddress(account.email)));
   const senders = new Map<string, DiscoveredSender>();
 
   for (const row of addressRows) {
@@ -163,10 +161,7 @@ export async function loadGatekeeperOverview(): Promise<GatekeeperOverview> {
   const discovered = await discoverSenders(activatedAt);
   await persistDiscoveredSenders(discovered);
 
-  const rows = await db
-    .select()
-    .from(gatekeeperSenders)
-    .orderBy(asc(gatekeeperSenders.lastSeenAt));
+  const rows = await db.select().from(gatekeeperSenders).orderBy(asc(gatekeeperSenders.lastSeenAt));
   const pending: GatekeeperSender[] = [];
   const blocked: GatekeeperSender[] = [];
 

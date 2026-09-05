@@ -1,11 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 
-import {
-  buildInboxTabs,
-  inboxLayoutMode,
-  mailCategoryForLabels,
-  threadsForInboxTab,
-} from './inbox-layout';
+import { buildInboxTabs, mailCategoryForLabels, threadsForInboxTab } from './inbox-tabs';
 import type { MailCategory, MailThreadSummary } from './types';
 
 function thread(
@@ -43,13 +38,6 @@ describe('mailCategoryForLabels', () => {
 });
 
 describe('inbox layout', () => {
-  test('uses categorized as the persisted-value fallback', () => {
-    expect(inboxLayoutMode('single')).toBe('single');
-    expect(inboxLayoutMode('categorized')).toBe('categorized');
-    expect(inboxLayoutMode(undefined)).toBe('categorized');
-    expect(inboxLayoutMode('invalid')).toBe('categorized');
-  });
-
   test('builds every tab in a stable order with matching counts', () => {
     const threads = [
       thread('person', 'primary'),
@@ -77,8 +65,15 @@ describe('inbox layout', () => {
       thread('newsletter', 'promotions'),
     ];
     expect(threadsForInboxTab(threads, 'inbox')).toBe(threads);
-    expect(threadsForInboxTab(threads, 'pinned').map((item) => item.threadId)).toEqual(['pinned update', 'seen pinned']);
-    expect(threadsForInboxTab(threads, 'updates').map((item) => item.threadId)).toEqual(['pinned update']);
-    expect(threadsForInboxTab(threads, 'seen').map((item) => item.threadId)).toEqual(['seen pinned']);
+    expect(threadsForInboxTab(threads, 'pinned').map((item) => item.threadId)).toEqual([
+      'pinned update',
+      'seen pinned',
+    ]);
+    expect(threadsForInboxTab(threads, 'updates').map((item) => item.threadId)).toEqual([
+      'pinned update',
+    ]);
+    expect(threadsForInboxTab(threads, 'seen').map((item) => item.threadId)).toEqual([
+      'seen pinned',
+    ]);
   });
 });

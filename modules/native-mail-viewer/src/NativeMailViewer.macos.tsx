@@ -5,5 +5,5 @@ import type { NativeMailViewerProps } from './NativeMailViewer.types';
 
 export const NativeMailViewer = requireNativeView<NativeMailViewerProps>(
   'NativeMailViewer',
-  'NativeMailViewer'
+  'NativeMailViewer',
 ) as ComponentType<NativeMailViewerProps>;
