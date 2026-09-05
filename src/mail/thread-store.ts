@@ -24,6 +24,7 @@ export async function loadThreads(): Promise<MailThreadSummary[]> {
         snippet: mailThreads.snippet,
         lastMessageAt: mailThreads.lastMessageAt,
         unread: mailThreads.unread,
+        done: mailThreads.done,
         pinned: mailThreads.pinned,
         messageCount: mailThreads.messageCount,
       })
@@ -72,6 +73,7 @@ export async function loadThreads(): Promise<MailThreadSummary[]> {
       snippet: row.snippet,
       receivedAt: row.lastMessageAt,
       unread: row.unread,
+      done: row.done,
       pinned: row.pinned,
       messageCount: row.messageCount,
       category: categoryByThreadId.get(row.id) ?? 'primary',
@@ -224,4 +226,16 @@ export async function removeInboxThread(
     .where(
       and(eq(mailThreads.accountId, accountId), eq(mailThreads.providerThreadId, providerThreadId)),
     );
+}
+
+export async function setThreadDoneState(
+  accountId: string,
+  providerThreadId: string,
+  done: boolean,
+): Promise<void> {
+  const threadId = await findThreadId(accountId, providerThreadId);
+  await db
+    .update(mailThreads)
+    .set({ done, updatedAt: Date.now() })
+    .where(eq(mailThreads.id, threadId));
 }

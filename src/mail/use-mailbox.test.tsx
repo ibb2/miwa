@@ -12,6 +12,7 @@ const thread: MailThreadSummary = {
   snippet: '',
   receivedAt: 1,
   unread: true,
+  done: false,
   pinned: false,
   messageCount: 1,
   category: 'primary',
@@ -45,6 +46,7 @@ mock.module('./thread-store', () => ({
   setThreadReadState: async () => {
     if (failLocalWrite) throw new Error('Disk unavailable');
   },
+  setThreadDoneState: async () => {},
   setThreadPinnedState: async () => {
     if (failLocalWrite) throw new Error('Disk unavailable');
   },

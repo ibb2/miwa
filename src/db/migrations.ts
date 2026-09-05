@@ -191,6 +191,7 @@ const migrations = [
         ADD COLUMN "inbox_layout" text DEFAULT 'categorized' NOT NULL;
     `,
   },
+  { version: 6, sql: `ALTER TABLE "mail_threads" ADD COLUMN "done" integer DEFAULT 0 NOT NULL;` },
 ] as const;
 
 export function migrateDatabase(database: Pick<SQLiteDatabase, 'execSync' | 'getFirstSync'>): void {

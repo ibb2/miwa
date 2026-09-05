@@ -12,7 +12,8 @@ migrateDatabase({
 mock.module('../src/db/db', () => ({ db: drizzle({ client: sqlite }) }));
 mock.module('../src/mail/accounts', () => ({ gmailAccountAuth: {} }));
 const { persistThread } = await import('../src/mail/download-thread');
-const { removeInboxThread } = await import('../src/mail/thread-store');
+const { removeInboxThread, setThreadDoneState, loadThreads } =
+  await import('../src/mail/thread-store');
 
 async function checkStorage() {
   sqlite.run(
@@ -53,7 +54,12 @@ async function checkStorage() {
 
   await persistThread('account', snapshot('old'));
   sqlite.run("UPDATE mail_threads SET pinned = 1 WHERE id = 'account:thread'");
+  assert.equal((await loadThreads())[0].done, false);
+  await setThreadDoneState('account', 'thread', true);
   await persistThread('account', snapshot('new'));
+  assert.equal((await loadThreads())[0].done, true);
+  await setThreadDoneState('account', 'thread', false);
+  assert.equal((await loadThreads())[0].done, false);
   assert.deepEqual(ids('mail_messages'), [{ id: 'new' }]);
   assert.deepEqual(ids('mail_attachments'), [{ id: 'new:file' }]);
   assert.deepEqual(sqlite.query('SELECT message_id FROM mail_message_addresses').all(), [

@@ -297,6 +297,7 @@ export default function App() {
         emptyMailboxName={mailboxName}
         onOpenThread={setSelectedThread}
         onArchive={(thread) => void mailbox.archiveThread(thread)}
+        onSetDone={(thread, done) => void mailbox.setDone(thread, done)}
         onSetPinned={(thread, pinned) => void mailbox.setPinned(thread, pinned)}
         onToggleRead={(thread) => void mailbox.toggleRead(thread)}
         preferences={preferences}

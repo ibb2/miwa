@@ -1,6 +1,6 @@
 import { useResolveClassNames } from 'uniwind';
 import { memo, useCallback, useMemo, useState } from 'react';
-import { colors } from '../components/native-colors';
+import { accent, colors } from '../components/native-colors';
 import {
   LegendList,
   useRecyclingState,
@@ -11,14 +11,9 @@ import { Pressable, Text, View, useWindowDimensions } from 'react-native';
 import { buildInboxTabs, threadsForInboxTab, type InboxTabId } from './inbox-tabs';
 import type { ConnectedAccount, MailThreadSummary } from './types';
 import type { MailPreferences } from '../settings/preferences';
-import {
-  NativeActionButton,
-  NativeEmptyState,
-  NativeSymbol,
-  NativeTabButton,
-} from '../components/native-controls';
-import { Host, HStack } from '@expo/ui/swift-ui';
-import { frame, padding } from '@expo/ui/swift-ui/modifiers';
+import { NativeEmptyState, NativeSymbol, NativeTabButton } from '../components/native-controls';
+import { Button, Host, HStack, Image } from '@expo/ui/swift-ui';
+import { accessibilityLabel, frame, padding } from '@expo/ui/swift-ui/modifiers';
 
 const ROW_HEIGHT = 58;
 const TAB_ROW_MAX_WIDTH = 1080;
@@ -81,9 +76,45 @@ type ThreadRowProps = {
   thread: MailThreadSummary;
   onPress: (thread: MailThreadSummary) => void;
   onArchive: (thread: MailThreadSummary) => void;
+  onSetDone: (thread: MailThreadSummary, done: boolean) => void;
   onSetPinned: (thread: MailThreadSummary, pinned: boolean) => void;
   onToggleRead: (thread: MailThreadSummary) => void;
 };
+
+function RowAction({
+  label,
+  symbol,
+  selected = false,
+  onPress,
+}: {
+  label: string;
+  symbol: React.ComponentProps<typeof Image>['systemName'];
+  selected?: boolean;
+  onPress: () => void;
+}) {
+  const [hovered, setHovered] = useState(false);
+  return (
+    <Pressable
+      accessible={false}
+      focusable={false}
+      onHoverIn={() => setHovered(true)}
+      onHoverOut={() => setHovered(false)}
+      className="rounded-[7px] overflow-hidden"
+      style={{ backgroundColor: hovered ? 'rgba(128,128,128,0.24)' : 'transparent' }}
+    >
+      <Host style={{ width: 32, height: 30 }}>
+        <Button variant="borderless" modifiers={[accessibilityLabel(label)]} onPress={onPress}>
+          <Image
+            systemName={symbol}
+            size={14}
+            color={hovered || selected ? accent : 'secondary'}
+            modifiers={[frame({ width: 32, height: 30 })]}
+          />
+        </Button>
+      </Host>
+    </Pressable>
+  );
+}
 
 const ThreadRow = memo(function ThreadRow({
   account,
@@ -91,6 +122,7 @@ const ThreadRow = memo(function ThreadRow({
   thread,
   onPress,
   onArchive,
+  onSetDone,
   onSetPinned,
   onToggleRead,
 }: ThreadRowProps) {
@@ -149,37 +181,40 @@ const ThreadRow = memo(function ThreadRow({
           {thread.messageCount}
         </Text>
       ) : null}
-      <Text
-        className="w-[58px] text-[10px] tabular-nums text-right"
-        style={{ color: colors.secondaryLabel }}
-      >
-        {formatDate(thread.receivedAt)}
-      </Text>
-      {hovered ? (
-        <View
-          accessibilityLabel={`Actions for ${thread.subject || 'message'}`}
-          className="absolute top-[12px] right-[8px] z-10 h-[34px] px-[4px] rounded-[20px] border-continuous flex-row items-center gap-[2px]"
-        >
-          <NativeActionButton
-            accessibilityLabel={thread.unread ? 'Mark as read' : 'Mark as unread'}
-            label={thread.unread ? 'Mark as read' : 'Mark as unread'}
-            onPress={() => onToggleRead(thread)}
-            systemImage={thread.unread ? 'envelope.badge' : 'envelope.open'}
-          />
-          <NativeActionButton
-            accessibilityLabel="Archive"
-            label="Archive"
-            onPress={() => onArchive(thread)}
-            systemImage="archivebox"
-          />
-          <NativeActionButton
-            accessibilityLabel={thread.pinned ? 'Unpin' : 'Pin'}
-            label={thread.pinned ? 'Unpin' : 'Pin'}
-            onPress={() => onSetPinned(thread, !thread.pinned)}
-            systemImage={thread.pinned ? 'pin.slash' : 'pin'}
-          />
-        </View>
-      ) : null}
+      <View className="w-[146px] h-[34px] items-end justify-center">
+        {hovered ? (
+          <View
+            className="rounded-[10px] border-continuous overflow-hidden"
+            style={{ backgroundColor: colors.card }}
+          >
+            <View className="flex-row items-center gap-[2px] px-[4px] py-[2px]">
+              <RowAction
+                label={thread.done ? 'Mark as not done' : 'Mark as done'}
+                symbol={thread.done ? 'checkmark.circle.fill' : 'checkmark'}
+                selected={thread.done}
+                onPress={() => onSetDone(thread, !thread.done)}
+              />
+              <RowAction
+                label={thread.unread ? 'Mark as read' : 'Mark as unread'}
+                symbol={thread.unread ? 'envelope.open' : 'envelope.badge'}
+                onPress={() => onToggleRead(thread)}
+              />
+              <RowAction label="Archive" symbol="archivebox" onPress={() => onArchive(thread)} />
+              <RowAction
+                label={thread.pinned ? 'Unpin' : 'Pin'}
+                symbol={thread.pinned ? 'pin.fill' : 'pin'}
+                selected={thread.pinned}
+                onPress={() => onSetPinned(thread, !thread.pinned)}
+              />
+            </View>
+          </View>
+        ) : (
+          <Text className="text-[10px] tabular-nums" style={{ color: colors.secondaryLabel }}>
+            {thread.done ? '✓ Done  ·  ' : ''}
+            {formatDate(thread.receivedAt)}
+          </Text>
+        )}
+      </View>
     </Pressable>
   );
 });
@@ -190,6 +225,7 @@ type ThreadListProps = {
   emptyMailboxName?: string;
   onOpenThread: (thread: MailThreadSummary) => void;
   onArchive: (thread: MailThreadSummary) => void;
+  onSetDone: (thread: MailThreadSummary, done: boolean) => void;
   onSetPinned: (thread: MailThreadSummary, pinned: boolean) => void;
   onToggleRead: (thread: MailThreadSummary) => void;
   preferences: MailPreferences;
@@ -202,6 +238,7 @@ export const ThreadList = memo(function ThreadList({
   emptyMailboxName,
   onOpenThread,
   onArchive,
+  onSetDone,
   onSetPinned,
   onToggleRead,
   preferences,
@@ -242,13 +279,22 @@ export const ThreadList = memo(function ThreadList({
         account={accountsById.get(item.accountId)}
         onArchive={onArchive}
         onPress={onOpenThread}
+        onSetDone={onSetDone}
         onSetPinned={onSetPinned}
         onToggleRead={onToggleRead}
         showPreview={preferences.showPreviews}
         thread={item}
       />
     ),
-    [accountsById, onArchive, onOpenThread, onSetPinned, onToggleRead, preferences.showPreviews],
+    [
+      accountsById,
+      onArchive,
+      onOpenThread,
+      onSetDone,
+      onSetPinned,
+      onToggleRead,
+      preferences.showPreviews,
+    ],
   );
 
   return (

@@ -16,6 +16,7 @@ function thread(
     subject: id,
     snippet: '',
     receivedAt: 1,
+    done: false,
     unread,
     pinned,
     messageCount: 1,

@@ -13,6 +13,7 @@ import {
   loadThreadDetail,
   loadThreads,
   removeInboxThread,
+  setThreadDoneState,
   setThreadPinnedState,
   setThreadReadState,
 } from './thread-store';
@@ -239,6 +240,25 @@ export function useMailbox() {
     [busyAction, patchThread],
   );
 
+  const setDone = useCallback(
+    async (thread: MailThreadSummary, done: boolean) => {
+      const key = `done:${thread.accountId}:${thread.threadId}`;
+      if (busyAction === key) return;
+
+      setBusyAction(key);
+      patchThread(thread, { done });
+      try {
+        await setThreadDoneState(thread.accountId, thread.threadId, done);
+      } catch (error) {
+        patchThread(thread, { done: thread.done });
+        Alert.alert('Could not update done status', messageFor(error));
+      } finally {
+        setBusyAction((current) => (current === key ? undefined : current));
+      }
+    },
+    [busyAction, patchThread],
+  );
+
   const resetMailbox = useCallback(() => {
     syncRef.current?.stop();
     syncRef.current = null;
@@ -269,6 +289,7 @@ export function useMailbox() {
     busyAction,
     toggleRead,
     archiveThread,
+    setDone,
     setPinned,
     gatekeeper,
     gatekeeperLoading,

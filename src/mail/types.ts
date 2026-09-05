@@ -23,6 +23,7 @@ export type MailThreadSummary = {
   snippet: string;
   receivedAt: number;
   unread: boolean;
+  done: boolean;
   pinned: boolean;
   messageCount: number;
   category: MailCategory;
