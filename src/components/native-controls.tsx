@@ -11,7 +11,10 @@ import {
 import { withUniwind } from 'uniwind';
 
 import { accent } from './native-colors';
-import { accessibilityLabel as accessibilityLabelModifier } from '@expo/ui/swift-ui/modifiers';
+import {
+  accessibilityLabel as accessibilityLabelModifier,
+  frame,
+} from '@expo/ui/swift-ui/modifiers';
 import type { SFSymbol } from 'sf-symbols-typescript';
 import { Image, Text, View } from 'react-native';
 
@@ -69,20 +72,21 @@ export function NativeTabButton({
   selected: boolean;
 }) {
   const title = `${label}  ${count.toLocaleString()}`;
-  const width = Math.max(84, title.length * 7 + 30);
+  const width = Math.max(84, title.length * 5 + 36);
 
   return (
-    <Host className="h-[38px]" style={{ width }}>
-      <Button
-        color={accent}
-        controlSize="regular"
-        modifiers={[accessibilityLabelModifier(`${label}, ${count.toLocaleString()} emails`)]}
-        onPress={onPress}
-        variant={selected ? 'glassProminent' : 'plain'}
-      >
-        {title}
-      </Button>
-    </Host>
+    <Button
+      color={accent}
+      controlSize="regular"
+      modifiers={[
+        accessibilityLabelModifier(`${label}, ${count.toLocaleString()} emails`),
+        frame({ width }),
+      ]}
+      onPress={onPress}
+      variant={selected ? 'glassProminent' : 'plain'}
+    >
+      {title}
+    </Button>
   );
 }
 

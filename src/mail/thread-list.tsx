@@ -6,7 +6,7 @@ import {
   useRecyclingState,
   type LegendListRenderItemProps,
 } from '@legendapp/list/react-native';
-import { Pressable, ScrollView, Text, View } from 'react-native';
+import { Pressable, Text, View, useWindowDimensions } from 'react-native';
 
 import { buildInboxTabs, threadsForInboxTab, type InboxTabId } from './inbox-tabs';
 import type { ConnectedAccount, MailThreadSummary } from './types';
@@ -17,8 +17,13 @@ import {
   NativeSymbol,
   NativeTabButton,
 } from '../components/native-controls';
+import { Host, HStack } from '@expo/ui/swift-ui';
+import { frame, padding } from '@expo/ui/swift-ui/modifiers';
 
 const ROW_HEIGHT = 58;
+const TAB_ROW_MAX_WIDTH = 1080;
+const TAB_ROW_SPACING = 12;
+const TAB_ROW_LEADING_PADDING = 18;
 const avatarColors = [
   '#5B7CFA',
   '#8B5CF6',
@@ -206,6 +211,8 @@ export const ThreadList = memo(function ThreadList({
   const contentStyle = useResolveClassNames(
     'w-full max-w-[840px] self-center px-[18px] pt-[8px] pb-[20px]',
   );
+  const { width: windowWidth } = useWindowDimensions();
+  const tabRowWidth = Math.min(windowWidth, TAB_ROW_MAX_WIDTH);
   const [selectedTab, setSelectedTab] = useState<InboxTabId>('inbox');
   const tabs = useMemo(() => buildInboxTabs(threads), [threads]);
   const visibleThreads = useMemo(
@@ -246,22 +253,25 @@ export const ThreadList = memo(function ThreadList({
 
   return (
     <View className="flex-1">
-      <ScrollView
-        contentContainerClassName="min-w-full h-[58px] items-center px-[18px] gap-[6px]"
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        className="grow-0 border-b-0 bg-transparent"
-      >
-        {tabs.map((tab) => (
-          <NativeTabButton
-            key={tab.id}
-            count={tab.count}
-            label={tab.title}
-            onPress={() => setSelectedTab(tab.id)}
-            selected={selectedTab === tab.id}
-          />
-        ))}
-      </ScrollView>
+      <Host style={{ width: tabRowWidth, height: 58 }}>
+        <HStack
+          alignment="center"
+          modifiers={[
+            padding({ leading: TAB_ROW_LEADING_PADDING }),
+            frame({ width: tabRowWidth, height: 58, alignment: 'leading' }),
+          ]}
+        >
+          {tabs.map((tab) => (
+            <NativeTabButton
+              key={tab.id}
+              count={tab.count}
+              label={tab.title}
+              onPress={() => setSelectedTab(tab.id)}
+              selected={selectedTab === tab.id}
+            />
+          ))}
+        </HStack>
+      </Host>
       <LegendList
         ListEmptyComponent={emptyState}
         contentContainerStyle={contentStyle}
