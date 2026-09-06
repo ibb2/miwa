@@ -79,6 +79,7 @@ public final class NativeWindowToolbarView: ExpoView, NSToolbarDelegate, NSSearc
     window.isOpaque = false
     window.backgroundColor = .clear
     window.titlebarAppearsTransparent = true
+    window.titleVisibility = .hidden
 
     guard let contentView = window.contentView else {
       return
