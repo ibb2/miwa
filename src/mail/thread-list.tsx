@@ -8,10 +8,11 @@ import {
 } from '@legendapp/list/react-native';
 import { Pressable, Text, View, useWindowDimensions } from 'react-native';
 
+import { SenderAvatar, senderIdentity } from './sender-avatar';
 import { buildInboxTabs, threadsForInboxTab, type InboxTabId } from './inbox-tabs';
 import type { ConnectedAccount, MailThreadSummary } from './types';
 import type { MailPreferences } from '../settings/preferences';
-import { NativeEmptyState, NativeSymbol, NativeTabButton } from '../components/native-controls';
+import { NativeEmptyState, NativeTabButton } from '../components/native-controls';
 import { Button, Host, HStack, Image } from '@expo/ui/swift-ui';
 import { accessibilityLabel, frame, padding } from '@expo/ui/swift-ui/modifiers';
 
@@ -19,47 +20,12 @@ const ROW_HEIGHT = 58;
 const TAB_ROW_MAX_WIDTH = 1080;
 const TAB_ROW_SPACING = 12;
 const TAB_ROW_LEADING_PADDING = 18;
-const avatarColors = [
-  '#5B7CFA',
-  '#8B5CF6',
-  '#D05B9C',
-  '#E66A4E',
-  '#C58A20',
-  '#3A9B72',
-  '#338BA8',
-] as const;
-
 function keyExtractor(thread: MailThreadSummary) {
   return `${thread.accountId}:${thread.threadId}`;
 }
 
 function fixedRowHeight() {
   return ROW_HEIGHT;
-}
-
-function senderAvatar(sender: string) {
-  const bracketIndex = sender.lastIndexOf('<');
-  const displayName =
-    bracketIndex > 0
-      ? sender
-          .slice(0, bracketIndex)
-          .trim()
-          .replace(/^['"]|['"]$/g, '')
-      : '';
-  const email = (bracketIndex >= 0 ? sender.slice(bracketIndex + 1).replace(/>.*$/, '') : sender)
-    .trim()
-    .toLowerCase();
-  const nameParts = displayName.split(/\s+/).filter(Boolean);
-  let hash = 0;
-  for (const character of email) hash = ((hash << 5) - hash + character.charCodeAt(0)) | 0;
-  return {
-    color: avatarColors[Math.abs(hash) % avatarColors.length],
-    email,
-    initials: nameParts.length
-      ? `${nameParts[0][0]}${nameParts.length > 1 ? nameParts.at(-1)![0] : ''}`.toUpperCase()
-      : '@',
-    usesInitials: nameParts.length > 0,
-  };
 }
 
 function formatDate(milliseconds: number) {
@@ -127,7 +93,7 @@ const ThreadRow = memo(function ThreadRow({
   onToggleRead,
 }: ThreadRowProps) {
   const [hovered, setHovered] = useRecyclingState(false);
-  const avatar = useMemo(() => senderAvatar(thread.sender), [thread.sender]);
+  const avatar = useMemo(() => senderIdentity(thread.sender), [thread.sender]);
   const senderImageUri =
     account?.email.toLowerCase() === avatar.email ? account.avatarUrl : undefined;
 
@@ -147,13 +113,7 @@ const ThreadRow = memo(function ThreadRow({
         importantForAccessibility="no-hide-descendants"
         className={`w-[3px] h-[22px] rounded-[999px] bg-accent ${thread.unread ? '' : 'opacity-0'}`}
       />
-      <NativeSymbol
-        color={avatar.color}
-        fallback={avatar.initials}
-        imageUri={senderImageUri}
-        preferFallback={avatar.usesInitials}
-        systemName="at"
-      />
+      <SenderAvatar sender={thread.sender} imageUri={senderImageUri} />
       <View className="flex-1 min-w-0 justify-center">
         <Text
           numberOfLines={1}

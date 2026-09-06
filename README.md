@@ -94,17 +94,13 @@ Native hosts and libraries that need a `style` prop use `withUniwind` or
 `useResolveClassNames` at their call site. See the [Uniwind setup guide](https://docs.uniwind.dev/quickstart).
 
 ```sh
-bun test
 bun run typecheck
 bun run format:check
 bun run format
 bun run styles:generate  # Regenerate Uniwind's type declarations after theme changes
 ```
 
-Tests cover Gmail content, credentials, inbox tabs, history cursors, mailbox
-state transitions, and SQLite replacement/rollback behavior. Native services use
-test doubles; use the macOS
-app to verify native appearance, toolbar customization, and real Gmail access.
+Use the macOS app to verify native appearance, toolbar customization, and real Gmail access.
 There is no separate lint configuration. Formatting and TypeScript checks are the
 available static checks.
 

@@ -159,3 +159,8 @@ export async function withGmailReauth<T>(accountId: string, action: () => Promis
     return action();
   }
 }
+
+/** Moves one message to Gmail Trash, where it can be restored. */
+export async function trashGmailMessage(accountId: string, messageId: string): Promise<void> {
+  await gmailFetch(accountId, 'POST', `/messages/${encodeURIComponent(messageId)}/trash`);
+}

@@ -1,3 +1,4 @@
+import type { GatekeeperMessage } from './src/mail/gatekeeper';
 import './global.css';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Text, View } from 'react-native';
@@ -36,6 +37,12 @@ export default function App() {
   const toolbarRef = useRef<NativeWindowToolbarRef>(null);
   const mailboxFrameRef = useRef<number | null>(null);
 
+  const [gatekeeperQuery, setGatekeeperQuery] = useState('');
+  const [gatekeeperTab, setGatekeeperTab] = useState(0);
+  const [gatekeeperMessage, setGatekeeperMessage] = useState<{
+    email: string;
+    message: GatekeeperMessage;
+  }>();
   const [surface, setSurface] = useState<AppSurface>('mail');
   const [mailboxView, setMailboxView] = useState<MailboxView>({ kind: 'all' });
   const [preferences, setPreferences] = useState(loadMailPreferences);
@@ -134,6 +141,10 @@ export default function App() {
 
   const toolbarInput: ToolbarInput = {
     surface,
+    gatekeeperMessage:
+      surface === 'gatekeeper' && gatekeeperMessage
+        ? { busy: !!mailbox.gatekeeperActionEmail }
+        : undefined,
     inboxTitle,
     thread:
       surface === 'mail' && selectedThread
@@ -148,6 +159,9 @@ export default function App() {
     syncing: mailbox.syncing,
     syncLabel: mailbox.syncLabel,
     download,
+    gatekeeperQuery,
+    gatekeeperTab,
+    gatekeeperBlocked: mailbox.gatekeeper?.blocked.length ?? 0,
     gatekeeperPending: mailbox.gatekeeper?.pending.length ?? 0,
     accounts: (accounts ?? []).map((account) => ({ id: account.id, email: account.email })),
   };
@@ -170,7 +184,18 @@ export default function App() {
   const handleToolbarPress = useCallback(
     ({ nativeEvent }: ToolbarItemPressEvent) => {
       const id = nativeEvent.id;
-      if (id === 'back') {
+      if (id === 'back' && surface === 'gatekeeper' && gatekeeperMessage) {
+        setGatekeeperMessage(undefined);
+      } else if (id === 'gatekeeper-message-trash' && gatekeeperMessage) {
+        void mailbox
+          .deleteGatekeeperMessage(gatekeeperMessage.email, gatekeeperMessage.message)
+          .then((deleted) => {
+            if (deleted)
+              setGatekeeperMessage((current) =>
+                current?.message.id === gatekeeperMessage.message.id ? undefined : current,
+              );
+          });
+      } else if (id === 'back') {
         if (selectedThread) setSelectedThread(undefined);
         setSurface('mail');
       } else if (id === 'message-read-toggle' && selectedThread) {
@@ -182,16 +207,30 @@ export default function App() {
       } else if (id === 'connect-account') {
         void connectAccount();
       } else if (id === 'gatekeeper' || id === 'settings') {
+        setGatekeeperMessage(undefined);
         setSelectedThread(undefined);
         setSurface(id);
       }
     },
-    [mailbox.archiveThread, connectAccount, selectedThread, mailbox.setPinned, mailbox.toggleRead],
+    [
+      mailbox.archiveThread,
+      connectAccount,
+      selectedThread,
+      mailbox.setPinned,
+      mailbox.toggleRead,
+      surface,
+      gatekeeperMessage,
+      mailbox.deleteGatekeeperMessage,
+    ],
   );
 
   const handleSegmentChange = useCallback(
     ({ nativeEvent }: ToolbarSegmentChangeEvent) => {
-      selectMailbox(nativeEvent.segmentId);
+      if (nativeEvent.id === 'gatekeeper-tabs') {
+        setGatekeeperTab(nativeEvent.selectedIndex);
+      } else {
+        selectMailbox(nativeEvent.segmentId);
+      }
     },
     [selectMailbox],
   );
@@ -239,9 +278,14 @@ export default function App() {
   } else if (surface === 'gatekeeper') {
     mainContent = (
       <GatekeeperScreen
+        query={gatekeeperQuery}
+        tab={gatekeeperTab}
+        selected={gatekeeperMessage}
+        onSelect={setGatekeeperMessage}
         actionEmail={mailbox.gatekeeperActionEmail}
         error={mailbox.gatekeeperError}
         loading={mailbox.gatekeeperLoading}
+        onDelete={mailbox.deleteGatekeeperMessage}
         onApprove={(email) => void mailbox.decideGatekeeperSender(email, 'approved')}
         onBlock={(email) => void mailbox.decideGatekeeperSender(email, 'blocked')}
         onRetry={() => void mailbox.refreshGatekeeper()}
@@ -318,6 +362,7 @@ export default function App() {
         displayMode="iconOnly"
         toolbarStyle="unified"
         onItemPress={handleToolbarPress}
+        onSearchChange={({ nativeEvent }) => setGatekeeperQuery(nativeEvent.text)}
         onSegmentChange={handleSegmentChange}
         onMenuItemPress={handleMenuPress}
       />

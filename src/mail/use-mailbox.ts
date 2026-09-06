@@ -17,10 +17,13 @@ import {
   setThreadPinnedState,
   setThreadReadState,
 } from './thread-store';
+import { trashMessage } from './trash-message';
+import type { GatekeeperMessage } from './gatekeeper';
 import { startInboxSync, type SyncController } from './sync';
 import type { MailThreadDetail, MailThreadSummary } from './types';
 
 export function useMailbox() {
+  const gatekeeperBusy = useRef(false);
   const syncRef = useRef<SyncController>(null);
   const [threads, setThreads] = useState<MailThreadSummary[]>();
   const [threadsError, setThreadsError] = useState<string>();
@@ -124,6 +127,8 @@ export function useMailbox() {
 
   const decideGatekeeperSender = useCallback(
     async (email: string, status: GatekeeperStatus) => {
+      if (gatekeeperBusy.current) return;
+      gatekeeperBusy.current = true;
       setGatekeeperActionEmail(email);
       setGatekeeperError(undefined);
       try {
@@ -133,8 +138,30 @@ export function useMailbox() {
         setGatekeeperError(messageFor(error));
         Alert.alert('Could not update Gatekeeper', messageFor(error));
       } finally {
+        gatekeeperBusy.current = false;
         setGatekeeperActionEmail(undefined);
       }
+    },
+    [refreshThreads],
+  );
+
+  const deleteGatekeeperMessage = useCallback(
+    async (email: string, message: GatekeeperMessage) => {
+      if (gatekeeperBusy.current) return false;
+      gatekeeperBusy.current = true;
+      setGatekeeperActionEmail(email);
+      let success = false;
+      try {
+        await trashMessage(message);
+        success = true;
+      } catch (error) {
+        Alert.alert('Could not move email to Trash', messageFor(error));
+      } finally {
+        await refreshThreads();
+        gatekeeperBusy.current = false;
+        setGatekeeperActionEmail(undefined);
+      }
+      return success;
     },
     [refreshThreads],
   );
@@ -297,6 +324,7 @@ export function useMailbox() {
     gatekeeperActionEmail,
     refreshGatekeeper,
     decideGatekeeperSender,
+    deleteGatekeeperMessage,
     syncing,
     syncLabel,
     resetMailbox,

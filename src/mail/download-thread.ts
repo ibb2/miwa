@@ -179,8 +179,10 @@ export async function downloadThread(
     signal,
   );
   const threadLocalId = `${accountId}:${thread.id}`;
-  const messages = await mapWithConcurrency(thread.messages ?? [], THREAD_CONCURRENCY, (message) =>
-    downloadMessage(accountId, threadLocalId, message, signal),
+  const messages = await mapWithConcurrency(
+    (thread.messages ?? []).filter((message) => !message.labelIds?.includes('TRASH')),
+    THREAD_CONCURRENCY,
+    (message) => downloadMessage(accountId, threadLocalId, message, signal),
   );
   messages.sort((left, right) => left.row.sentAt - right.row.sentAt);
   const latest = messages.at(-1);

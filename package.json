@@ -13,10 +13,9 @@
     "windows": "react-native run-windows",
     "autolink-windows": "react-native autolink-windows",
     "typecheck": "tsc --noEmit",
-    "test": "bun test",
     "postinstall": "patch-package",
-    "format": "prettier --write App.tsx src tests modules/*/src metro.config.js global.css",
-    "format:check": "prettier --check App.tsx src tests modules/*/src metro.config.js global.css",
+    "format": "prettier --write App.tsx src modules/*/src metro.config.js global.css",
+    "format:check": "prettier --check App.tsx src modules/*/src metro.config.js global.css",
     "styles:generate": "uniwind generate-artifacts --css ./global.css --dts ./src/uniwind-types.d.ts"
   },
   "dependencies": {

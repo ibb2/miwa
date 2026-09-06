@@ -5,6 +5,7 @@ export type AppSurface = 'mail' | 'gatekeeper' | 'settings';
 export type ToolbarInput = {
   surface: AppSurface;
   inboxTitle: string;
+  gatekeeperMessage?: { busy: boolean };
   /** The open conversation, if any. `busy` disables its action buttons. */
   thread?: { unread: boolean; pinned: boolean; busy: boolean };
   accountSegments: ToolbarSegment[];
@@ -14,13 +15,17 @@ export type ToolbarInput = {
   /** Present while an inbox download is running. */
   download?: { fraction: number; label: string };
   gatekeeperPending: number;
+  gatekeeperBlocked: number;
+  gatekeeperTab: number;
+  gatekeeperQuery: string;
   accounts: Array<{ id: string; email: string }>;
 };
 
 /** A stable identifier per screen so macOS can autosave each toolbar layout. */
 export function toolbarIdentifier(input: ToolbarInput): string {
   if (input.surface === 'settings') return 'MiwaSettingsToolbar';
-  if (input.surface === 'gatekeeper') return 'MiwaGatekeeperToolbar';
+  if (input.surface === 'gatekeeper')
+    return input.gatekeeperMessage ? 'MiwaGatekeeperMessageToolbar' : 'MiwaGatekeeperToolbar';
   if (input.thread) return 'MiwaMessageToolbar';
   return 'MiwaLeadingInboxToolbar';
 }
@@ -34,9 +39,17 @@ export function buildToolbarItems(input: ToolbarInput): NativeToolbarItem[] {
     items.push({
       id: 'back',
       kind: 'button',
-      label: onMailScreen ? `Back to ${input.inboxTitle}` : 'Back to inbox',
+      label: input.gatekeeperMessage
+        ? 'Back to senders'
+        : onMailScreen
+          ? `Back to ${input.inboxTitle}`
+          : 'Back to inbox',
       systemImage: 'chevron.left',
-      toolTip: onMailScreen ? `Back to ${input.inboxTitle}` : 'Back to inbox',
+      toolTip: input.gatekeeperMessage
+        ? 'Back to senders'
+        : onMailScreen
+          ? `Back to ${input.inboxTitle}`
+          : 'Back to inbox',
       immovable: true,
       navigational: true,
     });
@@ -55,7 +68,34 @@ export function buildToolbarItems(input: ToolbarInput): NativeToolbarItem[] {
     });
   }
 
+  if (input.surface === 'gatekeeper' && !input.gatekeeperMessage) {
+    items.push({
+      id: 'gatekeeper-tabs',
+      kind: 'segmented',
+      label: 'Sender status',
+      selectionMode: 'selectOne',
+      selectedIndex: input.gatekeeperTab,
+      segments: [
+        { id: 'new', label: `New (${input.gatekeeperPending})` },
+        { id: 'blocked', label: `Blocked (${input.gatekeeperBlocked})` },
+      ],
+      immovable: true,
+      navigational: true,
+    });
+  }
+
   items.push({ id: 'toolbar-spacer', kind: 'flexibleSpace' });
+
+  if (input.surface === 'gatekeeper' && !input.gatekeeperMessage) {
+    items.push({
+      id: 'gatekeeper-search',
+      kind: 'search',
+      label: 'Search senders or emails',
+      placeholder: 'Search senders or emails',
+      value: input.gatekeeperQuery,
+      immovable: true,
+    });
+  }
 
   if (input.thread) {
     items.push(
@@ -87,6 +127,18 @@ export function buildToolbarItems(input: ToolbarInput): NativeToolbarItem[] {
         immovable: true,
       },
     );
+  }
+
+  if (input.gatekeeperMessage) {
+    items.push({
+      id: 'gatekeeper-message-trash',
+      kind: 'button',
+      label: 'Move to Trash',
+      systemImage: 'trash',
+      toolTip: 'Move this email to Gmail Trash',
+      enabled: !input.gatekeeperMessage.busy,
+      immovable: true,
+    });
   }
 
   if (input.syncing) {

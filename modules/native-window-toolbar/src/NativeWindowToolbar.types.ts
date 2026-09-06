@@ -59,7 +59,14 @@ export type ToolbarSegmentedItem = ToolbarItemBase & {
   selectionMode?: 'momentary' | 'selectOne' | 'selectAny';
 };
 
+export type ToolbarSearchItem = ToolbarItemBase & {
+  kind: 'search';
+  value: string;
+  placeholder?: string;
+};
+
 export type NativeToolbarItem =
+  | ToolbarSearchItem
   | ToolbarButtonItem
   | ToolbarSpaceItem
   | ToolbarMenuItem
@@ -84,6 +91,7 @@ export type NativeWindowToolbarProps = ViewProps & {
   displayMode?: ToolbarDisplayMode;
   toolbarStyle?: WindowToolbarStyle;
   visible?: boolean;
+  onSearchChange?: (event: NativeSyntheticEvent<{ id: string; text: string }>) => void;
   onItemPress?: (event: ToolbarItemPressEvent) => void;
   onMenuItemPress?: (event: ToolbarMenuItemPressEvent) => void;
   onSegmentChange?: (event: ToolbarSegmentChangeEvent) => void;

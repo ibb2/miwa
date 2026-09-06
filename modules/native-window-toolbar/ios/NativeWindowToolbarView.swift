@@ -1,7 +1,7 @@
 import AppKit
 import ExpoModulesCore
 
-public final class NativeWindowToolbarView: ExpoView, NSToolbarDelegate {
+public final class NativeWindowToolbarView: ExpoView, NSToolbarDelegate, NSSearchFieldDelegate {
   public var toolbarIdentifier = "ExpoWindowToolbar"
   public var items: [ToolbarItemRecord] = []
   public var customizable = true
@@ -10,6 +10,7 @@ public final class NativeWindowToolbarView: ExpoView, NSToolbarDelegate {
   public var toolbarStyle = "unified"
   public var toolbarVisible = true
 
+  private let onSearchChange = EventDispatcher()
   private let onItemPress = EventDispatcher()
   private let onMenuItemPress = EventDispatcher()
   private let onSegmentChange = EventDispatcher()
@@ -46,6 +47,11 @@ public final class NativeWindowToolbarView: ExpoView, NSToolbarDelegate {
       return
     }
 
+    let focusedSearch = installedToolbar?.items.compactMap { ($0 as? NSSearchToolbarItem)?.searchField }
+      .first { $0.currentEditor() != nil }
+    let focusedId = focusedSearch?.identifier
+    let selection = focusedSearch?.currentEditor()?.selectedRange
+
     rebuildIdentifierMaps()
 
     if installedWindow !== window || installedToolbar?.identifier != toolbarIdentifier {
@@ -58,6 +64,15 @@ public final class NativeWindowToolbarView: ExpoView, NSToolbarDelegate {
     installGlassBackground(in: window)
     window.toolbarStyle = resolvedToolbarStyle
     window.toolbar = toolbar
+    if let focusedId {
+      DispatchQueue.main.async { [weak self, weak window, weak toolbar] in
+        guard let self, let window, let toolbar, self.installedToolbar === toolbar,
+              let field = toolbar.items.compactMap({ ($0 as? NSSearchToolbarItem)?.searchField })
+                .first(where: { $0.identifier == focusedId }) else { return }
+        window.makeFirstResponder(field)
+        if let selection { field.currentEditor()?.selectedRange = selection }
+      }
+    }
   }
 
   private func installGlassBackground(in window: NSWindow) {
@@ -129,6 +144,8 @@ public final class NativeWindowToolbarView: ExpoView, NSToolbarDelegate {
     }
 
     switch definition.kind {
+    case "search":
+      return makeSearchItem(definition: definition, identifier: itemIdentifier)
     case "menu":
       return makeMenuItem(definition: definition, identifier: itemIdentifier)
     case "progress":
@@ -249,6 +266,29 @@ public final class NativeWindowToolbarView: ExpoView, NSToolbarDelegate {
     default:
       return NSToolbarItem.Identifier("\(toolbarIdentifier).\(item.id)")
     }
+  }
+
+  public func controlTextDidChange(_ notification: Notification) {
+    guard let field = notification.object as? NSSearchField,
+          let id = field.identifier?.rawValue else { return }
+    onSearchChange(["id": id, "text": field.stringValue])
+  }
+
+  private func makeSearchItem(
+    definition: ToolbarItemRecord,
+    identifier: NSToolbarItem.Identifier
+  ) -> NSToolbarItem {
+    let item = NSSearchToolbarItem(itemIdentifier: identifier)
+    let field = item.searchField
+    field.identifier = NSUserInterfaceItemIdentifier(definition.id)
+    field.stringValue = definition.value
+    field.placeholderString = definition.placeholder
+    field.delegate = self
+    field.sendsSearchStringImmediately = true
+    field.setAccessibilityLabel(definition.label ?? "Search")
+    item.preferredWidthForSearchField = 260
+    configure(item, from: definition, includeImage: false)
+    return item
   }
 
   private func makeButtonItem(

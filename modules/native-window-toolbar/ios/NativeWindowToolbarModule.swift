@@ -40,7 +40,8 @@ public final class NativeWindowToolbarModule: Module {
       Events(
         "onItemPress",
         "onMenuItemPress",
-        "onSegmentChange"
+        "onSegmentChange",
+        "onSearchChange"
       )
 
       OnViewDidUpdateProps { (view: NativeWindowToolbarView) in

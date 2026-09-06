@@ -1,12 +1,17 @@
-import { useEffect, useState } from 'react';
-import { colors } from '../components/native-colors';
+import { useEffect, useRef, useState } from 'react';
+import { Button, Host } from '@expo/ui/swift-ui';
 import { ScrollView, Text, View } from 'react-native';
-
-import { SenderReviewCard } from './sender-review-card';
-import type { GatekeeperOverview, GatekeeperSender } from './gatekeeper';
-import { NativeActionButton, NativeSymbol } from '../components/native-controls';
+import { colors } from '../components/native-colors';
+import { SenderReviewRow } from './sender-review-row';
+import type { GatekeeperMessage, GatekeeperOverview } from './gatekeeper';
+import { loadThreadDetail } from './thread-store';
+import { ThreadDetail } from './thread-detail';
+import type { MailThreadDetail } from './types';
+import { messageFor } from './async';
 
 type GatekeeperScreenProps = {
+  tab: number;
+  query: string;
   actionEmail?: string;
   error?: string;
   loading: boolean;
@@ -14,58 +19,15 @@ type GatekeeperScreenProps = {
   onBlock: (email: string) => void;
   onRetry: () => void;
   onUnblock: (email: string) => void;
+  onDelete: (email: string, message: GatekeeperMessage) => Promise<boolean>;
+  selected?: { email: string; message: GatekeeperMessage };
+  onSelect: (selected: { email: string; message: GatekeeperMessage }) => void;
   overview?: GatekeeperOverview;
 };
 
-/** One blocked sender with an undo action. */
-function BlockedSenderRow({
-  actionEmail,
-  onUnblock,
-  sender,
-}: {
-  actionEmail?: string;
-  onUnblock: (email: string) => void;
-  sender: GatekeeperSender;
-}) {
-  const title = sender.displayName || sender.email;
-  const busy = actionEmail === sender.email;
-
-  return (
-    <View className="min-h-[62px] flex-row items-center px-[14px] py-[9px] gap-[11px]">
-      <NativeSymbol fallback={title.slice(0, 1).toUpperCase()} systemName="nosign" />
-      <View className="flex-1 min-w-0 gap-[2px]">
-        <Text
-          numberOfLines={1}
-          selectable
-          className="text-[13px] font-semibold"
-          style={{ color: colors.label }}
-        >
-          {title}
-        </Text>
-        <Text
-          numberOfLines={1}
-          selectable
-          className="text-[10px]"
-          style={{ color: colors.secondaryLabel }}
-        >
-          {sender.email}
-        </Text>
-      </View>
-      <Text selectable className="text-[9px] tabular-nums" style={{ color: colors.tertiaryLabel }}>
-        {sender.messageCount.toLocaleString()}{' '}
-        {sender.messageCount === 1 ? 'email hidden' : 'emails hidden'}
-      </Text>
-      <NativeActionButton
-        disabled={busy}
-        label={busy ? 'Restoring…' : 'Undo block'}
-        onPress={() => onUnblock(sender.email)}
-        variant="glass"
-      />
-    </View>
-  );
-}
-
 export function GatekeeperScreen({
+  tab,
+  query,
   actionEmail,
   error,
   loading,
@@ -73,168 +35,107 @@ export function GatekeeperScreen({
   onBlock,
   onRetry,
   onUnblock,
+  onDelete,
   overview,
+  selected,
+  onSelect,
 }: GatekeeperScreenProps) {
-  const [showBlocked, setShowBlocked] = useState(false);
+  const scrollOffset = useRef(0);
+  const [expandedEmail, setExpandedEmail] = useState<string>();
+  const [detail, setDetail] = useState<MailThreadDetail>();
+  const [detailError, setDetailError] = useState<string>();
 
   useEffect(() => {
-    if (!overview?.blocked.length) setShowBlocked(false);
-  }, [overview?.blocked.length]);
+    setExpandedEmail(undefined);
+    scrollOffset.current = 0;
+  }, [tab]);
+
+  useEffect(() => {
+    setDetail(undefined);
+    setDetailError(undefined);
+    if (!selected) return;
+    let active = true;
+    const { message } = selected;
+    loadThreadDetail(message.accountId, message.threadId)
+      .then((thread) => {
+        if (!active) return;
+        const messages = thread.messages.filter((item) => item.id === message.id);
+        if (!messages.length) throw new Error('This email is no longer available locally.');
+        setDetail({ ...thread, subject: message.subject, messages });
+      })
+      .catch((error) => {
+        if (active) setDetailError(messageFor(error));
+      });
+    return () => {
+      active = false;
+    };
+  }, [selected]);
+
+  if (selected) {
+    return <ThreadDetail detail={detail} error={detailError} loading={!detail && !detailError} />;
+  }
+
+  const allSenders = (tab === 0 ? overview?.pending : overview?.blocked) ?? [];
+  const search = query.trim().toLowerCase();
+  const senders = allSenders.filter(
+    (sender) =>
+      `${sender.displayName} ${sender.email}`.toLowerCase().includes(search) ||
+      sender.messages.some((message) =>
+        `${message.subject} ${message.snippet}`.toLowerCase().includes(search),
+      ),
+  );
 
   return (
     <ScrollView
-      contentContainerClassName="w-full max-w-[880px] self-center px-[34px] pt-[38px] pb-[64px] gap-[22px]"
-      contentInsetAdjustmentBehavior="automatic"
       className="flex-1"
+      contentOffset={{ x: 0, y: scrollOffset.current }}
+      onScroll={({ nativeEvent }) => {
+        scrollOffset.current = nativeEvent.contentOffset.y;
+      }}
+      scrollEventThrottle={100}
+      contentContainerClassName="w-full max-w-[1040px] self-center px-[24px] pt-[12px] pb-[16px] gap-[16px]"
     >
-      <View className="flex-row items-start pb-[8px] gap-[14px]">
-        <View className="pt-[3px]">
-          <NativeSymbol fallback="G" systemName="checkmark.shield.fill" />
-        </View>
-        <View className="flex-1 min-w-0 gap-[4px]">
-          <Text selectable className="text-accent text-[10px] font-extrabold tracking-[1.5px]">
-            GATEKEEPER
-          </Text>
-          <Text
-            selectable
-            className="text-[30px] font-bold tracking-[-0.8px]"
-            style={{ color: colors.label }}
-          >
-            New senders
-          </Text>
-          <Text
-            selectable
-            className="text-[12px] leading-[17px]"
-            style={{ color: colors.secondaryLabel }}
-          >
-            Review each new email address once. Approve keeps its mail in your inbox; Block hides
-            its conversations until you undo it.
-          </Text>
-        </View>
-        {overview ? (
-          <View
-            accessibilityLabel={`${overview.pending.length} new senders`}
-            className="min-w-[70px] items-end pt-[2px] gap-[1px]"
-          >
-            <Text
-              selectable
-              className="text-accent-dark text-[25px] font-bold tabular-nums tracking-[-0.6px]"
-            >
-              {overview.pending.length.toLocaleString()}
-            </Text>
-            <Text
-              selectable
-              className="text-[8px] font-bold tracking-[0.9px]"
-              style={{ color: colors.tertiaryLabel }}
-            >
-              TO REVIEW
-            </Text>
-          </View>
-        ) : null}
-      </View>
-
-      {loading && !overview ? (
-        <Text
-          selectable
-          className="p-[20px] text-[12px] text-center"
-          style={{ color: colors.secondaryLabel }}
-        >
-          Checking new senders…
-        </Text>
-      ) : null}
-
       {error ? (
-        <View
-          className="border-hairline rounded-[14px] border-continuous items-center p-[20px] gap-[7px]"
-          style={{ borderColor: colors.separator, backgroundColor: colors.card }}
-        >
-          <Text selectable className="text-[14px] font-semibold" style={{ color: colors.label }}>
-            Gatekeeper could not open.
-          </Text>
-          <Text selectable className="text-[10px] pb-[4px]" style={{ color: colors.red }}>
-            {error}
-          </Text>
-          <NativeActionButton label="Try again" onPress={onRetry} variant="glassProminent" />
+        <View className="gap-2">
+          <Text style={{ color: colors.red }}>{error}</Text>
+          <Host style={{ width: 90, height: 30 }}>
+            <Button onPress={onRetry}>Try again</Button>
+          </Host>
         </View>
       ) : null}
-
-      {overview && !error ? (
-        <>
-          <View className="gap-[12px]">
-            {overview.pending.map((sender) => (
-              <SenderReviewCard
-                key={sender.email}
-                actionEmail={actionEmail}
-                onApprove={onApprove}
-                onBlock={onBlock}
-                sender={sender}
-              />
-            ))}
-            {!overview.pending.length ? (
-              <View
-                className="border-hairline rounded-[14px] border-continuous min-h-[86px] flex-row items-center px-[18px] gap-[12px]"
-                style={{ borderColor: colors.separator, backgroundColor: colors.card }}
-              >
-                <NativeSymbol fallback="✓" systemName="checkmark.shield.fill" />
-                <View className="flex-1 gap-[2px]">
-                  <Text
-                    selectable
-                    className="text-[14px] font-semibold"
-                    style={{ color: colors.label }}
-                  >
-                    You’re caught up.
-                  </Text>
-                  <Text selectable className="text-[11px]" style={{ color: colors.secondaryLabel }}>
-                    New sender addresses will collect here as mail arrives.
-                  </Text>
-                </View>
-              </View>
-            ) : null}
-          </View>
-
-          {overview.blocked.length ? (
-            <View className="gap-[7px] pt-[2px]">
-              <View className="min-h-[36px] flex-row items-center self-start px-[8px] gap-[7px] rounded-[8px] border-continuous">
-                <NativeActionButton
-                  accessibilityLabel={`${showBlocked ? 'Hide' : 'Show'} ${overview.blocked.length} blocked senders`}
-                  label={`${showBlocked ? 'Hide' : 'Show'} ${overview.blocked.length.toLocaleString()} blocked senders`}
-                  onPress={() => setShowBlocked((current) => !current)}
-                  variant="plain"
-                />
-              </View>
-              {showBlocked ? (
-                <View
-                  className="border-hairline rounded-[12px] border-continuous overflow-hidden"
-                  style={{ borderColor: colors.separator, backgroundColor: colors.card }}
-                >
-                  {overview.blocked.map((sender, index) => (
-                    <View key={sender.email}>
-                      {index > 0 ? (
-                        <View
-                          className="h-hairline ml-[57px]"
-                          style={{ backgroundColor: colors.separator }}
-                        />
-                      ) : null}
-                      <BlockedSenderRow
-                        actionEmail={actionEmail}
-                        onUnblock={onUnblock}
-                        sender={sender}
-                      />
-                    </View>
-                  ))}
-                </View>
-              ) : null}
-            </View>
+      {loading && !overview ? (
+        <Text style={{ color: colors.secondaryLabel }}>Loading senders…</Text>
+      ) : null}
+      {overview ? (
+        <View>
+          {senders.map((sender) => (
+            <SenderReviewRow
+              key={sender.email}
+              sender={sender}
+              expanded={expandedEmail === sender.email}
+              busy={!!actionEmail}
+              onToggle={() =>
+                setExpandedEmail(expandedEmail === sender.email ? undefined : sender.email)
+              }
+              onApprove={() => onApprove(sender.email)}
+              onBlock={() => onBlock(sender.email)}
+              onUnblock={() => onUnblock(sender.email)}
+              onOpen={(message) => onSelect({ email: sender.email, message })}
+              onDelete={(message) => {
+                void onDelete(sender.email, message);
+              }}
+            />
+          ))}
+          {!senders.length ? (
+            <Text className="py-6 text-[13px]" style={{ color: colors.secondaryLabel }}>
+              {search
+                ? 'No matching senders or emails.'
+                : tab === 0
+                  ? 'No new senders to review.'
+                  : 'No blocked senders.'}
+            </Text>
           ) : null}
-
-          <Text
-            selectable
-            className="self-center text-[9px] pt-[5px]"
-            style={{ color: colors.tertiaryLabel }}
-          >
-            Watching for new senders since {new Date(overview.activatedAt).toLocaleString()}.
-          </Text>
-        </>
+        </View>
       ) : null}
     </ScrollView>
   );

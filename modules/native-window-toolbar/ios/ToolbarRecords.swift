@@ -27,6 +27,8 @@ public struct ToolbarItemRecord: Record {
   @Field public var paletteLabel: String?
   @Field public var toolTip: String?
   @Field public var systemImage: String?
+  @Field public var value: String = ""
+  @Field public var placeholder: String?
   @Field public var badgeCount: Int?
   @Field public var enabled: Bool = true
   @Field public var immovable: Bool = false

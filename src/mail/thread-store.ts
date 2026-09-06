@@ -239,3 +239,48 @@ export async function setThreadDoneState(
     .set({ done, updatedAt: Date.now() })
     .where(eq(mailThreads.id, threadId));
 }
+
+/** Removes only the trashed message and updates its conversation without losing local flags. */
+export async function removeTrashedMessage(
+  accountId: string,
+  providerMessageId: string,
+): Promise<void> {
+  db.transaction((transaction) => {
+    const message = transaction
+      .select()
+      .from(mailMessages)
+      .where(
+        and(
+          eq(mailMessages.accountId, accountId),
+          eq(mailMessages.providerMessageId, providerMessageId),
+        ),
+      )
+      .get();
+    if (!message) return;
+    transaction.delete(mailMessages).where(eq(mailMessages.id, message.id)).run();
+    const remaining = transaction
+      .select()
+      .from(mailMessages)
+      .where(eq(mailMessages.threadId, message.threadId))
+      .orderBy(desc(mailMessages.sentAt))
+      .all();
+    if (!remaining.some((item) => item.labelIds.includes('INBOX'))) {
+      transaction.delete(mailThreads).where(eq(mailThreads.id, message.threadId)).run();
+      return;
+    }
+    const latest = remaining[0];
+    transaction
+      .update(mailThreads)
+      .set({
+        subject: latest.subject,
+        sender: latest.sender,
+        snippet: latest.snippet,
+        lastMessageAt: latest.sentAt,
+        messageCount: remaining.length,
+        unread: remaining.some((item) => item.labelIds.includes('UNREAD')),
+        updatedAt: Date.now(),
+      })
+      .where(eq(mailThreads.id, message.threadId))
+      .run();
+  });
+}
