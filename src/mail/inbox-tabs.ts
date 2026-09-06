@@ -30,11 +30,11 @@ const tabDefinitions: ReadonlyArray<{
 }> = [
   { id: 'inbox', title: 'Inbox' },
   { id: 'pinned', title: 'Pinned' },
-  { id: 'primary', title: 'People' },
-  { id: 'promotions', title: 'Newsletters' },
-  { id: 'updates', title: 'Notifications' },
-  { id: 'social', title: 'Social' },
-  { id: 'forums', title: 'Forums' },
+  // { id: 'primary', title: 'People' },
+  // { id: 'promotions', title: 'Newsletters' },
+  // { id: 'updates', title: 'Notifications' },
+  // { id: 'social', title: 'Social' },
+  // { id: 'forums', title: 'Forums' },
   { id: 'seen', title: 'Seen' },
 ];
 

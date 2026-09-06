@@ -1,8 +1,9 @@
-import { ScrollView, Text, View } from 'react-native';
+import { useState } from 'react';
+import { Platform, ScrollView, Text, View } from 'react-native';
+import { Button, Host, HStack, Image, Text as SwiftText, VStack } from '@expo/ui/swift-ui';
+import { accessibilityLabel, frame } from '@expo/ui/swift-ui/modifiers';
+
 import { colors } from '../components/native-colors';
-
-import { useResolveClassNames } from 'uniwind';
-
 import { NativeMailViewer } from '../../modules/native-mail-viewer/src';
 import type { MailThreadDetail } from './types';
 
@@ -12,107 +13,108 @@ type ThreadDetailProps = {
   error?: string;
 };
 
-/** The reading pane for one downloaded conversation. */
+function Message({
+  message,
+  collapsible,
+}: {
+  message: MailThreadDetail['messages'][number];
+  collapsible: boolean;
+}) {
+  const [expanded, setExpanded] = useState(true);
+  const [bodyHeight, setBodyHeight] = useState(1);
+  const header = (
+    <HStack spacing={10} modifiers={[frame({ maxWidth: Infinity, alignment: 'leading' })]}>
+      {collapsible ? (
+        <Image
+          systemName={expanded ? 'chevron.down' : 'chevron.right'}
+          size={10}
+          color="secondary"
+        />
+      ) : null}
+      <VStack alignment="leading" spacing={4}>
+        <SwiftText size={13} weight="semibold">
+          {message.sender}
+        </SwiftText>
+        {expanded && message.recipients ? (
+          <SwiftText size={11} color="secondary">{`To ${message.recipients}`}</SwiftText>
+        ) : null}
+        <SwiftText size={10} color="secondary">
+          {new Date(message.sentAt).toLocaleString()}
+        </SwiftText>
+      </VStack>
+    </HStack>
+  );
+
+  return (
+    <View
+      className="border-t-hairline pt-[16px] gap-[16px]"
+      style={{ borderTopColor: colors.separator }}
+    >
+      <Host matchContents={{ vertical: true }} style={{ width: '100%' }}>
+        {collapsible ? (
+          <Button
+            variant="plain"
+            onPress={() => setExpanded(!expanded)}
+            modifiers={[
+              accessibilityLabel(
+                `${expanded ? 'Collapse' : 'Expand'} message from ${message.sender}`,
+              ),
+            ]}
+          >
+            {header}
+          </Button>
+        ) : (
+          header
+        )}
+      </Host>
+      {expanded ? (
+        <>
+          <NativeMailViewer
+            html={message.safeHtml}
+            plainText={message.plainText || 'This message has no readable body.'}
+            onContentHeightChange={({ nativeEvent }) => setBodyHeight(nativeEvent.height)}
+            style={{ width: '100%', ...(Platform.OS === 'macos' ? { height: bodyHeight } : {}) }}
+          />
+          {message.attachments.map((attachment) => (
+            <View
+              key={attachment.id ?? attachment.filename}
+              className="flex-row items-center gap-[6px]"
+            >
+              <Host style={{ width: 14, height: 16 }}>
+                <Image systemName="paperclip" size={12} color="secondary" />
+              </Host>
+              <Text selectable className="text-[12px]" style={{ color: colors.secondaryLabel }}>
+                {attachment.filename || 'Attachment'}
+              </Text>
+            </View>
+          ))}
+        </>
+      ) : null}
+    </View>
+  );
+}
+
 export function ThreadDetail({ detail, loading, error }: ThreadDetailProps) {
-  const viewerStyle = useResolveClassNames('flex-1 min-h-[320px] w-full');
   return (
     <ScrollView
-      contentContainerClassName="grow w-full max-w-[1080px] self-center px-[38px] pt-[16px] pb-[16px] gap-[16px]"
+      contentContainerClassName="w-full max-w-[1080px] self-center px-[24px] pt-[20px] pb-[32px] gap-[20px]"
       contentInsetAdjustmentBehavior="automatic"
       className="flex-1"
     >
-      {loading ? (
-        <Text
-          selectable
-          className="p-[20px] text-[12px] text-center"
-          style={{ color: colors.secondaryLabel }}
-        >
-          Opening downloaded conversation…
-        </Text>
-      ) : null}
+      {loading ? <Text style={{ color: colors.secondaryLabel }}>Opening conversation…</Text> : null}
       {error ? (
-        <Text
-          selectable
-          className="max-w-[460px] mt-[6px] self-center text-[11px] leading-[15px] text-center"
-          style={{ color: colors.red }}
-        >
+        <Text selectable style={{ color: colors.red }}>
           {error}
         </Text>
       ) : null}
       {detail ? (
         <>
-          <Text
-            selectable
-            className="text-[30px] font-bold tracking-[-0.8px]"
-            style={{ color: colors.label }}
-          >
+          <Text selectable className="text-[24px] font-semibold" style={{ color: colors.label }}>
             {detail.subject || '(No subject)'}
           </Text>
-          <View className="grow gap-[16px]">
-            {detail.messages.map((message) => (
-              <View
-                key={message.id}
-                className="grow p-[20px] rounded-[14px] border-continuous border-hairline shadow-[0_8px_26px_rgba(0,_0,_0,_0.055)] gap-[12px]"
-                style={{ backgroundColor: colors.card, borderColor: colors.separator }}
-              >
-                <View className="flex-row items-center gap-[11px]">
-                  <View className="w-[34px] h-[34px] items-center justify-center rounded-[11px] border-continuous bg-accent">
-                    <Text selectable className="text-[#fff] text-[13px] font-bold">
-                      {message.sender.slice(0, 1).toUpperCase()}
-                    </Text>
-                  </View>
-                  <View className="flex-1 min-w-0 gap-[2px]">
-                    <Text
-                      selectable
-                      className="text-[13px] font-semibold"
-                      style={{ color: colors.label }}
-                    >
-                      {message.sender}
-                    </Text>
-                    {message.recipients ? (
-                      <Text
-                        numberOfLines={1}
-                        selectable
-                        className="text-[10px]"
-                        style={{ color: colors.secondaryLabel }}
-                      >
-                        to {message.recipients}
-                      </Text>
-                    ) : null}
-                  </View>
-                  <Text
-                    selectable
-                    className="text-[10px] tabular-nums"
-                    style={{ color: colors.secondaryLabel }}
-                  >
-                    {new Date(message.sentAt).toLocaleString()}
-                  </Text>
-                </View>
-                <View className="h-hairline" style={{ backgroundColor: colors.separator }} />
-                <NativeMailViewer
-                  html={message.safeHtml}
-                  plainText={message.plainText || 'This message has no readable body.'}
-                  style={viewerStyle}
-                />
-                {message.attachments.length ? (
-                  <View
-                    className="border-t-hairline pt-[10px] gap-[5px]"
-                    style={{ borderTopColor: colors.separator }}
-                  >
-                    {message.attachments.map((attachment) => (
-                      <Text
-                        key={attachment.id ?? attachment.filename}
-                        selectable
-                        className="self-start text-accent-dark text-[11px] font-semibold px-[9px] py-[6px] rounded-[7px] border-continuous bg-[rgba(232,110,90,0.09)]"
-                      >
-                        {attachment.filename || 'Attachment'}
-                      </Text>
-                    ))}
-                  </View>
-                ) : null}
-              </View>
-            ))}
-          </View>
+          {detail.messages.map((message) => (
+            <Message key={message.id} message={message} collapsible={detail.messages.length > 1} />
+          ))}
         </>
       ) : null}
     </ScrollView>
