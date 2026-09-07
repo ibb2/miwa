@@ -66,7 +66,8 @@
           "reversedClientId": "com.googleusercontent.apps.611007919856-aj6ui4cnma1qojqi0iggbo1g8emg8p66"
         }
       ],
-      "expo-sqlite"
+      "expo-sqlite",
+      "./plugins/with-settings-window"
     ]
   }
 }

@@ -1,7 +1,7 @@
 import type { GatekeeperMessage } from './src/mail/gatekeeper';
 import './global.css';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Text, View } from 'react-native';
+import { DeviceEventEmitter, Text, View } from 'react-native';
 import { useResolveClassNames } from 'uniwind';
 import {
   NativeWindowToolbar,
@@ -13,18 +13,20 @@ import {
 } from './modules/native-window-toolbar/src';
 import { GatekeeperScreen } from './src/mail/gatekeeper-screen';
 import { NativeEmptyState } from './src/components/native-controls';
-import { SettingsScreen } from './src/settings/settings-screen';
+import { openSettingsWindow } from './modules/native-settings-window/src';
 import { ThreadDetail } from './src/mail/thread-detail';
 import { ThreadList } from './src/mail/thread-list';
 import { colors } from './src/components/native-colors';
 import { accountInitials } from './src/mail/accounts';
-import { messageFor } from './src/mail/async';
-import { DEFAULT_INBOX_DOWNLOAD_LIMIT } from './src/mail/download-inbox';
 import { useAccounts } from './src/mail/use-accounts';
 import { useInboxDownload } from './src/mail/use-inbox-download';
 import { useMailbox } from './src/mail/use-mailbox';
 import type { MailboxView } from './src/mail/types';
-import { loadMailPreferences, saveShowPreviews } from './src/settings/preferences';
+import { loadMailPreferences } from './src/settings/preferences';
+import {
+  SETTINGS_CHANGED_EVENT,
+  type SettingsChangedPayload,
+} from './src/settings/settings-events';
 import {
   buildToolbarItems,
   toolbarIdentifier,
@@ -46,7 +48,6 @@ export default function App() {
   const [surface, setSurface] = useState<AppSurface>('mail');
   const [mailboxView, setMailboxView] = useState<MailboxView>({ kind: 'all' });
   const [preferences, setPreferences] = useState(loadMailPreferences);
-  const [clearing, setClearing] = useState(false);
 
   const mailbox = useMailbox();
   const { selectedThread, setSelectedThread } = mailbox;
@@ -63,8 +64,9 @@ export default function App() {
     connectError,
     connectAccount: connect,
     disconnectAccount,
+    refreshAccounts,
   } = useAccounts(onDisconnected);
-  const { download, downloadAccounts } = useInboxDownload(mailbox.refreshThreads);
+  const { download } = useInboxDownload(mailbox.refreshThreads);
   const connectAccount = useCallback(async () => {
     const account = await connect();
     if (account) setMailboxView({ kind: 'account', accountId: account.id });
@@ -82,38 +84,25 @@ export default function App() {
     [],
   );
 
-  const changeShowPreviews = (showPreviews: boolean) => {
-    saveShowPreviews(showPreviews);
-    setPreferences({ showPreviews });
-  };
-
-  const clearData = useCallback(() => {
-    Alert.alert(
-      'Clear all local data?',
-      'Every downloaded message and attachment, cached account record, sync cursor, and preference ' +
-        'will be removed from Miwa. Your Gmail accounts and Gmail messages will not be changed.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Clear Everything',
-          style: 'destructive',
-          onPress: () => {
-            setClearing(true);
-            try {
-              mailbox.resetMailbox();
-              setMailboxView({ kind: 'all' });
-              setPreferences(loadMailPreferences());
-              Alert.alert('Local data cleared', 'Miwa is ready for a fresh download.');
-            } catch (error) {
-              Alert.alert('Could not clear local data', messageFor(error));
-            } finally {
-              setClearing(false);
-            }
-          },
-        },
-      ],
+  useEffect(() => {
+    const subscription = DeviceEventEmitter.addListener(
+      SETTINGS_CHANGED_EVENT,
+      (payload: SettingsChangedPayload) => {
+        if (payload?.kind === 'preferences') {
+          setPreferences(loadMailPreferences());
+        } else if (payload?.kind === 'accounts') {
+          void refreshAccounts();
+        } else if (payload?.kind === 'download-complete') {
+          void mailbox.refreshThreads();
+        } else if (payload?.kind === 'database-cleared') {
+          mailbox.resetMailbox();
+          setMailboxView({ kind: 'all' });
+          setPreferences(loadMailPreferences());
+        }
+      },
     );
-  }, [mailbox.resetMailbox]);
+    return () => subscription.remove();
+  }, [mailbox.refreshThreads, mailbox.resetMailbox, refreshAccounts]);
 
   const accountSegments = useMemo<ToolbarSegment[]>(
     () => [
@@ -206,7 +195,9 @@ export default function App() {
         void mailbox.setPinned(selectedThread, !selectedThread.pinned);
       } else if (id === 'connect-account') {
         void connectAccount();
-      } else if (id === 'gatekeeper' || id === 'settings') {
+      } else if (id === 'settings') {
+        void openSettingsWindow();
+      } else if (id === 'gatekeeper') {
         setGatekeeperMessage(undefined);
         setSelectedThread(undefined);
         setSurface(id);
@@ -255,27 +246,7 @@ export default function App() {
   }, [mailbox.threads, mailboxView]);
 
   let mainContent: React.ReactNode = null;
-  if (surface === 'settings') {
-    mainContent = (
-      <SettingsScreen
-        accounts={accounts ?? []}
-        clearEnabled={!download && !mailbox.syncing}
-        downloadEnabled={(accounts ?? []).length > 0}
-        downloadLimit={DEFAULT_INBOX_DOWNLOAD_LIMIT}
-        downloadStatus={download?.label ?? ''}
-        downloadingAccountId={download?.accountId}
-        isClearingData={clearing}
-        isDownloading={download !== undefined}
-        onChangeShowPreviews={changeShowPreviews}
-        onClearDatabase={clearData}
-        onConnectAccount={() => void connectAccount()}
-        onDownloadMail={() => void downloadAccounts(accounts ?? [])}
-        onDownloadMailbox={(account) => void downloadAccounts([account])}
-        onDisconnectAccount={disconnectAccount}
-        preferences={preferences}
-      />
-    );
-  } else if (surface === 'gatekeeper') {
+  if (surface === 'gatekeeper') {
     mainContent = (
       <GatekeeperScreen
         query={gatekeeperQuery}

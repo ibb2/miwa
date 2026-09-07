@@ -1,6 +1,6 @@
 import type { NativeToolbarItem, ToolbarSegment } from '../../modules/native-window-toolbar/src';
 
-export type AppSurface = 'mail' | 'gatekeeper' | 'settings';
+export type AppSurface = 'mail' | 'gatekeeper';
 
 export type ToolbarInput = {
   surface: AppSurface;
@@ -23,7 +23,6 @@ export type ToolbarInput = {
 
 /** A stable identifier per screen so macOS can autosave each toolbar layout. */
 export function toolbarIdentifier(input: ToolbarInput): string {
-  if (input.surface === 'settings') return 'MiwaSettingsToolbar';
   if (input.surface === 'gatekeeper')
     return input.gatekeeperMessage ? 'MiwaGatekeeperMessageToolbar' : 'MiwaGatekeeperToolbar';
   if (input.thread) return 'MiwaMessageToolbar';
@@ -175,27 +174,17 @@ export function buildToolbarItems(input: ToolbarInput): NativeToolbarItem[] {
   });
 
   if (onMailScreen) {
-    items.push(
-      {
-        id: 'gatekeeper',
-        kind: 'button',
-        label: 'Gatekeeper',
-        systemImage: 'checkmark.shield',
-        badgeCount: input.gatekeeperPending,
-        toolTip: input.gatekeeperPending
-          ? `Review ${input.gatekeeperPending} new ${input.gatekeeperPending === 1 ? 'sender' : 'senders'}`
-          : 'No new senders to review',
-        immovable: true,
-      },
-      {
-        id: 'settings',
-        kind: 'button',
-        label: 'Settings',
-        systemImage: 'gearshape',
-        toolTip: 'Open Miwa settings',
-        immovable: true,
-      },
-    );
+    items.push({
+      id: 'gatekeeper',
+      kind: 'button',
+      label: 'Gatekeeper',
+      systemImage: 'checkmark.shield',
+      badgeCount: input.gatekeeperPending,
+      toolTip: input.gatekeeperPending
+        ? `Review ${input.gatekeeperPending} new ${input.gatekeeperPending === 1 ? 'sender' : 'senders'}`
+        : 'No new senders to review',
+      immovable: true,
+    });
   }
 
   items.push({

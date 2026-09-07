@@ -32,7 +32,7 @@ The generated macOS target is configured with the Google OAuth client for bundle
 
 `plugins/with-google-sign-in.js` configures the Google client IDs, callback URL scheme, AppDelegate handler, sandbox permissions, and Keychain access during prebuild.
 
-Google Sign-In on macOS requires an Apple-signed app for Keychain access. After prebuilding, open `macos/Miwa.xcworkspace`, enable automatic signing for the `Miwa-macOS` target, and select the configured development team if Xcode requests it.
+Google Sign-In on macOS requires an Apple-signed app for Keychain access. After prebuilding, open `macos/Miwa.xcworkspace`, enable automatic signing for the `Miwa-macOS` target, and select the configured development team if Xcode requests it. `bun run macos` allows Xcode to create or refresh the development provisioning profile using your signed-in Apple account. A local `react-native-macos` patch adds this option to its CLI.
 
 Google requires OAuth verification before a public release that requests `gmail.readonly`. Connected-account credentials are stored in the signed app's macOS Keychain; only profile metadata is stored in user defaults.
 

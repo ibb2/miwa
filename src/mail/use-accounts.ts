@@ -38,6 +38,14 @@ export function useAccounts(onDisconnected: (accountId: string) => void) {
     };
   }, [accounts]);
 
+  const refreshAccounts = useCallback(async () => {
+    try {
+      setAccounts(await gmailAccountAuth.listAccounts());
+    } catch (error) {
+      Alert.alert('Unable to load Gmail accounts', messageFor(error));
+    }
+  }, []);
+
   const connectAccount = useCallback(async () => {
     setConnectError(undefined);
     try {
@@ -81,5 +89,5 @@ export function useAccounts(onDisconnected: (accountId: string) => void) {
     [onDisconnected],
   );
 
-  return { accounts, avatarData, connectError, connectAccount, disconnectAccount };
+  return { accounts, avatarData, connectError, connectAccount, disconnectAccount, refreshAccounts };
 }

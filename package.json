@@ -9,7 +9,7 @@
     "web": "expo start --web",
     "prebuild:macos": "./scripts/run-expo-desktop prebuild --platform macos --template expo-desktop-template-bare-minimum@beta",
     "prebuild:macos:clean": "./scripts/run-expo-desktop prebuild --platform macos --clean --template expo-desktop-template-bare-minimum@beta",
-    "macos": "react-native run-macos",
+    "macos": "react-native run-macos --mode Debug --allow-provisioning-updates",
     "windows": "react-native run-windows",
     "autolink-windows": "react-native autolink-windows",
     "typecheck": "tsc --noEmit",

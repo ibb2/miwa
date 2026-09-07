@@ -1,0 +1,32 @@
+diff --git a/node_modules/react-native-macos/local-cli/runMacOS/runMacOS.js b/node_modules/react-native-macos/local-cli/runMacOS/runMacOS.js
+--- a/node_modules/react-native-macos/local-cli/runMacOS/runMacOS.js
++++ b/node_modules/react-native-macos/local-cli/runMacOS/runMacOS.js
+@@ -9,6 +9,7 @@
+ 
+ /**
+  * @typedef {{
++ *   allowProvisioningUpdates?: boolean;
+  *   configuration: string;
+  *   mode: string;
+  *   packager: boolean;
+@@ -193,6 +194,9 @@
+       '-scheme',
+       scheme,
+     ];
++    if (args.allowProvisioningUpdates) {
++      xcodebuildArgs.push('-allowProvisioningUpdates');
++    }
+     logger.info(
+       `Building ${colors.dim(
+         `(using "xcodebuild ${xcodebuildArgs.join(' ')}")`,
+@@ -330,6 +334,10 @@
+ 
+ const commonOptions = [
+   {
++    name: '--allow-provisioning-updates',
++    description: 'Allow Xcode to create or update development signing profiles.',
++  },
++  {
+     name: '--mode [string]',
+     description:
+       'Explicitly set the scheme configuration to use, corresponds to `--configuration` in `xcodebuild` command, e.g. Debug, Release.',
