@@ -328,7 +328,7 @@ export function SettingsScreen({
                     symbol="envelope"
                   >
                     <SwiftText color="secondary" size={12}>
-                      Version 0.1.0
+                      Version 0.0.1
                     </SwiftText>
                   </SettingsRow>
                 </Section>
