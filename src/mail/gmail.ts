@@ -164,3 +164,7 @@ export async function withGmailReauth<T>(accountId: string, action: () => Promis
 export async function trashGmailMessage(accountId: string, messageId: string): Promise<void> {
   await gmailFetch(accountId, 'POST', `/messages/${encodeURIComponent(messageId)}/trash`);
 }
+
+export async function trashGmailThread(accountId: string, threadId: string): Promise<void> {
+  await gmailFetch(accountId, 'POST', `/threads/${encodeURIComponent(threadId)}/trash`);
+}

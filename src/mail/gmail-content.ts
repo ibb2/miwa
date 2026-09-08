@@ -43,27 +43,24 @@ export function stripHtml(html: string): string {
 }
 
 /**
- * Removes active and remotely loaded content from email HTML so rendering an
- * offline message can never run scripts or make a network request.
+ * Removes active content. The native viewer enforces network policy with CSP.
  */
 export function sanitizeEmailHtml(html: string): string {
-  return html
-    .replace(/<!--[\s\S]*?-->/g, '')
-    .replace(
-      /<(script|style|iframe|object|embed|form|input|button|video|audio|source|link|meta|base)\b[^>]*>[\s\S]*?<\/\1\s*>/gi,
-      '',
-    )
-    .replace(
-      /<(script|style|iframe|object|embed|form|input|button|video|audio|source|link|meta|base)\b[^>]*\/?>/gi,
-      '',
-    )
-    .replace(/\s+on[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '')
-    .replace(
-      /\s+(src|srcset|poster|background|xlink:href)\s*=\s*("https?:[^"]*"|'https?:[^']*'|https?:[^\s>]+)/gi,
-      '',
-    )
-    .replace(/\s+style\s*=\s*("[^"]*url\([^)]*\)[^"]*"|'[^']*url\([^)]*\)[^']*')/gi, '')
-    .replace(/javascript\s*:/gi, '');
+  return (
+    '<!--miwa-images-v1-->' +
+    html
+      .replace(/<!--[\s\S]*?-->/g, '')
+      .replace(
+        /<(script|iframe|object|embed|form|input|button|video|audio|source|link|meta|base)\b[^>]*>[\s\S]*?<\/\1\s*>/gi,
+        '',
+      )
+      .replace(
+        /<(script|iframe|object|embed|form|input|button|video|audio|source|link|meta|base)\b[^>]*\/?>/gi,
+        '',
+      )
+      .replace(/\s+on[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '')
+      .replace(/javascript\s*:/gi, '')
+  );
 }
 
 /** Splits a header address list on commas, ignoring commas inside quotes and angles. */

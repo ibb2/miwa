@@ -7,7 +7,7 @@ export type ToolbarInput = {
   inboxTitle: string;
   gatekeeperMessage?: { busy: boolean };
   /** The open conversation, if any. `busy` disables its action buttons. */
-  thread?: { unread: boolean; pinned: boolean; busy: boolean };
+  thread?: { done: boolean; unread: boolean; pinned: boolean; busy: boolean };
   accountSegments: ToolbarSegment[];
   selectedAccountIndex: number;
   syncing: boolean;
@@ -25,7 +25,7 @@ export type ToolbarInput = {
 export function toolbarIdentifier(input: ToolbarInput): string {
   if (input.surface === 'gatekeeper')
     return input.gatekeeperMessage ? 'MiwaGatekeeperMessageToolbar' : 'MiwaGatekeeperToolbar';
-  if (input.thread) return 'MiwaMessageToolbar';
+  if (input.thread) return 'MiwaMessageToolbarV2';
   return 'MiwaLeadingInboxToolbar';
 }
 
@@ -54,7 +54,7 @@ export function buildToolbarItems(input: ToolbarInput): NativeToolbarItem[] {
     });
   }
 
-  if (onMailScreen) {
+  if (onMailScreen && !input.thread) {
     items.push({
       id: 'accounts',
       kind: 'segmented',
@@ -96,8 +96,42 @@ export function buildToolbarItems(input: ToolbarInput): NativeToolbarItem[] {
     });
   }
 
+  if (input.thread || input.gatekeeperMessage) {
+    for (const [id, label, systemImage] of [
+      ['message-reply', 'Reply', 'arrowshape.turn.up.left'],
+      ['message-reply-all', 'Reply All', 'arrowshape.turn.up.left.2'],
+      ['message-forward', 'Forward', 'arrowshape.turn.up.right'],
+    ])
+      items.push({
+        id,
+        kind: 'button',
+        label,
+        systemImage,
+        toolTip: `${label} in your default mail app`,
+        enabled: !(input.thread?.busy || input.gatekeeperMessage?.busy),
+        immovable: true,
+      });
+  }
+
   if (input.thread) {
     items.push(
+      {
+        id: 'message-done',
+        kind: 'button',
+        label: input.thread.done ? 'Mark as not done' : 'Done',
+        systemImage: input.thread.done ? 'checkmark.circle.fill' : 'checkmark.circle',
+        enabled: !input.thread.busy,
+        immovable: true,
+      },
+      {
+        id: 'message-trash',
+        kind: 'button',
+        label: 'Move to Trash',
+        systemImage: 'trash',
+        toolTip: 'Move conversation to Gmail Trash',
+        enabled: !input.thread.busy,
+        immovable: true,
+      },
       {
         id: 'message-read-toggle',
         kind: 'button',
@@ -173,7 +207,7 @@ export function buildToolbarItems(input: ToolbarInput): NativeToolbarItem[] {
   //   immovable: true,
   // });
 
-  if (onMailScreen) {
+  if (onMailScreen && !input.thread) {
     items.push({
       id: 'gatekeeper',
       kind: 'button',

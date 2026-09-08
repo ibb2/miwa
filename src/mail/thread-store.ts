@@ -8,6 +8,8 @@ import {
   mailMessages,
   mailThreads,
 } from '../db/schema';
+import { inlineImageHtml } from './message-images';
+import { parseAddresses } from './gmail-content';
 import { mailCategoryForLabels } from './inbox-tabs';
 import type { MailThreadDetail, MailThreadSummary } from './types';
 
@@ -100,6 +102,8 @@ export async function loadThreadDetail(
   const messages = await db
     .select({
       id: mailMessages.id,
+      providerMessageId: mailMessages.providerMessageId,
+      headers: mailMessages.headers,
       sender: mailMessages.sender,
       recipients: mailMessages.recipients,
       sentAt: mailMessages.sentAt,
@@ -126,6 +130,25 @@ export async function loadThreadDetail(
           and(
             inArray(mailAttachments.messageId, messageIds),
             eq(mailAttachments.downloadState, 'complete'),
+            eq(mailAttachments.inline, false),
+          ),
+        )
+    : [];
+
+  const inlineImages = messageIds.length
+    ? await db
+        .select({
+          messageId: mailAttachments.messageId,
+          contentId: mailAttachments.contentId,
+          mimeType: mailAttachments.mimeType,
+          data: mailAttachments.data,
+        })
+        .from(mailAttachments)
+        .where(
+          and(
+            inArray(mailAttachments.messageId, messageIds),
+            eq(mailAttachments.inline, true),
+            eq(mailAttachments.downloadState, 'complete'),
           ),
         )
     : [];
@@ -137,18 +160,57 @@ export async function loadThreadDetail(
     attachmentsByMessage.set(attachment.messageId, list);
   }
 
+  const parsedAddresses = new Map(
+    messages.map((message) => [message.id, parseAddresses(message.id, message.headers)]),
+  );
+  const emails = [
+    ...new Set(
+      [...parsedAddresses.values()].flatMap((addresses) =>
+        addresses.flatMap((address) => (address.address ? [address.address.toLowerCase()] : [])),
+      ),
+    ),
+  ];
+  const knownNames = emails.length
+    ? await db
+        .select({ address: mailMessageAddresses.address, name: mailMessageAddresses.name })
+        .from(mailMessageAddresses)
+        .where(inArray(sql`lower(${mailMessageAddresses.address})`, emails))
+        .orderBy(desc(mailMessageAddresses.id))
+    : [];
+  const namesByEmail = new Map<string, string>();
+  for (const item of knownNames) {
+    if (
+      item.address &&
+      item.name?.trim() &&
+      !item.name.includes('@') &&
+      !namesByEmail.has(item.address.toLowerCase())
+    )
+      namesByEmail.set(item.address.toLowerCase(), item.name);
+  }
+
   return {
     accountId,
     threadId: providerThreadId,
     subject: thread.subject,
     messages: messages.map((message) => ({
       id: message.id,
+      providerMessageId: message.providerMessageId,
+      addresses: (parsedAddresses.get(message.id) ?? []).map((address) => ({
+        ...address,
+        name:
+          address.name && !address.name.includes('@')
+            ? address.name
+            : (namesByEmail.get(address.address?.toLowerCase() ?? '') ?? address.name),
+      })),
       sender: message.sender,
       recipients: message.recipients,
       sentAt: message.sentAt,
       subject: message.subject,
       plainText: message.plainTextBody,
-      safeHtml: message.htmlBody ?? undefined,
+      safeHtml: inlineImageHtml(
+        message.htmlBody ?? undefined,
+        inlineImages.filter((image) => image.messageId === message.id),
+      ),
       attachments: (attachmentsByMessage.get(message.id) ?? []).map((attachment) => ({
         id: attachment.id,
         filename: attachment.filename,

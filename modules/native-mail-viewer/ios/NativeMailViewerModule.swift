@@ -14,6 +14,10 @@ public final class NativeMailViewerModule: Module {
         view.html = html
       }
 
+      Prop("allowRemoteImages") { (view: NativeMailViewerView, allowed: Bool) in
+        view.allowRemoteImages = allowed
+      }
+
       Prop("plainText") { (view: NativeMailViewerView, plainText: String) in
         view.plainText = plainText
       }
@@ -26,6 +30,8 @@ public final class NativeMailViewerModule: Module {
 }
 
 public final class NativeMailViewerView: ExpoView, WKNavigationDelegate {
+  public var allowRemoteImages = false
+  private var renderedRemoteImages = false
   public var html: String?
   public var plainText = ""
   private let webView: WKWebView
@@ -68,10 +74,10 @@ public final class NativeMailViewerView: ExpoView, WKNavigationDelegate {
     ))
 
     let rules = """
-    [{"trigger":{"url-filter":"^https?://.*"},"action":{"type":"block"}}]
+    [{"trigger":{"url-filter":"^https?://.*"},"action":{"type":"block"}},{"trigger":{"url-filter":"^https?://.*","resource-type":["image"]},"action":{"type":"ignore-previous-rules"}}]
     """
     WKContentRuleListStore.default().compileContentRuleList(
-      forIdentifier: "MiwaRemoteMailContent",
+      forIdentifier: "MiwaMailImagesOnly",
       encodedContentRuleList: rules
     ) { [weak self] list, _ in
       if let list { self?.webView.configuration.userContentController.add(list) }
@@ -90,18 +96,20 @@ public final class NativeMailViewerView: ExpoView, WKNavigationDelegate {
     } else {
       body = "<pre>\(escape(plainText))</pre>"
     }
-    guard renderedBody != body else { return }
+    guard renderedBody != body || renderedRemoteImages != allowRemoteImages else { return }
     renderedBody = body
+    renderedRemoteImages = allowRemoteImages
+    let imageSources = allowRemoteImages ? "data: cid: https: http:" : "data: cid:"
     let document = """
     <!doctype html>
     <html><head>
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width, initial-scale=1">
-      <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data: cid:; style-src 'unsafe-inline'; font-src 'none'; media-src 'none'; frame-src 'none'; connect-src 'none'; form-action 'none'; base-uri 'none'">
+      <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src \(imageSources); style-src 'unsafe-inline'; font-src 'none'; media-src 'none'; frame-src 'none'; connect-src 'none'; form-action 'none'; base-uri 'none'">
       <style>
-        :root { color-scheme: light dark; overflow-y: hidden; }
+        :root { color-scheme: light; overflow-y: hidden; }
         #miwa-content { display: flow-root; }
-        body { margin: 0; padding: 2px; font: 14px -apple-system, BlinkMacSystemFont, sans-serif; color: -apple-system-label; background: transparent; line-height: 1.5; overflow-wrap: anywhere; }
+        body { margin: 0; padding: 2px; font: 14px -apple-system, BlinkMacSystemFont, sans-serif; color: #202124; background: #ffffff; line-height: 1.5; overflow-wrap: anywhere; }
         pre { white-space: pre-wrap; margin: 0; font: inherit; }
         img { max-width: 100%; height: auto; }
         blockquote { margin-left: 12px; padding-left: 10px; border-left: 2px solid -apple-system-separator; color: -apple-system-secondary-label; }
@@ -119,7 +127,7 @@ public final class NativeMailViewerView: ExpoView, WKNavigationDelegate {
   ) {
     guard navigationAction.navigationType == .linkActivated,
           let url = navigationAction.request.url,
-          ["http", "https"].contains(url.scheme?.lowercased() ?? "") else {
+          ["http", "https", "mailto"].contains(url.scheme?.lowercased() ?? "") else {
       decisionHandler(navigationAction.request.url?.scheme == "about" ? .allow : .cancel)
       return
     }

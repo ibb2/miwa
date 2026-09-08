@@ -72,7 +72,14 @@ export function GatekeeperScreen({
   }, [selected]);
 
   if (selected) {
-    return <ThreadDetail detail={detail} error={detailError} loading={!detail && !detailError} />;
+    return (
+      <ThreadDetail
+        onBlock={onBlock}
+        detail={detail}
+        error={detailError}
+        loading={!detail && !detailError}
+      />
+    );
   }
 
   const allSenders = (tab === 0 ? overview?.pending : overview?.blocked) ?? [];

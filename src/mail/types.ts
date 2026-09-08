@@ -36,7 +36,16 @@ export type MailAttachment = {
   size: number;
 };
 
+export type MailAddress = {
+  kind: 'from' | 'sender' | 'replyTo' | 'to' | 'cc' | 'bcc';
+  name?: string | null;
+  address?: string | null;
+  rawValue: string;
+};
+
 export type MailMessage = {
+  providerMessageId: string;
+  addresses: MailAddress[];
   id: string;
   sender: string;
   recipients: string;

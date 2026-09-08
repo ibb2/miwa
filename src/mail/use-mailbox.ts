@@ -8,7 +8,12 @@ import {
   type GatekeeperOverview,
   type GatekeeperStatus,
 } from './gatekeeper';
-import { archiveGmailThread, setGmailThreadReadState, withGmailReauth } from './gmail';
+import {
+  archiveGmailThread,
+  trashGmailThread,
+  setGmailThreadReadState,
+  withGmailReauth,
+} from './gmail';
 import {
   loadThreadDetail,
   loadThreads,
@@ -248,6 +253,42 @@ export function useMailbox() {
     [busyAction, refreshGatekeeper, refreshThreads],
   );
 
+  const trashThread = useCallback(
+    async (thread: MailThreadSummary) => {
+      const key = `trash:${thread.accountId}:${thread.threadId}`;
+      if (busyAction === key) return;
+
+      setBusyAction(key);
+      setThreads((current) =>
+        current?.filter(
+          (item) => item.accountId !== thread.accountId || item.threadId !== thread.threadId,
+        ),
+      );
+      let gmailUpdated = false;
+      try {
+        await withGmailReauth(thread.accountId, () =>
+          trashGmailThread(thread.accountId, thread.threadId),
+        );
+        gmailUpdated = true;
+        await removeInboxThread(thread.accountId, thread.threadId);
+        void refreshGatekeeper(false);
+        syncRef.current?.runNow();
+      } catch (error) {
+        await refreshThreads();
+        if (gmailUpdated) syncRef.current?.runNow();
+        Alert.alert(
+          gmailUpdated
+            ? 'Gmail trashed the conversation, but Miwa could not refresh'
+            : 'Could not move conversation to Trash',
+          messageFor(error),
+        );
+      } finally {
+        setBusyAction((current) => (current === key ? undefined : current));
+      }
+    },
+    [busyAction, refreshGatekeeper, refreshThreads],
+  );
+
   const setPinned = useCallback(
     async (thread: MailThreadSummary, pinned: boolean) => {
       const key = `pin:${thread.accountId}:${thread.threadId}`;
@@ -316,6 +357,7 @@ export function useMailbox() {
     busyAction,
     toggleRead,
     archiveThread,
+    trashThread,
     setDone,
     setPinned,
     gatekeeper,

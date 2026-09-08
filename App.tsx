@@ -14,6 +14,7 @@ import {
 import { GatekeeperScreen } from './src/mail/gatekeeper-screen';
 import { NativeEmptyState } from './src/components/native-controls';
 import { openSettingsWindow } from './modules/native-settings-window/src';
+import { composeMessage } from './src/mail/compose-message';
 import { ThreadDetail } from './src/mail/thread-detail';
 import { ThreadList } from './src/mail/thread-list';
 import { colors } from './src/components/native-colors';
@@ -138,6 +139,7 @@ export default function App() {
     thread:
       surface === 'mail' && selectedThread
         ? {
+            done: selectedThread.done,
             unread: selectedThread.unread,
             pinned: selectedThread.pinned,
             busy: mailbox.busyAction !== undefined,
@@ -187,6 +189,24 @@ export default function App() {
       } else if (id === 'back') {
         if (selectedThread) setSelectedThread(undefined);
         setSurface('mail');
+      } else if (['message-reply', 'message-reply-all', 'message-forward'].includes(id)) {
+        const target = surface === 'gatekeeper' ? gatekeeperMessage?.message : selectedThread;
+        if (target)
+          void composeMessage(
+            target.accountId,
+            target.threadId,
+            accountsById.get(target.accountId)?.email,
+            id === 'message-forward'
+              ? 'forward'
+              : id === 'message-reply-all'
+                ? 'reply-all'
+                : 'reply',
+            surface === 'gatekeeper' ? gatekeeperMessage?.message.id : undefined,
+          );
+      } else if (id === 'message-trash' && selectedThread) {
+        void mailbox.trashThread(selectedThread);
+      } else if (id === 'message-done' && selectedThread) {
+        void mailbox.setDone(selectedThread, !selectedThread.done);
       } else if (id === 'message-read-toggle' && selectedThread) {
         void mailbox.toggleRead(selectedThread);
       } else if (id === 'message-archive' && selectedThread) {
@@ -205,6 +225,9 @@ export default function App() {
     },
     [
       mailbox.archiveThread,
+      mailbox.trashThread,
+      mailbox.setDone,
+      accountsById,
       connectAccount,
       selectedThread,
       mailbox.setPinned,
@@ -267,6 +290,7 @@ export default function App() {
   } else if (selectedThread) {
     mainContent = (
       <ThreadDetail
+        onBlock={(email) => void mailbox.decideGatekeeperSender(email, 'blocked')}
         detail={mailbox.detail}
         loading={mailbox.detailLoading}
         error={mailbox.detailError}
