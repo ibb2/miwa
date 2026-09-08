@@ -38,6 +38,7 @@ public final class NativeWindowToolbarModule: Module {
       }
 
       Events(
+        "onContentInsetChange",
         "onItemPress",
         "onMenuItemPress",
         "onSegmentChange",

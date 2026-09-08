@@ -13,6 +13,7 @@
       "backgroundColor": "#ffffff"
     },
     "ios": {
+      "icon": "./assets/miwa-icon/Miwa.icon",
       "supportsTablet": true,
       "bundleIdentifier": "com.ib.miwa"
     },
@@ -33,6 +34,7 @@
       "outOfTreePlatforms": true
     },
     "macos": {
+      "icon": "./assets/miwa-icon/Miwa.icon",
       "bundleIdentifier": "com.ib.miwa",
       "appleTeamId": "66J2NVMT6Z",
       "deploymentTarget": "14.0",
@@ -67,7 +69,8 @@
         }
       ],
       "expo-sqlite",
-      "./plugins/with-settings-window"
+      "./plugins/with-settings-window",
+      "./plugins/with-macos-icon"
     ]
   }
 }

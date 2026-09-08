@@ -91,6 +91,7 @@ export type NativeWindowToolbarProps = ViewProps & {
   displayMode?: ToolbarDisplayMode;
   toolbarStyle?: WindowToolbarStyle;
   visible?: boolean;
+  onContentInsetChange?: (event: NativeSyntheticEvent<{ top: number }>) => void;
   onSearchChange?: (event: NativeSyntheticEvent<{ id: string; text: string }>) => void;
   onItemPress?: (event: ToolbarItemPressEvent) => void;
   onMenuItemPress?: (event: ToolbarMenuItemPressEvent) => void;

@@ -36,6 +36,7 @@ import {
 } from './src/components/mail-toolbar';
 
 export default function App() {
+  const [toolbarInset, setToolbarInset] = useState(0);
   const toolbarStyle = useResolveClassNames('absolute w-[1px] h-[1px] opacity-0');
   const toolbarRef = useRef<NativeWindowToolbarRef>(null);
   const mailboxFrameRef = useRef<number | null>(null);
@@ -346,7 +347,7 @@ export default function App() {
   }
 
   return (
-    <View className="flex-1 bg-transparent">
+    <View className="flex-1 bg-transparent" style={{ paddingTop: toolbarInset }}>
       <NativeWindowToolbar
         ref={toolbarRef}
         style={toolbarStyle}
@@ -356,6 +357,7 @@ export default function App() {
         autosavesConfiguration
         displayMode="iconOnly"
         toolbarStyle="unified"
+        onContentInsetChange={({ nativeEvent }) => setToolbarInset(nativeEvent.top)}
         onItemPress={handleToolbarPress}
         onSearchChange={({ nativeEvent }) => setGatekeeperQuery(nativeEvent.text)}
         onSegmentChange={handleSegmentChange}

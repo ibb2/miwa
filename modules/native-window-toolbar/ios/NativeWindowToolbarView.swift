@@ -10,6 +10,10 @@ public final class NativeWindowToolbarView: ExpoView, NSToolbarDelegate, NSSearc
   public var toolbarStyle = "unified"
   public var toolbarVisible = true
 
+  private let onContentInsetChange = EventDispatcher()
+  private var lastContentInset: CGFloat = -1
+  private var resizeObserver: NSObjectProtocol?
+
   private let onSearchChange = EventDispatcher()
   private let onItemPress = EventDispatcher()
   private let onMenuItemPress = EventDispatcher()
@@ -64,6 +68,12 @@ public final class NativeWindowToolbarView: ExpoView, NSToolbarDelegate, NSSearc
     installGlassBackground(in: window)
     window.toolbarStyle = resolvedToolbarStyle
     window.toolbar = toolbar
+    if resizeObserver == nil {
+      resizeObserver = NotificationCenter.default.addObserver(forName: NSWindow.didResizeNotification, object: window, queue: .main) { [weak self] _ in
+        self?.reportContentInset()
+      }
+    }
+    DispatchQueue.main.async { [weak self] in self?.reportContentInset() }
     if let focusedId {
       DispatchQueue.main.async { [weak self, weak window, weak toolbar] in
         guard let self, let window, let toolbar, self.installedToolbar === toolbar,
@@ -75,7 +85,17 @@ public final class NativeWindowToolbarView: ExpoView, NSToolbarDelegate, NSSearc
     }
   }
 
+  private func reportContentInset() {
+    guard let window = installedWindow, let contentView = window.contentView else { return }
+    let inset = max(0, contentView.bounds.height - window.contentLayoutRect.height)
+    guard inset != lastContentInset else { return }
+    lastContentInset = inset
+    onContentInsetChange(["top": inset])
+  }
+
   private func installGlassBackground(in window: NSWindow) {
+    window.styleMask.insert(.fullSizeContentView)
+    window.titlebarSeparatorStyle = .none
     window.isOpaque = false
     window.backgroundColor = .clear
     window.titlebarAppearsTransparent = true
@@ -532,6 +552,9 @@ public final class NativeWindowToolbarView: ExpoView, NSToolbarDelegate, NSSearc
   }
 
   private func detachToolbar() {
+    if let resizeObserver { NotificationCenter.default.removeObserver(resizeObserver) }
+    resizeObserver = nil
+    lastContentInset = -1
     if installedWindow?.toolbar === installedToolbar {
       installedWindow?.toolbar = nil
     }
