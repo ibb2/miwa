@@ -221,21 +221,5 @@ export function buildToolbarItems(input: ToolbarInput): NativeToolbarItem[] {
     });
   }
 
-  items.push({
-    id: 'more',
-    kind: 'menu',
-    label: 'More',
-    systemImage: 'ellipsis.circle',
-    options: [
-      ...input.accounts.map((account) => ({
-        id: `disconnect:${account.id}`,
-        label: `Disconnect ${account.email}`,
-        enabled: !input.download,
-      })),
-      { id: 'customize', label: 'Customize Toolbar…' },
-      { id: 'reset', label: 'Reset Toolbar' },
-    ],
-  });
-
   return items;
 }
