@@ -1,6 +1,33 @@
 import AppKit
 import ExpoModulesCore
 
+private final class ToolbarProgressRing: NSView {
+  var progress: Double = 0
+
+  override func draw(_ dirtyRect: NSRect) {
+    let center = NSPoint(x: bounds.midX, y: bounds.midY)
+    let radius = min(bounds.width, bounds.height) / 2 - 2
+    let track = NSBezierPath(ovalIn: NSRect(
+      x: center.x - radius, y: center.y - radius,
+      width: radius * 2, height: radius * 2
+    ))
+    track.lineWidth = 3
+    NSColor.tertiaryLabelColor.setStroke()
+    track.stroke()
+
+    guard progress > 0 else { return }
+    let arc = NSBezierPath()
+    arc.lineWidth = 3
+    arc.lineCapStyle = .round
+    arc.appendArc(
+      withCenter: center, radius: radius, startAngle: 90,
+      endAngle: 90 - CGFloat(progress * 360), clockwise: true
+    )
+    NSColor.controlAccentColor.setStroke()
+    arc.stroke()
+  }
+}
+
 public final class NativeWindowToolbarView: ExpoView, NSToolbarDelegate, NSSearchFieldDelegate {
   public var toolbarIdentifier = "ExpoWindowToolbar"
   public var items: [ToolbarItemRecord] = []
@@ -414,22 +441,36 @@ public final class NativeWindowToolbarView: ExpoView, NSToolbarDelegate, NSSearc
     identifier: NSToolbarItem.Identifier
   ) -> NSToolbarItem {
     let item = NSToolbarItem(itemIdentifier: identifier)
-    let indicator = NSProgressIndicator(
-      frame: NSRect(x: 0, y: 0, width: 18, height: 18)
-    )
-    indicator.style = .spinning
-    indicator.controlSize = .small
-    indicator.minValue = 0
-    indicator.maxValue = 1
-    indicator.doubleValue = min(max(definition.progress, 0), 1)
-    indicator.isIndeterminate = definition.indeterminate
-    indicator.isDisplayedWhenStopped = true
+    let indicator: NSView
     if definition.indeterminate {
-      indicator.startAnimation(nil)
+      let spinner = NSProgressIndicator(
+        frame: NSRect(x: 0, y: 0, width: 18, height: 18)
+      )
+      spinner.style = .spinning
+      spinner.controlSize = .small
+      spinner.isIndeterminate = true
+      // Non-interactive indicator: never draw a keyboard focus outline.
+      spinner.focusRingType = .none
+      spinner.startAnimation(nil)
+      indicator = spinner
     } else {
-      indicator.stopAnimation(nil)
+      let ring = ToolbarProgressRing(
+        frame: NSRect(x: 0, y: 0, width: 18, height: 18)
+      )
+      ring.progress = min(max(definition.progress, 0), 1)
+      // Keep VoiceOver progress announcements, but never draw a keyboard
+      // focus outline around this non-interactive indicator.
+      ring.focusRingType = .none
+      ring.setAccessibilityElement(true)
+      ring.setAccessibilityRole(.progressIndicator)
+      ring.setAccessibilityValue(ring.progress)
+      ring.setAccessibilityMinValue(0)
+      ring.setAccessibilityMaxValue(1)
+      indicator = ring
     }
     let container = NSView(frame: NSRect(x: 0, y: 0, width: 36, height: 36))
+    container.focusRingType = .none
+    container.translatesAutoresizingMaskIntoConstraints = false
     indicator.translatesAutoresizingMaskIntoConstraints = false
     container.addSubview(indicator)
     NSLayoutConstraint.activate([
@@ -438,16 +479,23 @@ public final class NativeWindowToolbarView: ExpoView, NSToolbarDelegate, NSSearc
       indicator.widthAnchor.constraint(equalToConstant: 18),
       indicator.heightAnchor.constraint(equalToConstant: 18)
     ])
+    let itemView: NSView
     if #available(macOS 26.0, *) {
-      let glass = NSGlassEffectView(frame: container.frame)
+      let glass = NSGlassEffectView(frame: container.bounds)
+      glass.translatesAutoresizingMaskIntoConstraints = false
       glass.cornerRadius = 18
+      glass.focusRingType = .none
       glass.contentView = container
-      item.view = glass
+      itemView = glass
     } else {
-      item.view = container
+      itemView = container
     }
-    item.view?.widthAnchor.constraint(equalToConstant: 36).isActive = true
-    item.view?.heightAnchor.constraint(equalToConstant: 36).isActive = true
+    item.view = itemView
+    // Pin the item to its designed 36pt circle. The previous explicit size
+    // anchors conflicted with the views' autoresizing masks, producing
+    // unsatisfiable constraints that let the toolbar stretch the pill.
+    item.minSize = NSSize(width: 36, height: 36)
+    item.maxSize = NSSize(width: 36, height: 36)
     indicator.setAccessibilityLabel(definition.label ?? "Progress")
     configure(item, from: definition, defaultLabel: "Progress", includeImage: false)
     return item

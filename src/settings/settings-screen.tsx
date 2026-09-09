@@ -274,6 +274,7 @@ export function SettingsScreen({
                   >
                     <Button
                       controlSize="regular"
+                      disabled={isDownloading}
                       onPress={() => onDisconnectAccount(account)}
                       role="destructive"
                       variant="glass"

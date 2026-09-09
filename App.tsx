@@ -68,7 +68,7 @@ export default function App() {
     disconnectAccount,
     refreshAccounts,
   } = useAccounts(onDisconnected);
-  const { download } = useInboxDownload(mailbox.refreshThreads);
+  const { download } = useInboxDownload();
   const connectAccount = useCallback(async () => {
     const account = await connect();
     if (account) setMailboxView({ kind: 'account', accountId: account.id });
@@ -365,7 +365,6 @@ export default function App() {
         onSegmentChange={handleSegmentChange}
         onMenuItemPress={handleMenuPress}
       />
-
       {mainContent}
     </View>
   );

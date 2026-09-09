@@ -21,9 +21,7 @@ export function SettingsApp() {
   const { accounts, connectError, connectAccount, disconnectAccount } = useAccounts(() => {
     emitSettingsChanged({ kind: 'accounts' });
   });
-  const { download, downloadAccounts } = useInboxDownload(async () => {
-    emitSettingsChanged({ kind: 'download-complete' });
-  });
+  const { download, downloadAccounts } = useInboxDownload();
 
   const connectAndNotify = useCallback(async () => {
     const account = await connectAccount();
