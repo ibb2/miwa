@@ -30,3 +30,57 @@ diff --git a/node_modules/react-native-macos/local-cli/runMacOS/runMacOS.js b/no
      name: '--mode [string]',
      description:
        'Explicitly set the scheme configuration to use, corresponds to `--configuration` in `xcodebuild` command, e.g. Debug, Release.',
+diff --git a/node_modules/react-native-macos/ReactCommon/react/utils/RunLoopObserver.h b/node_modules/react-native-macos/ReactCommon/react/utils/RunLoopObserver.h
+--- a/node_modules/react-native-macos/ReactCommon/react/utils/RunLoopObserver.h
++++ b/node_modules/react-native-macos/ReactCommon/react/utils/RunLoopObserver.h
+@@ -46,6 +46,7 @@
+     None = 0,
+     BeforeWaiting = 1 << 0,
+     AfterWaiting = 1 << 1,
++    BeforeSources = 1 << 2,
+   };
+ 
+   /*
+diff --git a/node_modules/react-native-macos/React/Fabric/Utils/PlatformRunLoopObserver.mm b/node_modules/react-native-macos/React/Fabric/Utils/PlatformRunLoopObserver.mm
+--- a/node_modules/react-native-macos/React/Fabric/Utils/PlatformRunLoopObserver.mm
++++ b/node_modules/react-native-macos/React/Fabric/Utils/PlatformRunLoopObserver.mm
+@@ -15,6 +15,10 @@
+ {
+   auto result = CFRunLoopActivity{};
+ 
++  if (activity & RunLoopObserver::Activity::BeforeSources) {
++    result = result | kCFRunLoopBeforeSources;
++  }
++
+   if (RunLoopObserver::Activity(activity & RunLoopObserver::Activity::BeforeWaiting) ==
+       RunLoopObserver::Activity::BeforeWaiting) {
+     result = result | kCFRunLoopBeforeWaiting;
+@@ -31,6 +35,10 @@
+ static RunLoopObserver::Activity toRunLoopActivity(CFRunLoopActivity activity)
+ {
+   auto result = RunLoopObserver::Activity{};
++
++  if (activity & kCFRunLoopBeforeSources) {
++    result = RunLoopObserver::Activity(result | RunLoopObserver::Activity::BeforeSources);
++  }
+ 
+   if (CFRunLoopActivity(activity & kCFRunLoopBeforeWaiting) == kCFRunLoopBeforeWaiting) {
+     result = RunLoopObserver::Activity(result | RunLoopObserver::Activity::BeforeWaiting);
+diff --git a/node_modules/react-native-macos/React/Fabric/RCTSurfacePresenter.mm b/node_modules/react-native-macos/React/Fabric/RCTSurfacePresenter.mm
+--- a/node_modules/react-native-macos/React/Fabric/RCTSurfacePresenter.mm
++++ b/node_modules/react-native-macos/React/Fabric/RCTSurfacePresenter.mm
+@@ -259,8 +259,12 @@
+ 
+   toolbox.eventBeatFactory =
+       [runtimeScheduler](std::shared_ptr<EventBeat::OwnerBox> ownerBox) -> std::unique_ptr<EventBeat> {
+-    auto runLoopObserver =
+-        std::make_unique<const MainRunLoopObserver>(RunLoopObserver::Activity::BeforeWaiting, ownerBox->owner);
++    auto activities = RunLoopObserver::Activity::BeforeWaiting;
++#if TARGET_OS_OSX
++    // Continuous AppKit scrolling can keep the run loop from entering its waiting stage.
++    activities = RunLoopObserver::Activity(activities | RunLoopObserver::Activity::BeforeSources);
++#endif
++    auto runLoopObserver = std::make_unique<const MainRunLoopObserver>(activities, ownerBox->owner);
+     return std::make_unique<AppleEventBeat>(std::move(ownerBox), std::move(runLoopObserver), *runtimeScheduler);
+   };
+ 

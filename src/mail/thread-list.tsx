@@ -17,6 +17,8 @@ import { Button, Host, Image } from '@expo/ui/swift-ui';
 import { accessibilityLabel, frame } from '@expo/ui/swift-ui/modifiers';
 
 const ROW_HEIGHT = 58;
+const timeFormatter = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' });
+const dateFormatter = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' });
 function keyExtractor(thread: MailThreadSummary) {
   return `${thread.accountId}:${thread.threadId}`;
 }
@@ -29,8 +31,8 @@ function formatDate(milliseconds: number) {
   const date = new Date(milliseconds);
   const today = new Date();
   return date.toDateString() === today.toDateString()
-    ? date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
-    : date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+    ? timeFormatter.format(date)
+    : dateFormatter.format(date);
 }
 
 type ThreadRowProps = {

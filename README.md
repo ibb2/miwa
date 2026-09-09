@@ -26,6 +26,10 @@ Dependency installation applies the Expo Desktop project's recommended macOS com
 
 Miwa uses compact SwiftUI hosts for native buttons, switches, symbols, dividers, stacks, and empty states. React Native remains responsible for scrolling and complex mail-row composition where Expo UI does not yet provide a safe macOS host for React Native children.
 
+## macOS scrolling patch
+
+The `react-native-macos@0.81.7` patch delivers Fabric events before the main run loop processes sources as well as before it waits. During continuous trackpad scrolling, waiting-stage delivery alone can hold scroll events for over a second while the native viewport keeps moving, leaving LegendList's rendered range behind. The extra delivery stage is enabled only on macOS. Recheck continuous scrolling before removing this patch when upgrading React Native macOS.
+
 ## Gmail setup
 
 The generated macOS target is configured with the Google OAuth client for bundle identifier `com.ib.miwa`. Enable the Gmail API, add the restricted `gmail.readonly` scope, and set the Google Auth Platform **Branding** app name to `Miwa`. Google displays that branding name during consent.

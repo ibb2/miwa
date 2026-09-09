@@ -6,7 +6,7 @@
       "name": "miwa",
       "dependencies": {
         "@expo/ui": "0.2.0-beta.9",
-        "@legendapp/list": "^3.3.3",
+        "@legendapp/list": "3.3.10",
         "drizzle-orm": "^1.0.0-rc.4",
         "expo": "~54.0.35",
         "expo-desktop-config-plugins": "1.2.0-beta.0",
