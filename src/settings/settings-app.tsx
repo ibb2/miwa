@@ -65,7 +65,7 @@ export function SettingsApp() {
   }, []);
 
   return (
-    <View className="flex-1">
+    <View className="flex-1 bg-transparent">
       <SettingsScreen
         accounts={accounts ?? []}
         clearEnabled={!download && !clearing}

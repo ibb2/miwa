@@ -1,9 +1,8 @@
 import { useState, type ComponentProps, type ReactNode } from 'react';
-import { View } from 'react-native';
+import { PlatformColor, useColorScheme, View } from 'react-native';
 import {
   Button,
   Form,
-  GlassEffectContainer,
   Host,
   HStack,
   Image as SwiftUIImage,
@@ -16,13 +15,14 @@ import {
 import {
   accessibilityLabel,
   accessibilityValue,
+  background,
   fixedSize,
   frame,
   padding,
 } from '@expo/ui/swift-ui/modifiers';
 
 import type { ConnectedAccount } from '../mail/types';
-import { accent } from '../components/native-colors';
+import { useAccent } from '../components/native-colors';
 import type { MailPreferences } from './preferences';
 
 type SettingsScreenProps = {
@@ -63,6 +63,7 @@ function SettingsRow({
   symbol?: ComponentProps<typeof SwiftUIImage>['systemName'];
   children?: ReactNode;
 }) {
+  const tint = useAccent();
   return (
     <HStack
       spacing={20}
@@ -74,7 +75,7 @@ function SettingsRow({
       {symbol ? (
         <SwiftUIImage
           systemName={symbol}
-          color={accent}
+          color={tint}
           size={22}
           modifiers={[frame({ width: 30 })]}
         />
@@ -124,11 +125,19 @@ export function SettingsScreen({
   onDisconnectAccount,
 }: SettingsScreenProps) {
   const [tab, setTab] = useState(0);
+  const dark = useColorScheme() === 'dark';
+  const tint = useAccent();
   return (
     <View className="flex-1 bg-transparent">
       <Host style={{ flex: 1 }} useViewportSizeMeasurement>
         <VStack spacing={0} modifiers={[frame({ maxWidth: Infinity, maxHeight: Infinity })]}>
-          <GlassEffectContainer spacing={10} modifiers={[padding({ top: 16, bottom: 12 })]}>
+          <VStack
+            spacing={10}
+            modifiers={[
+              padding({ top: 16, bottom: 12 }),
+              background(dark ? '#202426' : PlatformColor('windowBackgroundColor')),
+            ]}
+          >
             <HStack spacing={10} modifiers={[frame({ maxWidth: Infinity, alignment: 'center' })]}>
               {TABS.map((item, index) => {
                 const selected = tab === index;
@@ -136,7 +145,7 @@ export function SettingsScreen({
                   <Button
                     key={item.id}
                     variant={selected ? 'glassProminent' : 'glass'}
-                    color={selected ? accent : undefined}
+                    color={selected ? tint : undefined}
                     controlSize="regular"
                     onPress={() => setTab(index)}
                     modifiers={[
@@ -166,7 +175,7 @@ export function SettingsScreen({
                 );
               })}
             </HStack>
-          </GlassEffectContainer>
+          </VStack>
           <Form modifiers={[frame({ maxWidth: Infinity, maxHeight: Infinity })]} scrollEnabled>
             {tab === 0 ? (
               <>
@@ -181,7 +190,7 @@ export function SettingsScreen({
                       disabled={!downloadEnabled || isDownloading}
                       onPress={onDownloadMail}
                       variant="glassProminent"
-                      color={accent}
+                      color={tint}
                       systemImage="arrow.down"
                     >
                       {isDownloading ? 'Downloading…' : 'Download all'}
@@ -196,7 +205,7 @@ export function SettingsScreen({
                       <SwiftText color="secondary" size={12}>
                         {downloadStatus}
                       </SwiftText>
-                      <LinearProgress progress={downloadFraction ?? null} color={accent} />
+                      <LinearProgress progress={downloadFraction ?? null} color={tint} />
                     </VStack>
                   ) : null}
                 </Section>
@@ -247,7 +256,7 @@ export function SettingsScreen({
                   <Switch
                     onValueChange={onChangeShowPreviews}
                     value={preferences.showPreviews}
-                    color={accent}
+                    color={tint}
                     modifiers={[accessibilityLabel('Show message previews'), frame({ width: 40 })]}
                   />
                 </SettingsRow>
@@ -287,7 +296,7 @@ export function SettingsScreen({
                     controlSize="regular"
                     onPress={onConnectAccount}
                     variant="glassProminent"
-                    color={accent}
+                    color={tint}
                     systemImage="plus"
                   >
                     Add account

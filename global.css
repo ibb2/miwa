@@ -2,8 +2,8 @@
 @import 'uniwind';
 
 @theme {
-  --color-accent: #e86e5a;
-  --color-accent-dark: #c95243;
+  --color-accent: #5AA3CC;
+  --color-accent-dark: #73B9DF;
 }
 
 @utility h-hairline {

@@ -22,6 +22,7 @@ public final class NativeWindowToolbarView: ExpoView, NSToolbarDelegate, NSSearc
   private weak var installedWindow: NSWindow?
   private var installedToolbar: NSToolbar?
   private weak var glassBackgroundView: NSVisualEffectView?
+  private weak var glassTintView: NSView?
   private var itemByIdentifier: [NSToolbarItem.Identifier: ToolbarItemRecord] = [:]
   private var identifierByItemId: [String: NSToolbarItem.Identifier] = [:]
   private var segmentItemIdByGroup: [ObjectIdentifier: String] = [:]
@@ -100,6 +101,7 @@ public final class NativeWindowToolbarView: ExpoView, NSToolbarDelegate, NSSearc
     window.backgroundColor = .clear
     window.titlebarAppearsTransparent = true
     window.titleVisibility = .hidden
+    window.hasShadow = true
 
     guard let contentView = window.contentView else {
       return
@@ -112,9 +114,24 @@ public final class NativeWindowToolbarView: ExpoView, NSToolbarDelegate, NSSearc
       effectView.blendingMode = .behindWindow
       effectView.material = .underWindowBackground
       effectView.state = .active
+
+      let tintView = NSView(frame: effectView.bounds)
+      tintView.autoresizingMask = [.width, .height]
+      tintView.wantsLayer = true
+      tintView.layer?.backgroundColor = NSColor(
+        red: 227 / 255,
+        green: 234 / 255,
+        blue: 240 / 255,
+        alpha: 0.2
+      ).cgColor
+      effectView.addSubview(tintView)
+
       contentView.addSubview(effectView, positioned: .below, relativeTo: nil)
       glassBackgroundView = effectView
+      glassTintView = tintView
     }
+
+    glassTintView?.isHidden = window.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
   }
 
   public func showCustomizationPalette() {

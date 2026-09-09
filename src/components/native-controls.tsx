@@ -10,7 +10,7 @@ import {
 } from '@expo/ui/swift-ui';
 import { withUniwind } from 'uniwind';
 
-import { accent } from './native-colors';
+import { useAccent } from './native-colors';
 import {
   accessibilityLabel as accessibilityLabelModifier,
   frame,
@@ -40,12 +40,13 @@ export function NativeActionButton({
   systemImage,
   variant = 'glass',
 }: NativeActionButtonProps) {
+  const tint = useAccent();
   const width = systemImage ? 34 : Math.max(80, Math.min(184, label.length * 7 + 34));
 
   return (
     <Host className="h-[34px]" style={{ width }}>
       <Button
-        color={role === 'destructive' ? 'red' : accent}
+        color={role === 'destructive' ? 'red' : tint}
         controlSize="small"
         disabled={disabled}
         modifiers={[accessibilityLabelModifier(accessibilityLabel ?? label)]}
@@ -72,11 +73,12 @@ export function NativeTabButton({
   selected: boolean;
 }) {
   const title = `${label}  ${count.toLocaleString()}`;
+  const tint = useAccent();
   const width = Math.max(84, title.length * 5 + 36);
 
   return (
     <Button
-      color={accent}
+      color={tint}
       controlSize="regular"
       modifiers={[
         accessibilityLabelModifier(`${label}, ${count.toLocaleString()} emails`),
@@ -100,12 +102,14 @@ type NativeSymbolProps = {
 
 /** A round avatar: profile image, initials, or an SF Symbol in a tinted circle. */
 export function NativeSymbol({
-  color = accent,
+  color,
   fallback,
   imageUri,
   preferFallback = false,
   systemName,
 }: NativeSymbolProps) {
+  const tint = useAccent();
+  const symbolColor = color ?? tint;
   if (imageUri) {
     return (
       <Image
@@ -118,7 +122,7 @@ export function NativeSymbol({
   return (
     <View
       className="w-[32px] h-[32px] items-center justify-center rounded-[16px] border-continuous overflow-hidden"
-      style={{ backgroundColor: color }}
+      style={{ backgroundColor: symbolColor }}
     >
       {preferFallback ? (
         <Text className="text-[#FFFFFF] text-[12px] font-bold">{fallback}</Text>
@@ -172,6 +176,7 @@ export function NativeEmptyState({
   systemImage?: ImageProps['systemName'];
   title: string;
 }) {
+  const tint = useAccent();
   return (
     <View className="flex-1 items-center justify-center">
       <Host className="w-[460px] h-[220px]">
@@ -182,7 +187,7 @@ export function NativeEmptyState({
             title={title}
           />
           {actionLabel && onAction ? (
-            <Button color={accent} onPress={onAction} variant="glassProminent">
+            <Button color={tint} onPress={onAction} variant="glassProminent">
               {actionLabel}
             </Button>
           ) : null}

@@ -2,7 +2,7 @@ import { Button, Host, HStack, Image, Text as SwiftText, VStack } from '@expo/ui
 import { accessibilityLabel, frame } from '@expo/ui/swift-ui/modifiers';
 import { useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
-import { accent, colors } from '../components/native-colors';
+import { colors, useAccent } from '../components/native-colors';
 import { SenderAvatar } from './sender-avatar';
 import type { GatekeeperMessage, GatekeeperSender } from './gatekeeper';
 
@@ -30,6 +30,7 @@ export function SenderReviewRow({
   const [hoveredTrash, setHoveredTrash] = useState<string>();
   const [hoveredMessage, setHoveredMessage] = useState<string>();
   const title = sender.displayName || sender.email;
+  const tint = useAccent();
   return (
     <View>
       <View className="flex-row flex-wrap items-center gap-[12px] py-[14px]">
@@ -92,7 +93,7 @@ export function SenderReviewRow({
                 </Button>
                 <Button
                   variant="borderedProminent"
-                  color={accent}
+                  color={tint}
                   controlSize="small"
                   disabled={busy}
                   onPress={onApprove}

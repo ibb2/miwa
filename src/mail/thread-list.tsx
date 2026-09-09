@@ -1,6 +1,6 @@
 import { useResolveClassNames } from 'uniwind';
 import { memo, useCallback, useMemo, useState } from 'react';
-import { accent, colors } from '../components/native-colors';
+import { colors, useAccent } from '../components/native-colors';
 import {
   LegendList,
   useRecyclingState,
@@ -59,6 +59,7 @@ function RowAction({
   onPress: () => void;
 }) {
   const [hovered, setHovered] = useState(false);
+  const tint = useAccent();
   return (
     <Pressable
       accessible={false}
@@ -73,7 +74,7 @@ function RowAction({
           <Image
             systemName={symbol}
             size={14}
-            color={hovered || selected ? accent : 'secondary'}
+            color={hovered || selected ? tint : 'secondary'}
             modifiers={[frame({ width: 32, height: 30 })]}
           />
         </Button>
@@ -93,6 +94,7 @@ const ThreadRow = memo(function ThreadRow({
   onToggleRead,
 }: ThreadRowProps) {
   const [hovered, setHovered] = useRecyclingState(false);
+  const tint = useAccent();
   const avatar = useMemo(() => senderIdentity(thread.sender), [thread.sender]);
   const senderImageUri =
     account?.email.toLowerCase() === avatar.email ? account.avatarUrl : undefined;
@@ -111,7 +113,8 @@ const ThreadRow = memo(function ThreadRow({
       <View
         accessibilityElementsHidden
         importantForAccessibility="no-hide-descendants"
-        className={`w-[3px] h-[22px] rounded-[999px] bg-accent ${thread.unread ? '' : 'opacity-0'}`}
+        className={`w-[3px] h-[22px] rounded-[999px] ${thread.unread ? '' : 'opacity-0'}`}
+        style={{ backgroundColor: tint }}
       />
       <SenderAvatar sender={thread.sender} imageUri={senderImageUri} />
       <View className="flex-1 min-w-0 justify-center">
