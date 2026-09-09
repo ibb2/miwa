@@ -197,16 +197,6 @@ export function buildToolbarItems(input: ToolbarInput): NativeToolbarItem[] {
     });
   }
 
-  // items.push({
-  //   id: 'connect-account',
-  //   kind: 'button',
-  //   label: 'Connect Gmail',
-  //   systemImage: 'plus',
-  //   toolTip: 'Connect another Gmail account',
-  //   enabled: !input.download,
-  //   immovable: true,
-  // });
-
   if (onMailScreen && !input.thread) {
     items.push({
       id: 'gatekeeper',

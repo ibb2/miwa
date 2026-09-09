@@ -333,7 +333,7 @@ public final class NativeWindowToolbarView: ExpoView, NSToolbarDelegate, NSSearc
     definition: ToolbarItemRecord,
     identifier: NSToolbarItem.Identifier
   ) -> NSToolbarItem {
-    if definition.badgeCount != nil {
+    if let count = definition.badgeCount, count > 0 {
       return makeBadgeButtonItem(
         definition: definition,
         identifier: identifier
@@ -365,7 +365,7 @@ public final class NativeWindowToolbarView: ExpoView, NSToolbarDelegate, NSSearc
     button.imageScaling = .scaleProportionallyDown
     button.font = .monospacedDigitSystemFont(ofSize: 11, weight: .semibold)
     button.bezelStyle = .texturedRounded
-    button.isBordered = count > 0
+    button.isBordered = true
     button.contentTintColor = count > 0 ? .controlAccentColor : .controlTextColor
     button.toolTip = definition.toolTip
     button.isEnabled = definition.enabled
@@ -429,7 +429,26 @@ public final class NativeWindowToolbarView: ExpoView, NSToolbarDelegate, NSSearc
     } else {
       indicator.stopAnimation(nil)
     }
-    item.view = indicator
+    let container = NSView(frame: NSRect(x: 0, y: 0, width: 36, height: 36))
+    indicator.translatesAutoresizingMaskIntoConstraints = false
+    container.addSubview(indicator)
+    NSLayoutConstraint.activate([
+      indicator.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+      indicator.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+      indicator.widthAnchor.constraint(equalToConstant: 18),
+      indicator.heightAnchor.constraint(equalToConstant: 18)
+    ])
+    if #available(macOS 26.0, *) {
+      let glass = NSGlassEffectView(frame: container.frame)
+      glass.cornerRadius = 18
+      glass.contentView = container
+      item.view = glass
+    } else {
+      item.view = container
+    }
+    item.view?.widthAnchor.constraint(equalToConstant: 36).isActive = true
+    item.view?.heightAnchor.constraint(equalToConstant: 36).isActive = true
+    indicator.setAccessibilityLabel(definition.label ?? "Progress")
     configure(item, from: definition, defaultLabel: "Progress", includeImage: false)
     return item
   }
