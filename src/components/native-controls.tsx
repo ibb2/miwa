@@ -77,18 +77,20 @@ export function NativeTabButton({
   const width = Math.max(84, title.length * 5 + 36);
 
   return (
-    <Button
-      color={tint}
-      controlSize="regular"
-      modifiers={[
-        accessibilityLabelModifier(`${label}, ${count.toLocaleString()} emails`),
-        frame({ width }),
-      ]}
-      onPress={onPress}
-      variant={selected ? 'glassProminent' : 'plain'}
-    >
-      {title}
-    </Button>
+    <Host className="h-[40px]" style={{ width }}>
+      <Button
+        color={tint}
+        controlSize="regular"
+        modifiers={[
+          accessibilityLabelModifier(`${label}, ${count.toLocaleString()} emails`),
+          frame({ width }),
+        ]}
+        onPress={onPress}
+        variant={selected ? 'glassProminent' : 'plain'}
+      >
+        {title}
+      </Button>
+    </Host>
   );
 }
 

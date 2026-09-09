@@ -6,20 +6,17 @@ import {
   useRecyclingState,
   type LegendListRenderItemProps,
 } from '@legendapp/list/react-native';
-import { Pressable, Text, View, useWindowDimensions } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
 
 import { SenderAvatar, senderIdentity } from './sender-avatar';
 import { buildInboxTabs, threadsForInboxTab, type InboxTabId } from './inbox-tabs';
 import type { ConnectedAccount, MailThreadSummary } from './types';
 import type { MailPreferences } from '../settings/preferences';
 import { NativeEmptyState, NativeTabButton } from '../components/native-controls';
-import { Button, Host, HStack, Image } from '@expo/ui/swift-ui';
-import { accessibilityLabel, frame, padding } from '@expo/ui/swift-ui/modifiers';
+import { Button, Host, Image } from '@expo/ui/swift-ui';
+import { accessibilityLabel, frame } from '@expo/ui/swift-ui/modifiers';
 
 const ROW_HEIGHT = 58;
-const TAB_ROW_MAX_WIDTH = 1080;
-const TAB_ROW_SPACING = 12;
-const TAB_ROW_LEADING_PADDING = 18;
 function keyExtractor(thread: MailThreadSummary) {
   return `${thread.accountId}:${thread.threadId}`;
 }
@@ -211,8 +208,6 @@ export const ThreadList = memo(function ThreadList({
   const contentStyle = useResolveClassNames(
     'w-full max-w-[840px] self-center px-[18px] pt-[8px] pb-[20px]',
   );
-  const { width: windowWidth } = useWindowDimensions();
-  const tabRowWidth = Math.min(windowWidth, TAB_ROW_MAX_WIDTH);
   const [selectedTab, setSelectedTab] = useState<InboxTabId>('inbox');
   const tabs = useMemo(() => buildInboxTabs(threads), [threads]);
   const visibleThreads = useMemo(
@@ -262,26 +257,28 @@ export const ThreadList = memo(function ThreadList({
 
   return (
     <View className="flex-1">
-      <Host style={{ width: tabRowWidth, height: 58 }}>
-        <HStack
-          alignment="center"
-          modifiers={[
-            padding({ leading: TAB_ROW_LEADING_PADDING }),
-            frame({ width: tabRowWidth, height: 58, alignment: 'leading' }),
-          ]}
-        >
-          {tabs.map((tab) => (
-            <NativeTabButton
-              key={tab.id}
-              count={tab.count}
-              label={tab.title}
-              onPress={() => setSelectedTab(tab.id)}
-              selected={selectedTab === tab.id}
-            />
-          ))}
-        </HStack>
-      </Host>
       <LegendList
+        ListHeaderComponent={
+          <View
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'flex-start',
+              height: 58,
+              gap: 12,
+            }}
+          >
+            {tabs.map((tab) => (
+              <NativeTabButton
+                key={tab.id}
+                count={tab.count}
+                label={tab.title}
+                onPress={() => setSelectedTab(tab.id)}
+                selected={selectedTab === tab.id}
+              />
+            ))}
+          </View>
+        }
         ListEmptyComponent={emptyState}
         contentContainerStyle={contentStyle}
         contentInsetAdjustmentBehavior="automatic"
