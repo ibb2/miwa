@@ -116,7 +116,9 @@ function withSettingsMainMenu(config) {
       for (const appDir of appDirs) {
         const storyboard = path.join(macosDir, appDir, 'Base.lproj', 'Main.storyboard');
         if (!fs.existsSync(storyboard)) continue;
-        const contents = fs.readFileSync(storyboard, 'utf8');
+        const original = fs.readFileSync(storyboard, 'utf8');
+        const contents = original.replaceAll('HelloWorld', 'Miwa');
+        if (contents !== original) fs.writeFileSync(storyboard, contents);
         if (contents.includes('openSettingsWindow:')) continue;
         const anchor = '<menuItem title="Preferences…" keyEquivalent="," id="BOF-NM-1cW"/>';
         if (!contents.includes(anchor)) continue;

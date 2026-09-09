@@ -322,7 +322,9 @@ export default function App() {
       <NativeEmptyState
         actionLabel="Connect Gmail"
         description={
-          connectError ?? 'Connect a Gmail account and download the inbox to get started.'
+          connectError
+            ? 'Connect a Gmail account and download the inbox to get started.'
+            : 'Connect a Gmail account and download the inbox to get started.'
         }
         onAction={() => void connectAccount()}
         systemImage="envelope"

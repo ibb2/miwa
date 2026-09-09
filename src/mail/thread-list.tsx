@@ -225,12 +225,12 @@ export const ThreadList = memo(function ThreadList({
         description={
           selectedTab === 'inbox'
             ? emptyMailboxName
-              ? `Open Settings to download ${emptyMailboxName} for offline reading.`
-              : 'Open Settings to download your connected inboxes for offline reading.'
-            : `No messages currently match ${tabs.find((tab) => tab.id === selectedTab)?.title ?? 'this tab'}.`
+              ? `Open Settings to download ${emptyMailboxName} and get started.`
+              : 'Open Settings to download your connected inboxes and get started.'
+            : `No messages have been ${tabs.find((tab) => tab.id === selectedTab)?.title ?? 'this tab'}.`
         }
         systemImage="tray"
-        title={selectedTab === 'inbox' ? 'Your reading desk is clear.' : 'Nothing here yet.'}
+        title={'Nothing here yet.'}
       />
     ),
     [emptyMailboxName, selectedTab, tabs],

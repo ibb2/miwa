@@ -35,7 +35,7 @@ const tabDefinitions: ReadonlyArray<{
   // { id: 'updates', title: 'Notifications' },
   // { id: 'social', title: 'Social' },
   // { id: 'forums', title: 'Forums' },
-  { id: 'seen', title: 'Seen' },
+  // { id: 'seen', title: 'Seen' },
 ];
 
 /** Returns the complete flat dataset represented by an inbox tab. */
