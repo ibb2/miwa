@@ -16,7 +16,8 @@
     "postinstall": "patch-package",
     "format": "prettier --write App.tsx src modules/*/src metro.config.js global.css",
     "format:check": "prettier --check App.tsx src modules/*/src metro.config.js global.css",
-    "styles:generate": "uniwind generate-artifacts --css ./global.css --dts ./src/uniwind-types.d.ts"
+    "styles:generate": "uniwind generate-artifacts --css ./global.css --dts ./src/uniwind-types.d.ts",
+    "package:macos": "./scripts/package-macos.sh"
   },
   "dependencies": {
     "@expo/ui": "0.2.0-beta.9",
