@@ -322,11 +322,11 @@ export default function App() {
       <NativeEmptyState
         actionLabel="Connect Gmail"
         description={
-          connectError ?? 'Connect a Gmail account, then download an inbox for offline reading.'
+          connectError ?? 'Connect a Gmail account and download the inbox to get started.'
         }
         onAction={() => void connectAccount()}
         systemImage="envelope"
-        title="No mailbox has wandered in yet."
+        title="We couldn't find any inboxes."
       />
     );
   } else {

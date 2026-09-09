@@ -175,14 +175,14 @@ export function NativeEmptyState({
   return (
     <View className="flex-1 items-center justify-center">
       <Host className="w-[460px] h-[220px]">
-        <VStack alignment="center" spacing={14}>
+        <VStack alignment="center" spacing={8}>
           <ContentUnavailableView
             description={description}
             systemImage={systemImage}
             title={title}
           />
           {actionLabel && onAction ? (
-            <Button color={accent} onPress={onAction} variant="borderedProminent">
+            <Button color={accent} onPress={onAction} variant="glassProminent">
               {actionLabel}
             </Button>
           ) : null}
