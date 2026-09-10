@@ -6,11 +6,10 @@ import {
   useRecyclingState,
   type LegendListRenderItemProps,
 } from '@legendapp/list/react-native';
-import { Pressable, Text, View } from 'react-native';
+import { Pressable, Text, View, useWindowDimensions } from 'react-native';
 
-import { SenderAvatar, senderIdentity } from './sender-avatar';
 import { buildInboxTabs, threadsForInboxTab, type InboxTabId } from './inbox-tabs';
-import type { ConnectedAccount, MailThreadSummary } from './types';
+import type { MailThreadSummary } from './types';
 import type { MailPreferences } from '../settings/preferences';
 import { NativeEmptyState, NativeTabButton } from '../components/native-controls';
 import { Button, Host, Image } from '@expo/ui/swift-ui';
@@ -37,7 +36,6 @@ function formatDate(milliseconds: number) {
 }
 
 type ThreadRowProps = {
-  account?: ConnectedAccount;
   showPreview: boolean;
   thread: MailThreadSummary;
   onPress: (thread: MailThreadSummary) => void;
@@ -84,7 +82,6 @@ function RowAction({
 }
 
 const ThreadRow = memo(function ThreadRow({
-  account,
   showPreview,
   thread,
   onPress,
@@ -95,56 +92,94 @@ const ThreadRow = memo(function ThreadRow({
 }: ThreadRowProps) {
   const [hovered, setHovered] = useRecyclingState(false);
   const tint = useAccent();
-  const avatar = useMemo(() => senderIdentity(thread.sender), [thread.sender]);
-  const senderImageUri =
-    account?.email.toLowerCase() === avatar.email ? account.avatarUrl : undefined;
+  const { width } = useWindowDimensions();
+  const compact = width < 960;
 
   return (
     <Pressable
-      accessibilityLabel={`${thread.sender}, ${thread.subject || 'No subject'}`}
+      accessibilityLabel={
+        thread.sender +
+        ', ' +
+        (thread.subject || 'No subject') +
+        (thread.hasAttachments ? ', has attachment' : '')
+      }
       accessibilityRole="button"
       onBlur={() => setHovered(false)}
       onFocus={() => setHovered(true)}
       onHoverIn={() => setHovered(true)}
       onHoverOut={() => setHovered(false)}
       onPress={() => onPress(thread)}
-      className={`w-full h-[58px] relative flex-row items-center px-[12px] gap-[9px] ${hovered ? 'bg-[rgba(128,128,128,0.10)] rounded-[10px] border-continuous' : 'bg-transparent'} active:bg-[rgba(128,128,128,0.18)]`}
+      className="w-full h-[58px] relative flex-row items-center px-[8px] gap-[14px] active:bg-[rgba(128,128,128,0.18)]"
+      style={{ backgroundColor: hovered ? 'rgba(128,128,128,0.10)' : 'transparent' }}
     >
       <View
         accessibilityElementsHidden
         importantForAccessibility="no-hide-descendants"
-        className={`w-[3px] h-[22px] rounded-[999px] ${thread.unread ? '' : 'opacity-0'}`}
-        style={{ backgroundColor: tint }}
-      />
-      <SenderAvatar sender={thread.sender} imageUri={senderImageUri} />
-      <View className="flex-1 min-w-0 justify-center">
+        className="w-[8px] h-[58px] items-center justify-center"
+      >
+        <View
+          className="w-[7px] h-[7px] rounded-[999px]"
+          style={{ backgroundColor: thread.unread ? tint : 'transparent' }}
+        />
+      </View>
+      <Text
+        numberOfLines={1}
+        className="min-w-0"
+        style={{
+          flex: compact ? 1.1 : 0.95,
+          minWidth: compact ? 0 : 160,
+          color: colors.label,
+          fontSize: 13,
+          lineHeight: 18,
+          fontWeight: thread.unread ? '700' : '400',
+        }}
+      >
+        {senderDisplayName(thread.sender)}
+      </Text>
+      <View
+        className="min-w-0 flex-row items-center"
+        style={{ flex: compact ? 1.4 : 1.1, minWidth: compact ? 0 : 220 }}
+      >
         <Text
           numberOfLines={1}
-          className={`text-[11px] leading-[15px] ${thread.unread ? 'font-bold' : ''}`}
-          style={{ color: colors.label }}
-        >
-          {senderDisplayName(thread.sender)}
-        </Text>
-        <Text
-          numberOfLines={1}
-          className={`text-[12px] leading-[16px] ${thread.unread ? 'font-bold' : ''}`}
-          style={{ color: colors.label }}
+          className="min-w-0"
+          style={{
+            flexShrink: 1,
+            color: colors.label,
+            fontSize: 13,
+            lineHeight: 18,
+            fontWeight: thread.unread ? '700' : '400',
+          }}
         >
           {thread.subject || '(No subject)'}
-          {showPreview && thread.snippet ? (
-            <Text className="text-[10px] font-normal" style={{ color: colors.secondaryLabel }}>
-              <Text style={{ color: colors.tertiaryLabel }}> — </Text>
-              {thread.snippet}
-            </Text>
-          ) : null}
         </Text>
+        {thread.hasAttachments ? (
+          <Host style={{ width: 18, height: 18 }}>
+            <Image
+              systemName="paperclip"
+              size={12}
+              color="secondary"
+              modifiers={[frame({ width: 18, height: 18 })]}
+            />
+          </Host>
+        ) : null}
       </View>
-      {thread.messageCount > 1 ? (
-        <Text className="text-[10px] tabular-nums" style={{ color: colors.secondaryLabel }}>
-          {thread.messageCount}
+      {!compact && showPreview && thread.snippet ? (
+        <Text
+          numberOfLines={1}
+          className="min-w-0"
+          style={{
+            flex: 1.55,
+            minWidth: 200,
+            color: colors.secondaryLabel,
+            fontSize: 12,
+            lineHeight: 18,
+          }}
+        >
+          {thread.snippet}
         </Text>
       ) : null}
-      <View className="w-[146px] h-[34px] items-end justify-center">
+      <View className="items-end justify-center" style={{ width: compact ? 90 : 146, height: 34 }}>
         {hovered ? (
           <View
             className="rounded-[10px] border-continuous overflow-hidden"
@@ -172,7 +207,7 @@ const ThreadRow = memo(function ThreadRow({
             </View>
           </View>
         ) : (
-          <Text className="text-[10px] tabular-nums" style={{ color: colors.secondaryLabel }}>
+          <Text className="text-[12px] tabular-nums" style={{ color: colors.secondaryLabel }}>
             {thread.done ? '✓ Done  ·  ' : ''}
             {formatDate(thread.receivedAt)}
           </Text>
@@ -183,7 +218,6 @@ const ThreadRow = memo(function ThreadRow({
 });
 
 type ThreadListProps = {
-  accountsById: Map<string, ConnectedAccount>;
   datasetKey: string;
   emptyMailboxName?: string;
   onOpenThread: (thread: MailThreadSummary) => void;
@@ -196,7 +230,6 @@ type ThreadListProps = {
 };
 
 export const ThreadList = memo(function ThreadList({
-  accountsById,
   datasetKey,
   emptyMailboxName,
   onOpenThread,
@@ -208,9 +241,7 @@ export const ThreadList = memo(function ThreadList({
   threads,
 }: ThreadListProps) {
   const listStyle = useResolveClassNames('flex-1');
-  const contentStyle = useResolveClassNames(
-    'w-full max-w-[840px] self-center px-[18px] pt-[8px] pb-[20px]',
-  );
+  const contentStyle = useResolveClassNames('w-full px-[18px] pt-[8px] pb-[20px]');
   const [selectedTab, setSelectedTab] = useState<InboxTabId>('inbox');
   const tabs = useMemo(() => buildInboxTabs(threads), [threads]);
   const visibleThreads = useMemo(
@@ -237,7 +268,6 @@ export const ThreadList = memo(function ThreadList({
   const renderItem = useCallback(
     ({ item }: LegendListRenderItemProps<MailThreadSummary>) => (
       <ThreadRow
-        account={accountsById.get(item.accountId)}
         onArchive={onArchive}
         onPress={onOpenThread}
         onSetDone={onSetDone}
@@ -247,15 +277,7 @@ export const ThreadList = memo(function ThreadList({
         thread={item}
       />
     ),
-    [
-      accountsById,
-      onArchive,
-      onOpenThread,
-      onSetDone,
-      onSetPinned,
-      onToggleRead,
-      preferences.showPreviews,
-    ],
+    [onArchive, onOpenThread, onSetDone, onSetPinned, onToggleRead, preferences.showPreviews],
   );
 
   return (

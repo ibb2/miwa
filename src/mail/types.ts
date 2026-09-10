@@ -26,6 +26,7 @@ export type MailThreadSummary = {
   done: boolean;
   pinned: boolean;
   messageCount: number;
+  hasAttachments: boolean;
   category: MailCategory;
 };
 

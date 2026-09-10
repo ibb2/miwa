@@ -379,7 +379,6 @@ export default function App() {
   } else {
     mainContent = (
       <ThreadList
-        accountsById={accountsById}
         datasetKey={mailboxView.kind === 'all' ? 'all' : mailboxView.accountId}
         emptyMailboxName={mailboxName}
         onOpenThread={setSelectedThread}

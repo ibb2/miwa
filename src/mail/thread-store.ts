@@ -38,6 +38,7 @@ export async function loadThreads(): Promise<MailThreadSummary[]> {
         threadId: mailMessages.threadId,
         labelIds: mailMessages.labelIds,
         sentAt: mailMessages.sentAt,
+        hasAttachments: mailMessages.hasAttachments,
       })
       .from(mailMessages)
       .orderBy(desc(mailMessages.sentAt)),
@@ -59,10 +60,12 @@ export async function loadThreads(): Promise<MailThreadSummary[]> {
   );
   // Rows arrive newest first, so the first label set seen per thread is latest.
   const categoryByThreadId = new Map<string, MailThreadSummary['category']>();
+  const attachmentThreadIds = new Set<string>();
   for (const message of messageLabelRows) {
     if (!categoryByThreadId.has(message.threadId)) {
       categoryByThreadId.set(message.threadId, mailCategoryForLabels(message.labelIds));
     }
+    if (message.hasAttachments) attachmentThreadIds.add(message.threadId);
   }
 
   return rows
@@ -78,6 +81,7 @@ export async function loadThreads(): Promise<MailThreadSummary[]> {
       done: row.done,
       pinned: row.pinned,
       messageCount: row.messageCount,
+      hasAttachments: attachmentThreadIds.has(row.id),
       category: categoryByThreadId.get(row.id) ?? 'primary',
     }));
 }
