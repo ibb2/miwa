@@ -23,6 +23,7 @@ import {
 
 import type { ConnectedAccount } from '../mail/types';
 import { useAccent } from '../components/native-colors';
+import type { NotificationPermissionStatus } from '../../modules/native-local-notifications/src';
 import type { MailPreferences } from './preferences';
 
 type SettingsScreenProps = {
@@ -37,7 +38,18 @@ type SettingsScreenProps = {
   isClearingData: boolean;
   isDownloading: boolean;
   preferences: MailPreferences;
+  notificationPermission: NotificationPermissionStatus;
+  notificationsSupported: boolean;
   onChangeShowPreviews: (value: boolean) => void;
+  onChangeNotificationsEnabled: (value: boolean) => void;
+  onChangeNotificationsSound: (value: boolean) => void;
+  onChangeNotificationsBadge: (value: boolean) => void;
+  onChangeNotificationsPreview: (value: boolean) => void;
+  onChangeDndEnabled: (value: boolean) => void;
+  onChangeDndStartHour: (value: number) => void;
+  onChangeDndEndHour: (value: number) => void;
+  onToggleAccountNotifications: (account: ConnectedAccount, value: boolean) => void;
+  onOpenSystemNotificationSettings: () => void;
   onClearDatabase: () => void;
   onConnectAccount: () => void;
   onDownloadMail: () => void;
@@ -48,9 +60,58 @@ type SettingsScreenProps = {
 const TABS = [
   { id: 'offline', label: 'Offline', systemImage: 'arrow.down.circle' },
   { id: 'inbox', label: 'Inbox', systemImage: 'tray.full' },
+  { id: 'notifications', label: 'Notifications', systemImage: 'bell.badge' },
   { id: 'accounts', label: 'Accounts', systemImage: 'person.crop.circle' },
   { id: 'data', label: 'Data', systemImage: 'internaldrive' },
 ] as const;
+
+function formatHour(hour: number): string {
+  const suffix = hour < 12 ? 'AM' : 'PM';
+  const twelve = hour % 12 === 0 ? 12 : hour % 12;
+  return `${twelve} ${suffix}`;
+}
+
+function DndHourStepper({
+  hour,
+  label,
+  disabled,
+  onChange,
+}: {
+  hour: number;
+  label: string;
+  disabled: boolean;
+  onChange: (value: number) => void;
+}) {
+  const tint = useAccent();
+  return (
+    <SettingsRow title={label} symbol="moon">
+      <HStack spacing={8}>
+        <Button
+          controlSize="regular"
+          disabled={disabled || hour <= 0}
+          onPress={() => onChange(hour - 1)}
+          variant="glass"
+          modifiers={[accessibilityLabel(`One hour earlier for ${label}`)]}
+        >
+          {'\u2212'}
+        </Button>
+        <SwiftText size={13} weight="medium" modifiers={[frame({ width: 52 })]}>
+          {formatHour(hour)}
+        </SwiftText>
+        <Button
+          controlSize="regular"
+          disabled={disabled || hour >= 23}
+          onPress={() => onChange(hour + 1)}
+          variant="glassProminent"
+          color={tint}
+          modifiers={[accessibilityLabel(`One hour later for ${label}`)]}
+        >
+          {'+'}
+        </Button>
+      </HStack>
+    </SettingsRow>
+  );
+}
 
 function SettingsRow({
   title,
@@ -117,7 +178,18 @@ export function SettingsScreen({
   isClearingData,
   isDownloading,
   preferences,
+  notificationPermission,
+  notificationsSupported,
   onChangeShowPreviews,
+  onChangeNotificationsEnabled,
+  onChangeNotificationsSound,
+  onChangeNotificationsBadge,
+  onChangeNotificationsPreview,
+  onChangeDndEnabled,
+  onChangeDndStartHour,
+  onChangeDndEndHour,
+  onToggleAccountNotifications,
+  onOpenSystemNotificationSettings,
   onClearDatabase,
   onConnectAccount,
   onDownloadMail,
@@ -264,6 +336,145 @@ export function SettingsScreen({
             ) : null}
 
             {tab === 2 ? (
+              <>
+                <Section title="New mail">
+                  <SettingsRow
+                    title="Notify about new mail"
+                    description={
+                      notificationsSupported
+                        ? 'Show a system notification when new mail arrives. The first prompt registers Miwa in System Settings \u2013 Notifications.'
+                        : 'Notifications need a macOS build of Miwa.'
+                    }
+                    symbol="bell.badge"
+                  >
+                    <Switch
+                      onValueChange={onChangeNotificationsEnabled}
+                      value={preferences.notificationsEnabled}
+                      color={tint}
+                      modifiers={[
+                        accessibilityLabel('Notify about new mail'),
+                        frame({ width: 40 }),
+                      ]}
+                    />
+                  </SettingsRow>
+                  {preferences.notificationsEnabled &&
+                  notificationsSupported &&
+                  notificationPermission === 'denied' ? (
+                    <SettingsRow
+                      title="Notifications are blocked"
+                      description="Allow Miwa in System Settings \u2013 Notifications to receive new-mail alerts."
+                      symbol="exclamationmark.triangle"
+                    >
+                      <Button
+                        controlSize="regular"
+                        onPress={onOpenSystemNotificationSettings}
+                        variant="glassProminent"
+                        color={tint}
+                        systemImage="gear"
+                      >
+                        Open Settings
+                      </Button>
+                    </SettingsRow>
+                  ) : null}
+                </Section>
+                <Section title="Alerts">
+                  <SettingsRow
+                    title="Play a sound"
+                    description="Ping when a new-mail notification arrives."
+                    symbol="speaker.wave.2"
+                  >
+                    <Switch
+                      onValueChange={onChangeNotificationsSound}
+                      value={preferences.notificationsSound}
+                      color={tint}
+                      modifiers={[accessibilityLabel('Play a sound'), frame({ width: 40 })]}
+                    />
+                  </SettingsRow>
+                  <SettingsRow
+                    title="Show unread badge"
+                    description="Mirror the unread count on the Dock icon."
+                    symbol="app.badge"
+                  >
+                    <Switch
+                      onValueChange={onChangeNotificationsBadge}
+                      value={preferences.notificationsBadge}
+                      color={tint}
+                      modifiers={[accessibilityLabel('Show unread badge'), frame({ width: 40 })]}
+                    />
+                  </SettingsRow>
+                  <SettingsRow
+                    title="Show sender and subject"
+                    description="Turn off to keep notifications generic."
+                    symbol="envelope.open"
+                  >
+                    <Switch
+                      onValueChange={onChangeNotificationsPreview}
+                      value={preferences.notificationsShowPreview}
+                      color={tint}
+                      modifiers={[
+                        accessibilityLabel('Show sender and subject'),
+                        frame({ width: 40 }),
+                      ]}
+                    />
+                  </SettingsRow>
+                </Section>
+                <Section title="Mailboxes">
+                  {accounts.map((account) => (
+                    <SettingsRow
+                      key={account.id}
+                      title={account.email}
+                      description="Notify about new mail in this inbox."
+                      symbol="tray"
+                    >
+                      <Switch
+                        onValueChange={(value) => onToggleAccountNotifications(account, value)}
+                        value={preferences.notifiedAccountIds[account.id] ?? true}
+                        color={tint}
+                        modifiers={[
+                          accessibilityLabel(`Notify about ${account.email}`),
+                          frame({ width: 40 }),
+                        ]}
+                      />
+                    </SettingsRow>
+                  ))}
+                  {!accounts.length ? (
+                    <SettingsRow
+                      title="No mailboxes connected"
+                      description="Add a Gmail account in Accounts to choose which inboxes notify."
+                      symbol="tray"
+                    />
+                  ) : null}
+                </Section>
+                <Section title="Quiet hours">
+                  <SettingsRow
+                    title="Silence at night"
+                    description="Hold notifications during the hours below."
+                    symbol="moon"
+                  >
+                    <Switch
+                      onValueChange={onChangeDndEnabled}
+                      value={preferences.notificationsDndEnabled}
+                      color={tint}
+                      modifiers={[accessibilityLabel('Silence at night'), frame({ width: 40 })]}
+                    />
+                  </SettingsRow>
+                  <DndHourStepper
+                    hour={preferences.notificationsDndStartHour}
+                    label="Quiet from"
+                    disabled={!preferences.notificationsDndEnabled}
+                    onChange={onChangeDndStartHour}
+                  />
+                  <DndHourStepper
+                    hour={preferences.notificationsDndEndHour}
+                    label="Quiet until"
+                    disabled={!preferences.notificationsDndEnabled}
+                    onChange={onChangeDndEndHour}
+                  />
+                </Section>
+              </>
+            ) : null}
+
+            {tab === 3 ? (
               <Section title="Connected accounts">
                 {accounts.map((account) => (
                   <SettingsRow
@@ -311,7 +522,7 @@ export function SettingsScreen({
               </Section>
             ) : null}
 
-            {tab === 3 ? (
+            {tab === 4 ? (
               <>
                 <Section title="Storage">
                   <SettingsRow

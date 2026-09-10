@@ -25,6 +25,7 @@ export function clearLocalDatabase(): void {
       DELETE FROM mail_accounts;
       DELETE FROM gatekeeper_senders;
       DELETE FROM gatekeeper_settings;
+      DELETE FROM notification_account_prefs;
       DELETE FROM app_preferences;
       INSERT INTO gatekeeper_settings (
         id,
@@ -35,8 +36,16 @@ export function clearLocalDatabase(): void {
         show_previews,
         comfortable_rows,
         show_account_labels,
-        inbox_layout
-      ) VALUES (1, 1, 0, 1, 'categorized');
+        inbox_layout,
+        notifications_enabled,
+        notifications_sound,
+        notifications_badge,
+        notifications_show_preview,
+        notifications_dnd_enabled,
+        notifications_dnd_start_hour,
+        notifications_dnd_end_hour,
+        notifications_baselined
+      ) VALUES (1, 1, 0, 1, 'categorized', 0, 1, 1, 1, 0, 22, 7, 0);
       COMMIT;
     `);
   } catch (error) {

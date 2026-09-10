@@ -192,6 +192,33 @@ const migrations = [
     `,
   },
   { version: 6, sql: `ALTER TABLE "mail_threads" ADD COLUMN "done" integer DEFAULT 0 NOT NULL;` },
+  {
+    version: 7,
+    sql: `
+      ALTER TABLE "app_preferences"
+        ADD COLUMN "notifications_enabled" integer DEFAULT 0 NOT NULL;
+      ALTER TABLE "app_preferences"
+        ADD COLUMN "notifications_sound" integer DEFAULT 1 NOT NULL;
+      ALTER TABLE "app_preferences"
+        ADD COLUMN "notifications_badge" integer DEFAULT 1 NOT NULL;
+      ALTER TABLE "app_preferences"
+        ADD COLUMN "notifications_show_preview" integer DEFAULT 1 NOT NULL;
+      ALTER TABLE "app_preferences"
+        ADD COLUMN "notifications_dnd_enabled" integer DEFAULT 0 NOT NULL;
+      ALTER TABLE "app_preferences"
+        ADD COLUMN "notifications_dnd_start_hour" integer DEFAULT 22 NOT NULL;
+      ALTER TABLE "app_preferences"
+        ADD COLUMN "notifications_dnd_end_hour" integer DEFAULT 7 NOT NULL;
+      ALTER TABLE "app_preferences"
+        ADD COLUMN "notifications_baselined" integer DEFAULT 0 NOT NULL;
+
+      CREATE TABLE IF NOT EXISTS "notification_account_prefs" (
+        "account_id" text PRIMARY KEY NOT NULL
+          REFERENCES "mail_accounts" ("id") ON DELETE CASCADE,
+        "enabled" integer DEFAULT 1 NOT NULL
+      );
+    `,
+  },
 ] as const;
 
 export function migrateDatabase(database: Pick<SQLiteDatabase, 'execSync' | 'getFirstSync'>): void {

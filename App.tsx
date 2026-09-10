@@ -25,6 +25,10 @@ import { useMailbox } from './src/mail/use-mailbox';
 import type { MailboxView } from './src/mail/types';
 import { loadMailPreferences } from './src/settings/preferences';
 import {
+  dismissDeliveredNotifications,
+  subscribeNotificationResponses,
+} from './src/mail/notifications';
+import {
   SETTINGS_CHANGED_EVENT,
   type SettingsChangedPayload,
 } from './src/settings/settings-events';
@@ -50,9 +54,50 @@ export default function App() {
   const [surface, setSurface] = useState<AppSurface>('mail');
   const [mailboxView, setMailboxView] = useState<MailboxView>({ kind: 'all' });
   const [preferences, setPreferences] = useState(loadMailPreferences);
+  const [pendingNotificationThread, setPendingNotificationThread] = useState<{
+    accountId: string;
+    threadId: string;
+  }>();
 
   const mailbox = useMailbox();
   const { selectedThread, setSelectedThread } = mailbox;
+
+  // Notification click: reopen on that thread. The thread is usually already
+  // in the list; otherwise park it until the in-flight sync lands it.
+  useEffect(() => {
+    const subscription = subscribeNotificationResponses((response) => {
+      const { accountId, threadId } = response;
+      if (!accountId || !threadId) return;
+      void dismissDeliveredNotifications();
+      const match = mailbox.threads?.find(
+        (thread) => thread.accountId === accountId && thread.threadId === threadId,
+      );
+      if (match) {
+        setSurface('mail');
+        setMailboxView({ kind: 'account', accountId });
+        setSelectedThread(match);
+      } else {
+        setSurface('mail');
+        setMailboxView({ kind: 'account', accountId });
+        setPendingNotificationThread({ accountId, threadId });
+        void mailbox.refreshThreads();
+      }
+    });
+    return () => subscription.remove();
+  }, [mailbox.threads, mailbox.refreshThreads, setSelectedThread]);
+
+  useEffect(() => {
+    if (!pendingNotificationThread || !mailbox.threads) return;
+    const match = mailbox.threads.find(
+      (thread) =>
+        thread.accountId === pendingNotificationThread.accountId &&
+        thread.threadId === pendingNotificationThread.threadId,
+    );
+    if (match) {
+      setSelectedThread(match);
+      setPendingNotificationThread(undefined);
+    }
+  }, [pendingNotificationThread, mailbox.threads, setSelectedThread]);
   const onDisconnected = useCallback(
     (accountId: string) => {
       setMailboxView({ kind: 'all' });

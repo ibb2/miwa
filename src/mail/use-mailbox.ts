@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert } from 'react-native';
 import { clearLocalDatabase } from '../db/db';
+import { loadMailPreferences, saveNotificationPreferences } from '../settings/preferences';
+import { gmailAccountAuth } from './accounts';
 import { messageFor } from './async';
+import { notifyNewMailThreads, syncNotificationBadge, threadNotificationId } from './notifications';
 import {
   loadGatekeeperOverview,
   setGatekeeperSenderStatus,
@@ -30,6 +33,7 @@ import type { MailThreadDetail, MailThreadSummary } from './types';
 export function useMailbox() {
   const gatekeeperBusy = useRef(false);
   const syncRef = useRef<SyncController>(null);
+  const knownThreadKeys = useRef<Set<string> | null>(null);
   const [threads, setThreads] = useState<MailThreadSummary[]>();
   const [threadsError, setThreadsError] = useState<string>();
   const [selectedThread, setSelectedThread] = useState<MailThreadSummary>();
@@ -57,16 +61,46 @@ export function useMailbox() {
     }
   }, []);
 
+  // Reconciles freshly loaded threads with posted notifications: brand-new
+  // arrivals banner (gated by preferences, quiet hours, and recency inside
+  // notifyNewMailThreads), and the Dock badge mirrors the unread count.
+  const settleNotifications = useCallback(async (loaded: MailThreadSummary[]) => {
+    const keys = new Set(loaded.map((thread) => threadNotificationId(thread)));
+    const previous = knownThreadKeys.current;
+    knownThreadKeys.current = keys;
+
+    let preferences = loadMailPreferences();
+    if (!preferences.notificationsBaselined) {
+      // First sight of the list (install, re-download, or restart) never
+      // banners; only later arrivals do.
+      saveNotificationPreferences({ notificationsBaselined: true });
+      preferences = { ...preferences, notificationsBaselined: true };
+    } else if (preferences.notificationsEnabled && previous !== null) {
+      const fresh = loaded.filter((thread) => !previous.has(threadNotificationId(thread)));
+      if (fresh.length > 0) {
+        const accounts = await gmailAccountAuth.listAccounts().catch(() => []);
+        await notifyNewMailThreads(
+          fresh,
+          preferences,
+          new Map(accounts.map((account) => [account.id, account.email])),
+        );
+      }
+    }
+    await syncNotificationBadge(loaded.filter((thread) => thread.unread).length, preferences);
+  }, []);
+
   const refreshThreads = useCallback(async () => {
     setThreadsError(undefined);
     try {
-      setThreads(await loadThreads());
+      const loaded = await loadThreads();
+      setThreads(loaded);
       await refreshGatekeeper(false);
+      await settleNotifications(loaded).catch(() => undefined);
     } catch (error) {
       setThreads([]);
       setThreadsError(messageFor(error));
     }
-  }, [refreshGatekeeper]);
+  }, [refreshGatekeeper, settleNotifications]);
 
   useEffect(() => {
     void refreshThreads();
