@@ -109,7 +109,7 @@ const ThreadRow = memo(function ThreadRow({
       onHoverIn={() => setHovered(true)}
       onHoverOut={() => setHovered(false)}
       onPress={() => onPress(thread)}
-      className="w-full h-[58px] relative flex-row items-center px-[8px] gap-[14px] active:bg-[rgba(128,128,128,0.18)]"
+      className="w-full h-[58px] relative flex-row items-center px-[8px] gap-[8px] active:bg-[rgba(128,128,128,0.18)]"
       style={{ backgroundColor: hovered ? 'rgba(128,128,128,0.10)' : 'transparent' }}
     >
       <View
@@ -122,23 +122,50 @@ const ThreadRow = memo(function ThreadRow({
           style={{ backgroundColor: thread.unread ? tint : 'transparent' }}
         />
       </View>
-      <Text
-        numberOfLines={1}
-        className="min-w-0"
+      <View
+        className="min-w-0 flex-row items-center gap-[6px]"
         style={{
-          flex: compact ? 1.1 : 0.95,
-          minWidth: compact ? 0 : 160,
-          color: colors.label,
-          fontSize: 13,
-          lineHeight: 18,
-          fontWeight: thread.unread ? '700' : '400',
+          flex: compact ? 1.1 : 0,
+          width: compact ? undefined : 340,
+          minWidth: compact ? 0 : 180,
         }}
       >
-        {senderDisplayName(thread.sender)}
-      </Text>
+        <Text
+          numberOfLines={1}
+          className="min-w-0"
+          style={{
+            flexShrink: 1,
+            color: colors.label,
+            fontSize: 13,
+            lineHeight: 18,
+            fontWeight: thread.unread ? '700' : '400',
+          }}
+        >
+          {senderDisplayName(thread.sender)}
+        </Text>
+        {thread.messageCount > 1 ? (
+          <Text className="text-[11px] tabular-nums" style={{ color: colors.secondaryLabel }}>
+            {thread.messageCount}
+          </Text>
+        ) : null}
+        {thread.hasAttachments ? (
+          <Host style={{ width: 18, height: 18 }}>
+            <Image
+              systemName="paperclip"
+              size={12}
+              color="secondary"
+              modifiers={[frame({ width: 18, height: 18 })]}
+            />
+          </Host>
+        ) : null}
+      </View>
       <View
         className="min-w-0 flex-row items-center"
-        style={{ flex: compact ? 1.4 : 1.1, minWidth: compact ? 0 : 220 }}
+        style={{
+          flex: compact ? 1.4 : 0,
+          width: compact ? undefined : 440,
+          minWidth: compact ? 0 : 180,
+        }}
       >
         <Text
           numberOfLines={1}
@@ -153,30 +180,20 @@ const ThreadRow = memo(function ThreadRow({
         >
           {thread.subject || '(No subject)'}
         </Text>
-        {thread.hasAttachments ? (
-          <Host style={{ width: 18, height: 18 }}>
-            <Image
-              systemName="paperclip"
-              size={12}
-              color="secondary"
-              modifiers={[frame({ width: 18, height: 18 })]}
-            />
-          </Host>
-        ) : null}
       </View>
-      {!compact && showPreview && thread.snippet ? (
+      {!compact && showPreview && thread.preview ? (
         <Text
           numberOfLines={1}
           className="min-w-0"
           style={{
-            flex: 1.55,
-            minWidth: 200,
+            flex: 1,
+            minWidth: 0,
             color: colors.secondaryLabel,
             fontSize: 12,
             lineHeight: 18,
           }}
         >
-          {thread.snippet}
+          {thread.preview}
         </Text>
       ) : null}
       <View className="items-end justify-center" style={{ width: compact ? 90 : 146, height: 34 }}>

@@ -21,6 +21,7 @@ export type MailThreadSummary = {
   sender: string;
   subject: string;
   snippet: string;
+  preview: string;
   receivedAt: number;
   unread: boolean;
   done: boolean;
