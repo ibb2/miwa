@@ -15,6 +15,7 @@ import type { MailPreferences } from '../settings/preferences';
 import { NativeEmptyState, NativeTabButton } from '../components/native-controls';
 import { Button, Host, Image } from '@expo/ui/swift-ui';
 import { accessibilityLabel, frame } from '@expo/ui/swift-ui/modifiers';
+import { senderDisplayName } from './notifications';
 
 const ROW_HEIGHT = 58;
 const timeFormatter = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' });
@@ -122,7 +123,7 @@ const ThreadRow = memo(function ThreadRow({
           className={`text-[11px] leading-[15px] ${thread.unread ? 'font-bold' : ''}`}
           style={{ color: colors.label }}
         >
-          {thread.sender}
+          {senderDisplayName(thread.sender)}
         </Text>
         <Text
           numberOfLines={1}
