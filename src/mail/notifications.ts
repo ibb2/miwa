@@ -27,8 +27,29 @@ export function threadNotificationId(
   return `${thread.accountId}:${thread.threadId}`;
 }
 
+/** Display name only: drops the `<address>` part macOS would wrap onto its own line. */
+export function senderDisplayName(sender: string): string {
+  const bracket = sender.lastIndexOf('<');
+  if (bracket >= 0) {
+    const name = sender
+      .slice(0, bracket)
+      .trim()
+      .replace(/^['"]|['"]$/g, '');
+    if (name) return name;
+    const bracketed = sender
+      .slice(bracket + 1)
+      .replace(/>.*$/, '')
+      .trim();
+    if (bracketed) return bracketed;
+  } else if (sender.trim()) {
+    return sender.trim();
+  }
+  // Nameless senders fall back to the bare address, never the brackets.
+  return sender.match(/[\w.+-]+@[\w-]+(?:\.[\w-]+)*/)?.[0] ?? 'Unknown sender';
+}
+
 function threadTitle(thread: NotifiableThread, showPreview: boolean): string {
-  return showPreview ? thread.sender || 'New mail' : 'New mail';
+  return showPreview ? senderDisplayName(thread.sender) : 'New mail';
 }
 
 function threadBody(
