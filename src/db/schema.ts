@@ -1,10 +1,22 @@
 import { sql } from 'drizzle-orm';
-import { blob, index, integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
+import {
+  customType,
+  index,
+  integer,
+  sqliteTable,
+  text,
+  uniqueIndex,
+} from 'drizzle-orm/sqlite-core';
 
 export type StoredMailHeader = { name: string; value: string };
 export type StoredMailReference = { messageId: string };
 
 const now = sql`(unixepoch() * 1000)`;
+
+// Expo SQLite exposes BLOB values as Uint8Array, not Node Buffer.
+const uint8ArrayBlob = customType<{ data: Uint8Array; driverData: Uint8Array }>({
+  dataType: () => 'blob',
+});
 
 /**
  * The non-secret portion of a connected account. OAuth credentials remain in
@@ -18,7 +30,7 @@ export const mailAccounts = sqliteTable(
     email: text('email').notNull(),
     displayName: text('display_name').notNull(),
     avatarMimeType: text('avatar_mime_type'),
-    avatarData: blob('avatar_data', { mode: 'buffer' }).$type<Uint8Array>(),
+    avatarData: uint8ArrayBlob('avatar_data'),
     sortOrder: integer('sort_order').notNull().default(0),
     createdAt: integer('created_at', { mode: 'number' }).notNull().default(now),
     updatedAt: integer('updated_at', { mode: 'number' }).notNull().default(now),
@@ -155,7 +167,7 @@ export const mailAttachments = sqliteTable(
     downloadState: text('download_state', { enum: ['pending', 'complete', 'failed'] })
       .notNull()
       .default('pending'),
-    data: blob('data', { mode: 'buffer' }).$type<Uint8Array>(),
+    data: uint8ArrayBlob('data'),
     downloadedAt: integer('downloaded_at', { mode: 'number' }),
   },
   (table) => [
