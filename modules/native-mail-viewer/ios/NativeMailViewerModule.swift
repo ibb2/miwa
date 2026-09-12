@@ -2,9 +2,56 @@ import AppKit
 import ExpoModulesCore
 import WebKit
 
+public struct MailAttachmentExportRecord: Record {
+  @Field public var filename: String = ""
+  @Field public var dataBase64: String = ""
+
+  public init() {}
+}
+
 public final class NativeMailViewerModule: Module {
   public func definition() -> ModuleDefinition {
     Name("NativeMailViewer")
+
+    AsyncFunction("saveAttachment") { (attachment: MailAttachmentExportRecord) async throws -> String? in
+      try await MainActor.run {
+        let data = try decodedData(attachment)
+        let panel = NSSavePanel()
+        panel.canCreateDirectories = true
+        panel.nameFieldStringValue = safeFilename(attachment.filename)
+        panel.prompt = "Save"
+
+        guard panel.runModal() == .OK, let destination = panel.url else { return nil }
+        try data.write(to: destination, options: .atomic)
+        return destination.path
+      }
+    }
+
+    AsyncFunction("saveAttachments") {
+      (attachments: [MailAttachmentExportRecord]) async throws -> String? in
+      try await MainActor.run {
+        let files = try attachments.map { (safeFilename($0.filename), try decodedData($0)) }
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Choose"
+        panel.message = "Choose where to save \(files.count) attachments."
+
+        guard panel.runModal() == .OK, let directory = panel.url else { return nil }
+        var reserved = Set<String>()
+        for (filename, data) in files {
+          let destination = availableURL(
+            in: directory,
+            filename: filename,
+            reserved: &reserved
+          )
+          try data.write(to: destination, options: .atomic)
+        }
+        return directory.path
+      }
+    }
 
     View(NativeMailViewerView.self) {
       ViewName("NativeMailViewer")
@@ -27,6 +74,46 @@ public final class NativeMailViewerModule: Module {
       }
     }
   }
+}
+
+private func decodedData(_ attachment: MailAttachmentExportRecord) throws -> Data {
+  guard let data = Data(base64Encoded: attachment.dataBase64) else {
+    throw NSError(
+      domain: "NativeMailViewer",
+      code: 1,
+      userInfo: [NSLocalizedDescriptionKey: "The attachment data could not be read."]
+    )
+  }
+  return data
+}
+
+private func safeFilename(_ filename: String) -> String {
+  let name = URL(fileURLWithPath: filename).lastPathComponent
+    .replacingOccurrences(of: ":", with: "-")
+    .trimmingCharacters(in: .whitespacesAndNewlines)
+  return name.isEmpty || name == "." || name == ".." ? "Attachment" : name
+}
+
+private func availableURL(
+  in directory: URL,
+  filename: String,
+  reserved: inout Set<String>
+) -> URL {
+  let source = URL(fileURLWithPath: filename)
+  let stem = source.deletingPathExtension().lastPathComponent
+  let pathExtension = source.pathExtension
+  var candidate = filename
+  var suffix = 2
+
+  while reserved.contains(candidate.lowercased()) ||
+        FileManager.default.fileExists(atPath: directory.appendingPathComponent(candidate).path) {
+    candidate = pathExtension.isEmpty
+      ? "\(stem) \(suffix)"
+      : "\(stem) \(suffix).\(pathExtension)"
+    suffix += 1
+  }
+  reserved.insert(candidate.lowercased())
+  return directory.appendingPathComponent(candidate)
 }
 
 public final class NativeMailViewerView: ExpoView, WKNavigationDelegate {

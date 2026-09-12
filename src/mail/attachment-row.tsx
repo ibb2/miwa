@@ -1,8 +1,11 @@
+import { useState } from 'react';
 import { Button, Host, Image } from '@expo/ui/swift-ui';
 import { accessibilityLabel, frame } from '@expo/ui/swift-ui/modifiers';
-import { ScrollView, Text, View } from 'react-native';
+import { Alert, Pressable, ScrollView, Text, View } from 'react-native';
 
 import { colors } from '../components/native-colors';
+import { messageFor } from './async';
+import { downloadAttachment, downloadAttachments } from './attachment-export';
 import type { MailAttachment } from './types';
 
 type FileTypeIcon = {
@@ -73,35 +76,66 @@ function iconFor(attachment: MailAttachment): FileTypeIcon {
   return defaultIcon;
 }
 
-function AttachmentPill({ attachment }: { attachment: MailAttachment }) {
+function AttachmentPill({
+  attachment,
+  disabled,
+  onDownload,
+}: {
+  attachment: MailAttachment;
+  disabled: boolean;
+  onDownload: () => void;
+}) {
   const icon = iconFor(attachment);
   return (
-    <View
+    <Pressable
+      accessibilityLabel={`Download ${attachment.filename || 'attachment'}`}
+      accessibilityRole="button"
+      disabled={disabled}
+      onPress={onDownload}
       tooltip={attachment.filename || 'Attachment'}
+      style={({ pressed }) => ({ opacity: disabled ? 0.55 : pressed ? 0.7 : 1 })}
       className="w-[170px] h-[34px] flex-row items-center gap-[6px] px-[10px] rounded-[999px] border-continuous"
-      style={{ backgroundColor: colors.card, borderWidth: 0.5, borderColor: colors.separator }}
     >
-      <Host style={{ width: 16, height: 16 }}>
-        <Image
-          systemName={icon.symbol}
-          size={13}
-          color={icon.color}
-          modifiers={[frame({ width: 16, height: 16 })]}
-        />
-      </Host>
-      <Text
-        numberOfLines={1}
-        ellipsizeMode="tail"
-        className="flex-1 text-[12px]"
-        style={{ color: colors.label }}
+      <View
+        className="absolute inset-0 rounded-[999px] border-continuous"
+        style={{ backgroundColor: colors.card, borderWidth: 0.5, borderColor: colors.separator }}
       >
-        {attachment.filename || 'Attachment'}
-      </Text>
-    </View>
+        <View className="flex-1 flex-row items-center gap-[6px] px-[10px]">
+          <Host style={{ width: 16, height: 16 }}>
+            <Image
+              systemName={icon.symbol}
+              size={13}
+              color={icon.color}
+              modifiers={[frame({ width: 16, height: 16 })]}
+            />
+          </Host>
+          <Text
+            numberOfLines={1}
+            ellipsizeMode="tail"
+            className="flex-1 text-[12px]"
+            style={{ color: colors.label }}
+          >
+            {attachment.filename || 'Attachment'}
+          </Text>
+        </View>
+      </View>
+    </Pressable>
   );
 }
 
 export function AttachmentRow({ attachments }: { attachments: MailAttachment[] }) {
+  const [busy, setBusy] = useState(false);
+  const save = async (action: () => Promise<void>) => {
+    setBusy(true);
+    try {
+      await action();
+    } catch (error) {
+      Alert.alert('Could not save attachments', messageFor(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <View className="flex-row items-center gap-[8px]">
       <ScrollView
@@ -111,20 +145,27 @@ export function AttachmentRow({ attachments }: { attachments: MailAttachment[] }
         contentContainerStyle={{ gap: 8 }}
       >
         {attachments.map((attachment) => (
-          <AttachmentPill key={attachment.id ?? attachment.filename} attachment={attachment} />
+          <AttachmentPill
+            key={attachment.id ?? attachment.filename}
+            attachment={attachment}
+            disabled={busy}
+            onDownload={() => void save(() => downloadAttachment(attachment))}
+          />
         ))}
       </ScrollView>
       <Host style={{ width: 150, height: 34 }}>
         <Button
           variant="glass"
           controlSize="regular"
+          disabled={busy}
+          onPress={() => void save(() => downloadAttachments(attachments))}
           systemImage="arrow.down.circle"
           modifiers={[
             frame({ maxWidth: Infinity, maxHeight: Infinity, alignment: 'trailing' }),
             accessibilityLabel(`Download all ${attachments.length} attachments`),
           ]}
         >
-          Download all
+          {busy ? 'Saving…' : 'Download all'}
         </Button>
       </Host>
     </View>

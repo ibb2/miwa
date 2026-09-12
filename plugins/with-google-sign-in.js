@@ -91,7 +91,7 @@ function withGoogleEntitlements(config) {
   return withEntitlementsPlist(config, (mod) => {
     Object.assign(mod.modResults, {
       "com.apple.security.app-sandbox": true,
-      "com.apple.security.files.user-selected.read-only": true,
+      "com.apple.security.files.user-selected.read-write": true,
       "com.apple.security.network.client": true,
       "keychain-access-groups": ["$(AppIdentifierPrefix)$(CFBundleIdentifier)"],
     });
