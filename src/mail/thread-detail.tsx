@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Image as Bitmap, Platform, Pressable, ScrollView, Text, View } from 'react-native';
-import { Button, Host, HStack, Image, Spacer, Text as SwiftText, VStack } from '@expo/ui/swift-ui';
+import { Button, Host, HStack, Image, Spacer, Text as SwiftText } from '@expo/ui/swift-ui';
 import {
   accessibilityLabel,
   background,
@@ -11,6 +11,7 @@ import {
 
 import { colors } from '../components/native-colors';
 import { NativeMailViewer } from '../../modules/native-mail-viewer/src';
+import { AttachmentRow } from './attachment-row';
 import { ContactCard, type ContactCardAddress } from './contact-card';
 import { loadMessageImages } from './message-images';
 import type { MailAddress, MailThreadDetail } from './types';
@@ -327,25 +328,6 @@ function Message({
               style={{ width: '100%', ...(Platform.OS === 'macos' ? { height: bodyHeight } : {}) }}
             />
           </View>
-          {message.attachments.length ? (
-            <Host matchContents={{ vertical: true }} style={{ width: '100%' }}>
-              <VStack
-                alignment="leading"
-                spacing={8}
-                modifiers={[
-                  padding({ all: 16 }),
-                  frame({ maxWidth: Infinity, alignment: 'leading' }),
-                ]}
-              >
-                {message.attachments.map((attachment) => (
-                  <HStack key={attachment.id ?? attachment.filename} spacing={6}>
-                    <Image systemName="paperclip" size={12} color="secondary" />
-                    <SwiftText size={12}>{attachment.filename || 'Attachment'}</SwiftText>
-                  </HStack>
-                ))}
-              </VStack>
-            </Host>
-          ) : null}
         </>
       ) : null}
     </View>
@@ -392,6 +374,11 @@ export function ThreadDetail({ detail, loading, error, onBlock }: ThreadDetailPr
                 {detail.subject || '(No subject)'}
               </SwiftText>
             </Host>
+            {detail.messages.some((message) => message.attachments.length) ? (
+              <AttachmentRow
+                attachments={detail.messages.flatMap((message) => message.attachments)}
+              />
+            ) : null}
             {detail.messages.map((message) => (
               <Message
                 onContact={openContact}
