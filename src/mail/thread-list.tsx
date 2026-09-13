@@ -20,7 +20,7 @@ import type { MailThreadSummary } from './types';
 import type { MailPreferences } from '../settings/preferences';
 import { NativeEmptyState, NativeTabButton } from '../components/native-controls';
 import { Button, Host, Image } from '@expo/ui/swift-ui';
-import { accessibilityLabel, frame } from '@expo/ui/swift-ui/modifiers';
+import { accessibilityLabel, frame, help } from '@expo/ui/swift-ui/modifiers';
 import { senderDisplayName } from './notifications';
 
 const ROW_HEIGHT = 58;
@@ -71,11 +71,14 @@ function RowAction({
       focusable={false}
       onHoverIn={() => setHovered(true)}
       onHoverOut={() => setHovered(false)}
-      className="rounded-[7px] overflow-hidden"
-      style={{ backgroundColor: hovered ? 'rgba(128,128,128,0.24)' : 'transparent' }}
+      className="w-[32px] h-[30px]"
     >
       <Host style={{ width: 32, height: 30 }}>
-        <Button variant="borderless" modifiers={[accessibilityLabel(label)]} onPress={onPress}>
+        <Button
+          variant="borderless"
+          modifiers={[accessibilityLabel(label), help(label)]}
+          onPress={onPress}
+        >
           <Image
             systemName={symbol}
             size={14}
@@ -117,7 +120,12 @@ const ThreadRow = memo(function ThreadRow({
       onHoverOut={() => setHovered(false)}
       onPress={() => onPress(thread)}
       className="w-full h-[58px] relative flex-row items-center px-[8px] gap-[8px] active:bg-[rgba(128,128,128,0.18)]"
-      style={{ backgroundColor: hovered ? 'rgba(128,128,128,0.10)' : 'transparent' }}
+      style={{
+        minWidth: 0,
+        maxWidth: '100%',
+        overflow: 'hidden',
+        backgroundColor: hovered ? 'rgba(128,128,128,0.10)' : 'transparent',
+      }}
     >
       <View
         accessibilityElementsHidden
@@ -132,9 +140,10 @@ const ThreadRow = memo(function ThreadRow({
       <View
         className="min-w-0 flex-row items-center gap-[6px]"
         style={{
-          flex: compact ? 1.1 : 0,
-          width: compact ? undefined : 340,
-          minWidth: compact ? 0 : 180,
+          width: '22%',
+          maxWidth: 220,
+          minWidth: 0,
+          flexShrink: 1,
         }}
       >
         <Text
@@ -169,9 +178,12 @@ const ThreadRow = memo(function ThreadRow({
       <View
         className="min-w-0 flex-row items-center"
         style={{
-          flex: compact ? 1.4 : 0,
-          width: compact ? undefined : 440,
-          minWidth: compact ? 0 : 180,
+          flex: 1,
+          flexBasis: 0,
+          flexShrink: 1,
+          width: 0,
+          minWidth: 0,
+          gap: 8,
         }}
       >
         <Text
@@ -179,6 +191,7 @@ const ThreadRow = memo(function ThreadRow({
           className="min-w-0"
           style={{
             flexShrink: 1,
+            maxWidth: !compact && showPreview && thread.preview ? '70%' : '100%',
             color: colors.label,
             fontSize: 13,
             lineHeight: 18,
@@ -187,48 +200,46 @@ const ThreadRow = memo(function ThreadRow({
         >
           {thread.subject || '(No subject)'}
         </Text>
-      </View>
-      {!compact && showPreview && thread.preview ? (
-        <Text
-          numberOfLines={1}
-          className="min-w-0"
-          style={{
-            flex: 1,
-            minWidth: 0,
-            color: colors.secondaryLabel,
-            fontSize: 12,
-            lineHeight: 18,
-          }}
-        >
-          {thread.preview}
-        </Text>
-      ) : null}
-      <View className="items-end justify-center" style={{ width: compact ? 90 : 146, height: 34 }}>
-        {hovered ? (
-          <View
-            className="rounded-[10px] border-continuous overflow-hidden"
-            style={{ backgroundColor: colors.card }}
+        {!compact && showPreview && thread.preview ? (
+          <Text
+            numberOfLines={1}
+            className="min-w-0"
+            style={{
+              flex: 1,
+              flexBasis: 0,
+              flexShrink: 1,
+              width: 0,
+              minWidth: 0,
+              color: colors.secondaryLabel,
+              fontSize: 12,
+              lineHeight: 18,
+            }}
           >
-            <View className="flex-row items-center gap-[2px] px-[4px] py-[2px]">
-              <RowAction
-                label={thread.done ? 'Mark as not done' : 'Mark as done'}
-                symbol={thread.done ? 'checkmark.circle.fill' : 'checkmark'}
-                selected={thread.done}
-                onPress={() => onSetDone(thread, !thread.done)}
-              />
-              <RowAction
-                label={thread.unread ? 'Mark as read' : 'Mark as unread'}
-                symbol={thread.unread ? 'envelope.open' : 'envelope.badge'}
-                onPress={() => onToggleRead(thread)}
-              />
-              <RowAction label="Archive" symbol="archivebox" onPress={() => onArchive(thread)} />
-              <RowAction
-                label={thread.pinned ? 'Unpin' : 'Pin'}
-                symbol={thread.pinned ? 'pin.fill' : 'pin'}
-                selected={thread.pinned}
-                onPress={() => onSetPinned(thread, !thread.pinned)}
-              />
-            </View>
+            {thread.preview}
+          </Text>
+        ) : null}
+      </View>
+      <View className="items-end justify-center" style={{ width: 134, flexShrink: 0, height: 34 }}>
+        {hovered ? (
+          <View className="flex-row items-center gap-[2px]">
+            <RowAction
+              label={thread.done ? 'Mark as not done' : 'Mark as done'}
+              symbol={thread.done ? 'checkmark.circle.fill' : 'checkmark'}
+              selected={thread.done}
+              onPress={() => onSetDone(thread, !thread.done)}
+            />
+            <RowAction
+              label={thread.unread ? 'Mark as read' : 'Mark as unread'}
+              symbol={thread.unread ? 'envelope.open' : 'envelope.badge'}
+              onPress={() => onToggleRead(thread)}
+            />
+            <RowAction label="Archive" symbol="archivebox" onPress={() => onArchive(thread)} />
+            <RowAction
+              label={thread.pinned ? 'Unpin' : 'Pin'}
+              symbol={thread.pinned ? 'pin.fill' : 'pin'}
+              selected={thread.pinned}
+              onPress={() => onSetPinned(thread, !thread.pinned)}
+            />
           </View>
         ) : (
           <Text className="text-[12px] tabular-nums" style={{ color: colors.secondaryLabel }}>

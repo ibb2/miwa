@@ -1,10 +1,28 @@
-import { Button, Host, HStack, Image, Text as SwiftText, VStack } from '@expo/ui/swift-ui';
-import { accessibilityLabel, frame } from '@expo/ui/swift-ui/modifiers';
+import {
+  Button,
+  Host,
+  HStack,
+  Image,
+  RoundedRectangle,
+  Text as SwiftText,
+  VStack,
+} from '@expo/ui/swift-ui';
+import {
+  accessibilityLabel,
+  animation,
+  Animation,
+  clipShape,
+  frame,
+  glassEffect,
+  opacity,
+} from '@expo/ui/swift-ui/modifiers';
 import { useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import { colors, useAccent } from '../components/native-colors';
 import { SenderAvatar } from './sender-avatar';
 import type { GatekeeperMessage, GatekeeperSender } from './gatekeeper';
+
+const MESSAGE_ROW_RADIUS = 12;
 
 export function SenderReviewRow({
   sender,
@@ -119,12 +137,20 @@ export function SenderReviewRow({
               focusable={false}
               onHoverIn={() => setHoveredMessage(message.id)}
               onHoverOut={() => setHoveredMessage(undefined)}
-              className="flex-row items-center gap-[12px] px-[8px] py-[12px] rounded-[8px]"
-              style={{
-                backgroundColor:
-                  hoveredMessage === message.id ? 'rgba(128,128,128,0.14)' : 'transparent',
-              }}
+              className="flex-row items-center gap-[12px] px-[8px] py-[12px] rounded-[12px]"
             >
+              <Host style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}>
+                <RoundedRectangle
+                  cornerRadius={MESSAGE_ROW_RADIUS}
+                  modifiers={[
+                    frame({ maxWidth: Infinity, maxHeight: Infinity }),
+                    glassEffect({ glass: { variant: 'regular' }, shape: 'rectangle' }),
+                    clipShape('roundedRectangle', MESSAGE_ROW_RADIUS),
+                    opacity(hoveredMessage === message.id ? 1 : 0),
+                    animation(Animation.easeOut({ duration: 0.15 }), hoveredMessage === message.id),
+                  ]}
+                />
+              </Host>
               <View className="flex-1 min-w-0">
                 <Host matchContents={{ vertical: true }} style={{ width: '100%' }}>
                   <Button

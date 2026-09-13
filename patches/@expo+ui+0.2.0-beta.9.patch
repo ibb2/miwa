@@ -1,3 +1,28 @@
+diff --git a/node_modules/@expo/ui/build/swift-ui/modifiers/index.d.ts b/node_modules/@expo/ui/build/swift-ui/modifiers/index.d.ts
+index 8b6a224..15a4444 100644
+--- a/node_modules/@expo/ui/build/swift-ui/modifiers/index.d.ts
++++ b/node_modules/@expo/ui/build/swift-ui/modifiers/index.d.ts
+@@ -318,6 +318,11 @@ export declare const accessibilityHint: (hint: string) => ModifierConfig;
+  * @param value - The accessibility value
+  */
+ export declare const accessibilityValue: (value: string) => ModifierConfig;
++/**
++ * Adds a tooltip that is shown when the pointer hovers the view (macOS).
++ * @param text - The tooltip text
++ */
++export declare const help: (text: string) => ModifierConfig;
+ /**
+  * Sets layout priority for the view.
+  * @param priority - Layout priority value
+@@ -380,7 +385,7 @@ export declare const glassEffectId: (id: string, namespaceId: string) => Modifie
+  * Union type of all built-in modifier return types.
+  * This provides type safety for the modifiers array.
+  */
+-export type BuiltInModifier = ReturnType<typeof background> | ReturnType<typeof cornerRadius> | ReturnType<typeof shadow> | ReturnType<typeof frame> | ReturnType<typeof padding> | ReturnType<typeof fixedSize> | ReturnType<typeof ignoreSafeArea> | ReturnType<typeof onTapGesture> | ReturnType<typeof onLongPressGesture> | ReturnType<typeof opacity> | ReturnType<typeof clipShape> | ReturnType<typeof border> | ReturnType<typeof scaleEffect> | ReturnType<typeof rotationEffect> | ReturnType<typeof offset> | ReturnType<typeof foregroundColor> | ReturnType<typeof foregroundStyle> | ReturnType<typeof tint> | ReturnType<typeof hidden> | ReturnType<typeof disabled> | ReturnType<typeof zIndex> | ReturnType<typeof blur> | ReturnType<typeof brightness> | ReturnType<typeof contrast> | ReturnType<typeof saturation> | ReturnType<typeof hueRotation> | ReturnType<typeof colorInvert> | ReturnType<typeof grayscale> | ReturnType<typeof buttonStyle> | ReturnType<typeof accessibilityLabel> | ReturnType<typeof accessibilityHint> | ReturnType<typeof accessibilityValue> | ReturnType<typeof layoutPriority> | ReturnType<typeof mask> | ReturnType<typeof overlay> | ReturnType<typeof backgroundOverlay> | ReturnType<typeof aspectRatio> | ReturnType<typeof clipped> | ReturnType<typeof glassEffect> | ReturnType<typeof glassEffectId> | ReturnType<typeof animation> | ReturnType<typeof containerShape>;
++export type BuiltInModifier = ReturnType<typeof background> | ReturnType<typeof cornerRadius> | ReturnType<typeof shadow> | ReturnType<typeof frame> | ReturnType<typeof padding> | ReturnType<typeof fixedSize> | ReturnType<typeof ignoreSafeArea> | ReturnType<typeof onTapGesture> | ReturnType<typeof onLongPressGesture> | ReturnType<typeof opacity> | ReturnType<typeof clipShape> | ReturnType<typeof border> | ReturnType<typeof scaleEffect> | ReturnType<typeof rotationEffect> | ReturnType<typeof offset> | ReturnType<typeof foregroundColor> | ReturnType<typeof foregroundStyle> | ReturnType<typeof tint> | ReturnType<typeof hidden> | ReturnType<typeof disabled> | ReturnType<typeof zIndex> | ReturnType<typeof blur> | ReturnType<typeof brightness> | ReturnType<typeof contrast> | ReturnType<typeof saturation> | ReturnType<typeof hueRotation> | ReturnType<typeof colorInvert> | ReturnType<typeof grayscale> | ReturnType<typeof buttonStyle> | ReturnType<typeof accessibilityLabel> | ReturnType<typeof accessibilityHint> | ReturnType<typeof accessibilityValue> | ReturnType<typeof help> | ReturnType<typeof layoutPriority> | ReturnType<typeof mask> | ReturnType<typeof overlay> | ReturnType<typeof backgroundOverlay> | ReturnType<typeof aspectRatio> | ReturnType<typeof clipped> | ReturnType<typeof glassEffect> | ReturnType<typeof glassEffectId> | ReturnType<typeof animation> | ReturnType<typeof containerShape>;
+ /**
+  * Main ViewModifier type that supports both built-in and 3rd party modifiers.
+  * 3rd party modifiers should return ModifierConfig objects with their own type strings.
 diff --git a/node_modules/@expo/ui/ios/Button/Button.swift b/node_modules/@expo/ui/ios/Button/Button.swift
 index b61515b..2ec6c37 100644
 --- a/node_modules/@expo/ui/ios/Button/Button.swift
@@ -88,6 +113,37 @@ index 094adcd..462682a 100644
        let topLeadingCorner = cornerStyle(from: props.corners?.topLeadingCorner)
        let topTrailingCorner = cornerStyle(from: props.corners?.topTrailingCorner)
        let bottomLeadingCorner = cornerStyle(from: props.corners?.bottomLeadingCorner)
+diff --git a/node_modules/@expo/ui/ios/ControlGroupView.swift b/node_modules/@expo/ui/ios/ControlGroupView.swift
+new file mode 100644
+index 0000000..ed9e437
+--- /dev/null
++++ b/node_modules/@expo/ui/ios/ControlGroupView.swift
+@@ -0,0 +1,25 @@
++// Copyright 2025-present 650 Industries. All rights reserved.
++
++import SwiftUI
++import ExpoModulesCore
++
++internal final class ControlGroupViewProps: ExpoSwiftUI.ViewProps, CommonViewModifierProps {
++  @Field var fixedSize: Bool?
++  @Field var frame: FrameOptions?
++  @Field var padding: PaddingOptions?
++  @Field var testID: String?
++  @Field var modifiers: ModifierArray?
++}
++
++internal struct ControlGroupView: ExpoSwiftUI.View {
++  @ObservedObject var props: ControlGroupViewProps
++
++  var body: some View {
++    if #available(iOS 15.0, macOS 12.0, tvOS 17.0, *) {
++      ControlGroup {
++        Children()
++      }
++      .modifier(CommonViewModifiers(props: props))
++    }
++  }
++}
 diff --git a/node_modules/@expo/ui/ios/DateTimePickerView.swift b/node_modules/@expo/ui/ios/DateTimePickerView.swift
 index b34600c..a0fdf73 100644
 --- a/node_modules/@expo/ui/ios/DateTimePickerView.swift
@@ -118,6 +174,18 @@ index 53a9c1a..35ce27e 100644
    }
    s.swift_version  = '5.9'
    s.source         = { git: 'https://github.com/expo/expo.git' }
+diff --git a/node_modules/@expo/ui/ios/ExpoUIModule.swift b/node_modules/@expo/ui/ios/ExpoUIModule.swift
+index e2900af..2ccdec8 100644
+--- a/node_modules/@expo/ui/ios/ExpoUIModule.swift
++++ b/node_modules/@expo/ui/ios/ExpoUIModule.swift
+@@ -16,6 +16,7 @@ public final class ExpoUIModule: Module {
+     View(Button.self)
+     View(ChartView.self)
+     View(ColorPickerView.self)
++    View(ControlGroupView.self)
+     View(DateTimePickerView.self)
+     View(DisclosureGroupView.self)
+     View(ExpoUI.ContentUnavailableView.self)
 diff --git a/node_modules/@expo/ui/ios/FormView.swift b/node_modules/@expo/ui/ios/FormView.swift
 index 3ef7ca5..ad1485e 100644
 --- a/node_modules/@expo/ui/ios/FormView.swift
@@ -279,6 +347,45 @@ index c71e9b0..f99a827 100644
  struct ScrollDisabledModifier: ViewModifier {
    let scrollEnabled: Bool
  
+diff --git a/node_modules/@expo/ui/ios/Modifiers/ViewModifierRegistry.swift b/node_modules/@expo/ui/ios/Modifiers/ViewModifierRegistry.swift
+index 745a158..a945bc8 100644
+--- a/node_modules/@expo/ui/ios/Modifiers/ViewModifierRegistry.swift
++++ b/node_modules/@expo/ui/ios/Modifiers/ViewModifierRegistry.swift
+@@ -425,6 +425,23 @@ internal struct AccessibilityValueModifier: ViewModifier, Record {
+   }
+ }
+ 
++internal struct HelpModifier: ViewModifier, Record {
++  @Field var text: String?
++
++  @ViewBuilder
++  func body(content: Content) -> some View {
++    #if os(macOS)
++    if let text {
++      content.help(text)
++    } else {
++      content
++    }
++    #else
++    content
++    #endif
++  }
++}
++
+ internal struct LayoutPriorityModifier: ViewModifier, Record {
+   @Field var priority: Double = 0
+ 
+@@ -1000,6 +1017,10 @@ extension ViewModifierRegistry {
+       return try AccessibilityValueModifier(from: params, appContext: appContext)
+     }
+ 
++    register("help") { params, appContext, _ in
++      return try HelpModifier(from: params, appContext: appContext)
++    }
++
+     register("layoutPriority") { params, appContext, _ in
+       return try LayoutPriorityModifier(from: params, appContext: appContext)
+     }
 diff --git a/node_modules/@expo/ui/ios/PickerView.swift b/node_modules/@expo/ui/ios/PickerView.swift
 index 18d40e0..3047a77 100644
 --- a/node_modules/@expo/ui/ios/PickerView.swift
@@ -348,3 +455,28 @@ index 3d86c25..1d6e9e8 100644
        .autocorrectionDisabled(!props.autocorrection)
        .if(props.allowNewlines, {
          $0.focused($isFocused).onSubmit({
+diff --git a/node_modules/@expo/ui/src/swift-ui/modifiers/index.ts b/node_modules/@expo/ui/src/swift-ui/modifiers/index.ts
+index c61ea3f..1972978 100644
+--- a/node_modules/@expo/ui/src/swift-ui/modifiers/index.ts
++++ b/node_modules/@expo/ui/src/swift-ui/modifiers/index.ts
+@@ -408,6 +408,12 @@ export const accessibilityHint = (hint: string) => createModifier('accessibility
+ export const accessibilityValue = (value: string) =>
+   createModifier('accessibilityValue', { value });
+ 
++/**
++ * Adds a tooltip that is shown when the pointer hovers the view (macOS).
++ * @param text - The tooltip text
++ */
++export const help = (text: string) => createModifier('help', { text });
++
+ /**
+  * Sets layout priority for the view.
+  * @param priority - Layout priority value
+@@ -518,6 +524,7 @@ export type BuiltInModifier =
+   | ReturnType<typeof accessibilityLabel>
+   | ReturnType<typeof accessibilityHint>
+   | ReturnType<typeof accessibilityValue>
++  | ReturnType<typeof help>
+   | ReturnType<typeof layoutPriority>
+   | ReturnType<typeof mask>
+   | ReturnType<typeof overlay>
