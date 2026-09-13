@@ -119,7 +119,7 @@ const ThreadRow = memo(function ThreadRow({
       onHoverIn={() => setHovered(true)}
       onHoverOut={() => setHovered(false)}
       onPress={() => onPress(thread)}
-      className="w-full h-[58px] relative flex-row items-center px-[8px] gap-[8px] active:bg-[rgba(128,128,128,0.18)]"
+      className="w-full h-[58px] relative flex-row items-center px-[8px] gap-[8px] rounded-[12px] border-continuous active:bg-[rgba(128,128,128,0.18)]"
       style={{
         minWidth: 0,
         maxWidth: '100%',
