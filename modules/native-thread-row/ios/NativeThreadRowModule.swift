@@ -236,7 +236,7 @@ public final class NativeThreadRowView: ExpoView {
     doneButton.isHidden = !hovered
 
     readButton.image = NSImage(
-      systemSymbolName: unread ? "envelope.open" : "envelope.badge",
+      systemSymbolName: unread ? "envelope.badge" : "envelope.open",
       accessibilityDescription: unread ? "Mark as read" : "Mark as unread")
     readButton.contentTintColor = .secondaryLabelColor
     readButton.toolTip = unread ? "Mark as read" : "Mark as unread"
