@@ -16,7 +16,7 @@ import { NativeEmptyState } from './src/components/native-controls';
 import { openSettingsWindow } from './modules/native-settings-window/src';
 import { composeMessage } from './src/mail/compose-message';
 import { ThreadDetail } from './src/mail/thread-detail';
-import { ThreadList } from './src/mail/thread-list';
+import { ThreadList, type ThreadListPosition } from './src/mail/thread-list';
 import { colors } from './src/components/native-colors';
 import { accountInitials } from './src/mail/accounts';
 import { useAccounts } from './src/mail/use-accounts';
@@ -41,6 +41,7 @@ import {
 } from './src/components/mail-toolbar';
 
 export default function App() {
+  const threadListPositionRef = useRef<ThreadListPosition | undefined>(undefined);
   const [toolbarInset, setToolbarInset] = useState(0);
   const toolbarStyle = useResolveClassNames('absolute w-[1px] h-[1px] opacity-0');
   const toolbarRef = useRef<NativeWindowToolbarRef>(null);
@@ -385,6 +386,7 @@ export default function App() {
   } else {
     mainContent = (
       <ThreadList
+        positionRef={threadListPositionRef}
         datasetKey={`${mailboxView.kind === 'all' ? 'all' : mailboxView.accountId}:${mailQuery}`}
         emptyMailboxName={mailboxName}
         searchQuery={mailQuery}

@@ -6,7 +6,14 @@ import {
   useRecyclingState,
   type LegendListRenderItemProps,
 } from '@legendapp/list/react-native';
-import { Pressable, Text, View, useWindowDimensions } from 'react-native';
+import {
+  Pressable,
+  Text,
+  View,
+  useWindowDimensions,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
+} from 'react-native';
 
 import { buildInboxTabs, threadsForInboxTab, type InboxTabId } from './inbox-tabs';
 import type { MailThreadSummary } from './types';
@@ -234,7 +241,10 @@ const ThreadRow = memo(function ThreadRow({
   );
 });
 
+export type ThreadListPosition = { datasetKey: string; tab: InboxTabId; offset: number };
+
 type ThreadListProps = {
+  positionRef: React.MutableRefObject<ThreadListPosition | undefined>;
   datasetKey: string;
   emptyMailboxName?: string;
   searchQuery?: string;
@@ -248,6 +258,7 @@ type ThreadListProps = {
 };
 
 export const ThreadList = memo(function ThreadList({
+  positionRef,
   datasetKey,
   emptyMailboxName,
   searchQuery,
@@ -261,7 +272,36 @@ export const ThreadList = memo(function ThreadList({
 }: ThreadListProps) {
   const listStyle = useResolveClassNames('flex-1');
   const contentStyle = useResolveClassNames('w-full px-[18px] pt-[8px] pb-[20px]');
-  const [selectedTab, setSelectedTab] = useState<InboxTabId>('inbox');
+  const [selectedTab, setSelectedTab] = useState<InboxTabId>(() =>
+    positionRef.current?.datasetKey === datasetKey ? positionRef.current.tab : 'inbox',
+  );
+  const savedPosition = positionRef.current;
+  const initialScrollOffset =
+    savedPosition?.datasetKey === datasetKey && savedPosition.tab === selectedTab
+      ? savedPosition.offset
+      : 0;
+  const rememberScroll = useCallback(
+    ({ nativeEvent }: NativeSyntheticEvent<NativeScrollEvent>) => {
+      positionRef.current = {
+        datasetKey,
+        tab: selectedTab,
+        offset: Math.max(0, nativeEvent.contentOffset.y),
+      };
+    },
+    [datasetKey, selectedTab, positionRef],
+  );
+  const openThread = useCallback(
+    (thread: MailThreadSummary) => {
+      const saved = positionRef.current;
+      positionRef.current = {
+        datasetKey,
+        tab: selectedTab,
+        offset: saved?.datasetKey === datasetKey && saved.tab === selectedTab ? saved.offset : 0,
+      };
+      onOpenThread(thread);
+    },
+    [datasetKey, selectedTab, positionRef, onOpenThread],
+  );
   const tabs = useMemo(() => buildInboxTabs(threads), [threads]);
   const visibleThreads = useMemo(
     () => threadsForInboxTab(threads, selectedTab),
@@ -290,7 +330,7 @@ export const ThreadList = memo(function ThreadList({
     ({ item }: LegendListRenderItemProps<MailThreadSummary>) => (
       <ThreadRow
         onArchive={onArchive}
-        onPress={onOpenThread}
+        onPress={openThread}
         onSetDone={onSetDone}
         onSetPinned={onSetPinned}
         onToggleRead={onToggleRead}
@@ -298,7 +338,7 @@ export const ThreadList = memo(function ThreadList({
         thread={item}
       />
     ),
-    [onArchive, onOpenThread, onSetDone, onSetPinned, onToggleRead, preferences.showPreviews],
+    [onArchive, openThread, onSetDone, onSetPinned, onToggleRead, preferences.showPreviews],
   );
 
   return (
@@ -332,6 +372,8 @@ export const ThreadList = memo(function ThreadList({
         dataKey={`${datasetKey}:${selectedTab}`}
         drawDistance={700}
         estimatedItemSize={ROW_HEIGHT}
+        initialScrollOffset={initialScrollOffset}
+        onScroll={rememberScroll}
         getFixedItemSize={fixedRowHeight}
         keyExtractor={keyExtractor}
         recycleItems
