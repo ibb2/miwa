@@ -19,6 +19,8 @@ export type ToolbarInput = {
   gatekeeperTab: number;
   gatekeeperQuery: string;
   mailQuery: string;
+  /** True while conversations marked done are visible in the thread list. */
+  showDone: boolean;
   accounts: Array<{ id: string; email: string }>;
 };
 
@@ -27,7 +29,7 @@ export function toolbarIdentifier(input: ToolbarInput): string {
   if (input.surface === 'gatekeeper')
     return input.gatekeeperMessage ? 'MiwaGatekeeperMessageToolbar' : 'MiwaGatekeeperToolbar';
   if (input.thread) return 'MiwaMessageToolbarV3';
-  return 'MiwaSearchInboxToolbar';
+  return 'MiwaSearchInboxToolbarV2';
 }
 
 /** Builds the native window toolbar items for the current screen. */
@@ -96,6 +98,15 @@ export function buildToolbarItems(input: ToolbarInput): NativeToolbarItem[] {
       immovable: true,
       toolTip:
         'Search mail, or use subject:, sender:, attachment: and body:. Quote phrases, e.g. subject:"monthly report".',
+    });
+
+    items.push({
+      id: 'done-toggle',
+      kind: 'switch',
+      label: 'Show Done',
+      toolTip: input.showDone ? 'Hide done conversations' : 'Show done conversations',
+      isOn: input.showDone,
+      immovable: true,
     });
   }
 

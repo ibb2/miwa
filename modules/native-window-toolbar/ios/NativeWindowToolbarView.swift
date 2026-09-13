@@ -243,6 +243,8 @@ public final class NativeWindowToolbarView: ExpoView, NSToolbarDelegate, NSSearc
       return makeProgressItem(definition: definition, identifier: itemIdentifier)
     case "segmented":
       return makeSegmentedItem(definition: definition, identifier: itemIdentifier)
+    case "switch":
+      return makeSwitchItem(definition: definition, identifier: itemIdentifier)
     case "space", "flexibleSpace":
       // AppKit automatically constructs its standard spacing items.
       return nil
@@ -265,6 +267,14 @@ public final class NativeWindowToolbarView: ExpoView, NSToolbarDelegate, NSSearc
       return
     }
     onItemPress(["id": itemId])
+  }
+
+  @objc private func handleSwitch(_ sender: NSSwitch) {
+    guard let itemId = sender.identifier?.rawValue,
+          items.contains(where: { $0.id == itemId }) else {
+      return
+    }
+    onItemPress(["id": itemId, "value": sender.state == .on])
   }
 
   @objc private func handleMenuItem(_ sender: NSMenuItem) {
@@ -379,6 +389,38 @@ public final class NativeWindowToolbarView: ExpoView, NSToolbarDelegate, NSSearc
     field.setAccessibilityLabel(definition.label ?? "Search")
     item.preferredWidthForSearchField = 260
     configure(item, from: definition, includeImage: false)
+    return item
+  }
+
+  private func makeSwitchItem(
+    definition: ToolbarItemRecord,
+    identifier: NSToolbarItem.Identifier
+  ) -> NSToolbarItem {
+    let item = NSToolbarItem(itemIdentifier: identifier)
+    let toggle = NSSwitch()
+    toggle.identifier = NSUserInterfaceItemIdentifier(definition.id)
+    toggle.state = definition.isOn ? .on : .off
+    toggle.controlSize = .small
+    toggle.target = self
+    toggle.action = #selector(handleSwitch(_:))
+    toggle.toolTip = definition.toolTip
+    toggle.setAccessibilityLabel(definition.label ?? definition.id)
+
+    let label = NSTextField(labelWithString: definition.label ?? "")
+    label.font = .systemFont(ofSize: 11)
+    label.textColor = .secondaryLabelColor
+
+    let stack = NSStackView(views: [label, toggle])
+    stack.orientation = .horizontal
+    stack.alignment = .centerY
+    stack.spacing = 6
+    // Keep the label clear of the toolbar item's glass edge.
+    stack.edgeInsets = NSEdgeInsets(top: 0, left: 10, bottom: 0, right: 6)
+    item.view = stack
+    let size = stack.fittingSize
+    item.minSize = size
+    item.maxSize = size
+    configure(item, from: definition, defaultLabel: "Switch", includeImage: false)
     return item
   }
 

@@ -45,6 +45,7 @@ export default function App() {
 
   const [gatekeeperQuery, setGatekeeperQuery] = useState('');
   const [mailQuery, setMailQuery] = useState('');
+  const [showDone, setShowDone] = useState(false);
   const [gatekeeperTab, setGatekeeperTab] = useState(0);
   const [gatekeeperMessage, setGatekeeperMessage] = useState<{
     email: string;
@@ -173,6 +174,7 @@ export default function App() {
           : undefined,
       gatekeeperQuery,
       mailQuery,
+      showDone,
       gatekeeperTab,
       gatekeeperBlocked: gatekeeperBlockedCount,
       gatekeeperPending: gatekeeperPendingCount,
@@ -196,6 +198,7 @@ export default function App() {
       downloadLabel,
       gatekeeperQuery,
       mailQuery,
+      showDone,
       gatekeeperTab,
       gatekeeperBlockedCount,
       gatekeeperPendingCount,
@@ -259,6 +262,8 @@ export default function App() {
         void mailbox.archiveThread(selectedThread);
       } else if (id === 'message-pin' && selectedThread) {
         void mailbox.setPinned(selectedThread, !selectedThread.pinned);
+      } else if (id === 'done-toggle') {
+        setShowDone(nativeEvent.value ?? !showDone);
       } else if (id === 'connect-account') {
         void connectAccount();
       } else if (id === 'settings') {
@@ -280,6 +285,7 @@ export default function App() {
       mailbox.toggleRead,
       surface,
       gatekeeperMessage,
+      showDone,
       mailbox.deleteGatekeeperMessage,
     ],
   );
@@ -377,13 +383,14 @@ export default function App() {
   }, [mailbox.threads, hasMailQuery]);
   const visibleThreads = useMemo(() => {
     const allThreads = mailbox.threads ?? [];
+    const shownThreads = showDone ? allThreads : allThreads.filter((thread) => !thread.done);
     const candidates =
       mailboxView.kind === 'all'
-        ? allThreads
-        : allThreads.filter((thread) => thread.accountId === mailboxView.accountId);
+        ? shownThreads
+        : shownThreads.filter((thread) => thread.accountId === mailboxView.accountId);
     if (!hasMailQuery || searchMail === null) return candidates;
     return searchMail(mailQuery, candidates);
-  }, [mailbox.threads, mailboxView, mailQuery, hasMailQuery, searchMail]);
+  }, [mailbox.threads, mailboxView, mailQuery, hasMailQuery, searchMail, showDone]);
 
   let mainContent: React.ReactNode = null;
   if (surface === 'gatekeeper') {
@@ -459,6 +466,7 @@ export default function App() {
         onSetDone={handleSetDone}
         onSetPinned={handleSetPinned}
         onToggleRead={handleToggleRead}
+        fadeDone={showDone}
         preferences={preferences}
         threads={visibleThreads}
       />

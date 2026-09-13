@@ -39,6 +39,7 @@ public struct ToolbarItemRecord: Record {
   @Field public var segments: [ToolbarSegmentRecord] = []
   @Field public var selectedIndex: Int = -1
   @Field public var selectionMode: String = "momentary"
+  @Field public var isOn: Bool = false
 
   public init() {}
 }

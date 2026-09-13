@@ -65,15 +65,21 @@ export type ToolbarSearchItem = ToolbarItemBase & {
   placeholder?: string;
 };
 
+export type ToolbarSwitchItem = ToolbarItemBase & {
+  kind: 'switch';
+  isOn: boolean;
+};
+
 export type NativeToolbarItem =
   | ToolbarSearchItem
+  | ToolbarSwitchItem
   | ToolbarButtonItem
   | ToolbarSpaceItem
   | ToolbarMenuItem
   | ToolbarProgressItem
   | ToolbarSegmentedItem;
 
-export type ToolbarItemPressEvent = NativeSyntheticEvent<{ id: string }>;
+export type ToolbarItemPressEvent = NativeSyntheticEvent<{ id: string; value?: boolean }>;
 export type ToolbarMenuItemPressEvent = NativeSyntheticEvent<{
   id: string;
   optionId: string;

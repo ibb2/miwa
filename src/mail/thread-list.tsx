@@ -64,6 +64,7 @@ function formatDate(milliseconds: number) {
 
 type ThreadRowHostProps = {
   showPreview: boolean;
+  fadeDone: boolean;
   compact: boolean;
   accentHex: string;
   thread: MailThreadSummary;
@@ -76,6 +77,7 @@ type ThreadRowHostProps = {
 
 const ThreadRowHost = memo(function ThreadRowHost({
   showPreview,
+  fadeDone,
   compact,
   accentHex,
   thread,
@@ -107,24 +109,26 @@ const ThreadRowHost = memo(function ThreadRowHost({
   );
 
   return (
-    <NativeThreadRow
-      style={{ width: '100%', height: 58 }}
-      rowKey={`${thread.accountId}:${thread.threadId}`}
-      sender={senderDisplayName(thread.sender)}
-      subject={thread.subject || '(No subject)'}
-      preview={thread.preview}
-      dateText={`${thread.done ? '✓ Done  ·  ' : ''}${formatDate(thread.receivedAt)}`}
-      messageCount={thread.messageCount}
-      unread={thread.unread}
-      done={thread.done}
-      pinned={thread.pinned}
-      hasAttachments={thread.hasAttachments}
-      showPreview={showPreview}
-      compact={compact}
-      accentHex={accentHex}
-      onRowPress={handlePress}
-      onRowAction={handleRowAction}
-    />
+    <View style={{ width: '100%', height: 58, opacity: thread.done && fadeDone ? 0.45 : 1 }}>
+      <NativeThreadRow
+        style={{ width: '100%', height: 58 }}
+        rowKey={`${thread.accountId}:${thread.threadId}`}
+        sender={senderDisplayName(thread.sender)}
+        subject={thread.subject || '(No subject)'}
+        preview={thread.preview}
+        dateText={formatDate(thread.receivedAt)}
+        messageCount={thread.messageCount}
+        unread={thread.unread}
+        done={thread.done}
+        pinned={thread.pinned}
+        hasAttachments={thread.hasAttachments}
+        showPreview={showPreview}
+        compact={compact}
+        accentHex={accentHex}
+        onRowPress={handlePress}
+        onRowAction={handleRowAction}
+      />
+    </View>
   );
 });
 
@@ -140,6 +144,8 @@ type ThreadListProps = {
   onSetDone: (thread: MailThreadSummary, done: boolean) => void;
   onSetPinned: (thread: MailThreadSummary, pinned: boolean) => void;
   onToggleRead: (thread: MailThreadSummary) => void;
+  /** Dims conversations marked done when they are visible. */
+  fadeDone: boolean;
   preferences: MailPreferences;
   threads: MailThreadSummary[];
 };
@@ -154,6 +160,7 @@ export const ThreadList = memo(function ThreadList({
   onSetDone,
   onSetPinned,
   onToggleRead,
+  fadeDone,
   preferences,
   threads,
 }: ThreadListProps) {
@@ -264,12 +271,23 @@ export const ThreadList = memo(function ThreadList({
         onSetPinned={onSetPinned}
         onToggleRead={onToggleRead}
         showPreview={showPreview}
+        fadeDone={fadeDone}
         compact={compact}
         accentHex={tint}
         thread={item}
       />
     ),
-    [onArchive, openThread, onSetDone, onSetPinned, onToggleRead, showPreview, compact, tint],
+    [
+      onArchive,
+      openThread,
+      onSetDone,
+      onSetPinned,
+      onToggleRead,
+      showPreview,
+      fadeDone,
+      compact,
+      tint,
+    ],
   );
 
   return (
