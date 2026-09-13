@@ -22,6 +22,7 @@ import { accountInitials } from './src/mail/accounts';
 import { useAccounts } from './src/mail/use-accounts';
 import { useInboxDownload } from './src/mail/use-inbox-download';
 import { useMailbox } from './src/mail/use-mailbox';
+import { createMailSearch } from './src/mail/search';
 import type { MailboxView } from './src/mail/types';
 import { loadMailPreferences } from './src/settings/preferences';
 import {
@@ -46,6 +47,7 @@ export default function App() {
   const mailboxFrameRef = useRef<number | null>(null);
 
   const [gatekeeperQuery, setGatekeeperQuery] = useState('');
+  const [mailQuery, setMailQuery] = useState('');
   const [gatekeeperTab, setGatekeeperTab] = useState(0);
   const [gatekeeperMessage, setGatekeeperMessage] = useState<{
     email: string;
@@ -197,6 +199,7 @@ export default function App() {
     syncLabel: mailbox.syncLabel,
     download,
     gatekeeperQuery,
+    mailQuery,
     gatekeeperTab,
     gatekeeperBlocked: mailbox.gatekeeper?.blocked.length ?? 0,
     gatekeeperPending: mailbox.gatekeeper?.pending.length ?? 0,
@@ -309,10 +312,13 @@ export default function App() {
     [accountsById, disconnectAccount],
   );
 
+  const searchMail = useMemo(() => createMailSearch(mailbox.threads ?? []), [mailbox.threads]);
   const visibleThreads = useMemo(() => {
-    if (mailboxView.kind === 'all') return mailbox.threads ?? [];
-    return (mailbox.threads ?? []).filter((thread) => thread.accountId === mailboxView.accountId);
-  }, [mailbox.threads, mailboxView]);
+    const candidates = (mailbox.threads ?? []).filter(
+      (thread) => mailboxView.kind === 'all' || thread.accountId === mailboxView.accountId,
+    );
+    return searchMail(mailQuery, candidates);
+  }, [mailbox.threads, mailboxView, mailQuery, searchMail]);
 
   let mainContent: React.ReactNode = null;
   if (surface === 'gatekeeper') {
@@ -379,8 +385,9 @@ export default function App() {
   } else {
     mainContent = (
       <ThreadList
-        datasetKey={mailboxView.kind === 'all' ? 'all' : mailboxView.accountId}
+        datasetKey={`${mailboxView.kind === 'all' ? 'all' : mailboxView.accountId}:${mailQuery}`}
         emptyMailboxName={mailboxName}
+        searchQuery={mailQuery}
         onOpenThread={setSelectedThread}
         onArchive={(thread) => void mailbox.archiveThread(thread)}
         onSetDone={(thread, done) => void mailbox.setDone(thread, done)}
@@ -405,7 +412,10 @@ export default function App() {
         toolbarStyle="unified"
         onContentInsetChange={({ nativeEvent }) => setToolbarInset(nativeEvent.top)}
         onItemPress={handleToolbarPress}
-        onSearchChange={({ nativeEvent }) => setGatekeeperQuery(nativeEvent.text)}
+        onSearchChange={({ nativeEvent }) => {
+          if (nativeEvent.id === 'mail-search') setMailQuery(nativeEvent.text);
+          else setGatekeeperQuery(nativeEvent.text);
+        }}
         onSegmentChange={handleSegmentChange}
         onMenuItemPress={handleMenuPress}
       />

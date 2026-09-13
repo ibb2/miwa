@@ -15,7 +15,7 @@ import type { MailThreadDetail, MailThreadSummary } from './types';
 
 /** Loads every downloaded thread, newest first, hiding Gatekeeper-blocked senders. */
 export async function loadThreads(): Promise<MailThreadSummary[]> {
-  const [rows, messageLabelRows, blockedMessageRows] = await Promise.all([
+  const [rows, messageLabelRows, blockedMessageRows, attachmentRows] = await Promise.all([
     db
       .select({
         id: mailThreads.id,
@@ -39,6 +39,8 @@ export async function loadThreads(): Promise<MailThreadSummary[]> {
         labelIds: mailMessages.labelIds,
         sentAt: mailMessages.sentAt,
         plainTextBody: mailMessages.plainTextBody,
+        subject: mailMessages.subject,
+        sender: mailMessages.sender,
         hasAttachments: mailMessages.hasAttachments,
       })
       .from(mailMessages)
@@ -52,6 +54,11 @@ export async function loadThreads(): Promise<MailThreadSummary[]> {
         sql`lower(trim(${mailMessageAddresses.address})) = ${gatekeeperSenders.email}`,
       )
       .where(and(eq(mailMessageAddresses.kind, 'from'), eq(gatekeeperSenders.status, 'blocked'))),
+    db
+      .select({ threadId: mailMessages.threadId, filename: mailAttachments.filename })
+      .from(mailAttachments)
+      .innerJoin(mailMessages, eq(mailAttachments.messageId, mailMessages.id))
+      .where(eq(mailAttachments.inline, false)),
   ]);
 
   const blockedThreadIds = new Set(
@@ -63,7 +70,18 @@ export async function loadThreads(): Promise<MailThreadSummary[]> {
   const categoryByThreadId = new Map<string, MailThreadSummary['category']>();
   const previewByThreadId = new Map<string, string>();
   const attachmentThreadIds = new Set<string>();
+  const searchByThread = new Map<string, NonNullable<MailThreadSummary['searchFields']>>();
   for (const message of messageLabelRows) {
+    const fields = searchByThread.get(message.threadId) ?? {
+      subject: '',
+      sender: '',
+      body: '',
+      attachment: '',
+    };
+    fields.subject += `\n${message.subject}`;
+    fields.sender += `\n${message.sender}`;
+    fields.body += `\n${message.plainTextBody}`;
+    searchByThread.set(message.threadId, fields);
     if (!categoryByThreadId.has(message.threadId)) {
       categoryByThreadId.set(message.threadId, mailCategoryForLabels(message.labelIds));
     }
@@ -74,10 +92,16 @@ export async function loadThreads(): Promise<MailThreadSummary[]> {
     if (message.hasAttachments) attachmentThreadIds.add(message.threadId);
   }
 
+  for (const attachment of attachmentRows) {
+    const fields = searchByThread.get(attachment.threadId);
+    if (fields) fields.attachment += `\n${attachment.filename}`;
+  }
+
   return rows
     .filter((row) => !blockedThreadIds.has(row.id))
     .map((row) => ({
       accountId: row.accountId,
+      searchFields: searchByThread.get(row.id),
       threadId: row.providerThreadId,
       sender: row.sender,
       subject: row.subject,

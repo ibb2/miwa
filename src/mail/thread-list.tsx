@@ -237,6 +237,7 @@ const ThreadRow = memo(function ThreadRow({
 type ThreadListProps = {
   datasetKey: string;
   emptyMailboxName?: string;
+  searchQuery?: string;
   onOpenThread: (thread: MailThreadSummary) => void;
   onArchive: (thread: MailThreadSummary) => void;
   onSetDone: (thread: MailThreadSummary, done: boolean) => void;
@@ -249,6 +250,7 @@ type ThreadListProps = {
 export const ThreadList = memo(function ThreadList({
   datasetKey,
   emptyMailboxName,
+  searchQuery,
   onOpenThread,
   onArchive,
   onSetDone,
@@ -269,17 +271,19 @@ export const ThreadList = memo(function ThreadList({
     () => (
       <NativeEmptyState
         description={
-          selectedTab === 'inbox'
-            ? emptyMailboxName
-              ? `Open Settings to download ${emptyMailboxName} and get started.`
-              : 'Open Settings to download your connected inboxes and get started.'
-            : `No messages have been ${tabs.find((tab) => tab.id === selectedTab)?.title ?? 'this tab'}.`
+          searchQuery?.trim()
+            ? 'Try another term, or use subject:, sender:, attachment: or body: to narrow your search.'
+            : selectedTab === 'inbox'
+              ? emptyMailboxName
+                ? `Open Settings to download ${emptyMailboxName} and get started.`
+                : 'Open Settings to download your connected inboxes and get started.'
+              : `No messages have been ${tabs.find((tab) => tab.id === selectedTab)?.title ?? 'this tab'}.`
         }
-        systemImage="tray"
-        title={'Nothing here yet.'}
+        systemImage={searchQuery?.trim() ? 'magnifyingglass' : 'tray'}
+        title={searchQuery?.trim() ? 'No matching messages.' : 'Nothing here yet.'}
       />
     ),
-    [emptyMailboxName, selectedTab, tabs],
+    [emptyMailboxName, selectedTab, tabs, searchQuery],
   );
 
   const renderItem = useCallback(

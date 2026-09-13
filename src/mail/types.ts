@@ -16,6 +16,7 @@ export type MailCategory = 'primary' | 'promotions' | 'updates' | 'social' | 'fo
 
 /** One conversation row in the inbox list. */
 export type MailThreadSummary = {
+  searchFields?: { subject: string; sender: string; body: string; attachment: string };
   accountId: string;
   threadId: string;
   sender: string;

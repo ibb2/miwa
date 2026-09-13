@@ -18,6 +18,7 @@ export type ToolbarInput = {
   gatekeeperBlocked: number;
   gatekeeperTab: number;
   gatekeeperQuery: string;
+  mailQuery: string;
   accounts: Array<{ id: string; email: string }>;
 };
 
@@ -26,7 +27,7 @@ export function toolbarIdentifier(input: ToolbarInput): string {
   if (input.surface === 'gatekeeper')
     return input.gatekeeperMessage ? 'MiwaGatekeeperMessageToolbar' : 'MiwaGatekeeperToolbar';
   if (input.thread) return 'MiwaMessageToolbarV2';
-  return 'MiwaLeadingInboxToolbar';
+  return 'MiwaSearchInboxToolbar';
 }
 
 /** Builds the native window toolbar items for the current screen. */
@@ -84,6 +85,19 @@ export function buildToolbarItems(input: ToolbarInput): NativeToolbarItem[] {
   }
 
   items.push({ id: 'toolbar-spacer', kind: 'flexibleSpace' });
+
+  if (onMailScreen && !input.thread) {
+    items.push({
+      id: 'mail-search',
+      kind: 'search',
+      label: 'Search mail',
+      placeholder: 'Search mail',
+      value: input.mailQuery,
+      immovable: true,
+      toolTip:
+        'Search mail, or use subject:, sender:, attachment: and body:. Quote phrases, e.g. subject:"monthly report".',
+    });
+  }
 
   if (input.surface === 'gatekeeper' && !input.gatekeeperMessage) {
     items.push({

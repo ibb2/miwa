@@ -48,6 +48,7 @@ public final class NativeWindowToolbarView: ExpoView, NSToolbarDelegate, NSSearc
 
   private weak var installedWindow: NSWindow?
   private var installedToolbar: NSToolbar?
+  private var installedConfiguration: NSDictionary?
   private weak var glassBackgroundView: NSVisualEffectView?
   private weak var glassTintView: NSView?
   private var itemByIdentifier: [NSToolbarItem.Identifier: ToolbarItemRecord] = [:]
@@ -79,6 +80,30 @@ public final class NativeWindowToolbarView: ExpoView, NSToolbarDelegate, NSSearc
       return
     }
 
+    let configuration: NSDictionary = [
+      "identifier": toolbarIdentifier,
+      "items": items.map { item in
+        var definition = item.toDictionary()
+        if item.kind == "search" { definition.removeValue(forKey: "value") }
+        return definition
+      },
+      "customizable": customizable,
+      "autosavesConfiguration": autosavesConfiguration,
+      "displayMode": displayMode,
+      "toolbarStyle": toolbarStyle,
+      "visible": toolbarVisible,
+    ]
+    if installedWindow === window, let toolbar = installedToolbar,
+       installedConfiguration == configuration {
+      for item in toolbar.items {
+        guard let field = (item as? NSSearchToolbarItem)?.searchField,
+              let definition = items.first(where: { $0.id == field.identifier?.rawValue }),
+              field.currentEditor() == nil else { continue }
+        if field.stringValue != definition.value { field.stringValue = definition.value }
+      }
+      return
+    }
+
     let focusedSearch = installedToolbar?.items.compactMap { ($0 as? NSSearchToolbarItem)?.searchField }
       .first { $0.currentEditor() != nil }
     let focusedId = focusedSearch?.identifier
@@ -93,6 +118,7 @@ public final class NativeWindowToolbarView: ExpoView, NSToolbarDelegate, NSSearc
     let toolbar = makeToolbar()
     installedWindow = window
     installedToolbar = toolbar
+    installedConfiguration = configuration
     installGlassBackground(in: window)
     window.toolbarStyle = resolvedToolbarStyle
     window.toolbar = toolbar
