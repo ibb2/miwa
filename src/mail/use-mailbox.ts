@@ -359,12 +359,34 @@ export function useMailbox() {
       if (busyRef.current === key) return;
       busyRef.current = key;
 
+      // Finishing a conversation reads it too. Without the Gmail update the
+      // next sync would download the thread and restore its unread state.
+      const markRead = done && thread.unread;
       setBusyAction(key);
-      patchThread(thread, { done });
+      patchThread(thread, markRead ? { done, unread: false } : { done });
       try {
         await setThreadDoneState(thread.accountId, thread.threadId, done);
+        if (markRead) {
+          let gmailUpdated = false;
+          try {
+            await withGmailReauth(thread.accountId, () =>
+              setGmailThreadReadState(thread.accountId, thread.threadId, false),
+            );
+            gmailUpdated = true;
+            await setThreadReadState(thread.accountId, thread.threadId, false);
+            syncRef.current?.runNow();
+          } catch (error) {
+            // The done state stands; the conversation just stays unread.
+            patchThread(thread, { unread: thread.unread });
+            if (gmailUpdated) syncRef.current?.runNow();
+            Alert.alert('Could not mark conversation as read', messageFor(error));
+          }
+        }
       } catch (error) {
-        patchThread(thread, { done: thread.done });
+        patchThread(
+          thread,
+          markRead ? { done: thread.done, unread: thread.unread } : { done: thread.done },
+        );
         Alert.alert('Could not update done status', messageFor(error));
       } finally {
         if (busyRef.current === key) busyRef.current = undefined;
