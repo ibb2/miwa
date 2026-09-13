@@ -26,7 +26,7 @@ export type ToolbarInput = {
 export function toolbarIdentifier(input: ToolbarInput): string {
   if (input.surface === 'gatekeeper')
     return input.gatekeeperMessage ? 'MiwaGatekeeperMessageToolbar' : 'MiwaGatekeeperToolbar';
-  if (input.thread) return 'MiwaMessageToolbarV2';
+  if (input.thread) return 'MiwaMessageToolbarV3';
   return 'MiwaSearchInboxToolbar';
 }
 
@@ -125,6 +125,7 @@ export function buildToolbarItems(input: ToolbarInput): NativeToolbarItem[] {
         enabled: !(input.thread?.busy || input.gatekeeperMessage?.busy),
         immovable: true,
       });
+    items.push({ id: 'message-reply-separator', kind: 'space' });
   }
 
   if (input.thread) {
@@ -134,15 +135,6 @@ export function buildToolbarItems(input: ToolbarInput): NativeToolbarItem[] {
         kind: 'button',
         label: input.thread.done ? 'Mark as not done' : 'Done',
         systemImage: input.thread.done ? 'checkmark.circle.fill' : 'checkmark.circle',
-        enabled: !input.thread.busy,
-        immovable: true,
-      },
-      {
-        id: 'message-trash',
-        kind: 'button',
-        label: 'Move to Trash',
-        systemImage: 'trash',
-        toolTip: 'Move conversation to Gmail Trash',
         enabled: !input.thread.busy,
         immovable: true,
       },
@@ -170,6 +162,16 @@ export function buildToolbarItems(input: ToolbarInput): NativeToolbarItem[] {
         label: input.thread.pinned ? 'Unpin' : 'Pin',
         systemImage: input.thread.pinned ? 'pin.slash' : 'pin',
         toolTip: input.thread.pinned ? 'Unpin conversation' : 'Pin conversation',
+        enabled: !input.thread.busy,
+        immovable: true,
+      },
+      { id: 'message-trash-separator', kind: 'space' },
+      {
+        id: 'message-trash',
+        kind: 'button',
+        label: 'Move to Trash',
+        systemImage: 'trash',
+        toolTip: 'Move conversation to Gmail Trash',
         enabled: !input.thread.busy,
         immovable: true,
       },

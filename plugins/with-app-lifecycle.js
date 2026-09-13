@@ -17,11 +17,19 @@ function mergeGenerated(contents, options) {
 
 // Closing the last window must not quit Miwa: the red traffic light only
 // hides the window while Gmail sync and notifications keep running. The Dock
-// icon (and notification clicks via the MiwaShowMainWindow notification)
-// bring the main window back.
+// icon brings the main window back; notification clicks open disposable email windows.
 function withAppLifecycleAppDelegate(config) {
   return withAppDelegate(config, (mod) => {
     let contents = mod.modResults.contents;
+    contents = mergeGenerated(contents, {
+      tag: 'miwa-notification-windows',
+      src: `@interface AppDelegate ()
+@property (nonatomic, strong) NSMutableArray<NSWindowController *> *notificationWindows;
+@end`,
+      anchor: /@implementation AppDelegate/,
+      offset: 0,
+      comment: '//',
+    });
     contents = mergeGenerated(contents, {
       tag: 'miwa-app-lifecycle-observer',
       src: `  self.window.releasedWhenClosed = NO;
@@ -54,9 +62,43 @@ function withAppLifecycleAppDelegate(config) {
 
 - (void)miwaShowMainWindow:(NSNotification *)notification
 {
-  (void)notification;
+  NSString *accountId = notification.userInfo[@"accountId"];
+  NSString *threadId = notification.userInfo[@"threadId"];
+  if (accountId.length && threadId.length) {
+    NSWindow *window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 900, 650)
+        styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskResizable
+        backing:NSBackingStoreBuffered defer:NO];
+    window.title = @"Email";
+    window.releasedWhenClosed = NO;
+    window.restorable = NO;
+    window.contentMinSize = NSMakeSize(500, 350);
+    NSView *root = [self.rootViewFactory viewWithModuleName:@"MiwaNotificationEmail"
+        initialProperties:@{@"accountId": accountId, @"threadId": threadId} launchOptions:nil];
+    root.frame = NSMakeRect(0, 0, 900, 650);
+    root.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+    window.contentView = root;
+    NSWindowController *controller = [[NSWindowController alloc] initWithWindow:window];
+    if (!self.notificationWindows) self.notificationWindows = [NSMutableArray new];
+    [self.notificationWindows addObject:controller];
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(miwaDisposeEmail:)
+        name:NSWindowWillCloseNotification object:window];
+    [window center];
+    [NSApp activateIgnoringOtherApps:YES];
+    [controller showWindow:nil];
+    return;
+  }
   [NSApp activateIgnoringOtherApps:YES];
   [self.window makeKeyAndOrderFront:nil];
+}
+
+- (void)miwaDisposeEmail:(NSNotification *)notification
+{
+  NSWindow *window = notification.object;
+  [[NSNotificationCenter defaultCenter] removeObserver:self name:NSWindowWillCloseNotification object:window];
+  window.contentView = nil;
+  for (NSWindowController *controller in [self.notificationWindows copy]) {
+    if (controller.window == window) [self.notificationWindows removeObject:controller];
+  }
 }
 `,
       anchor: /- \(NSURL \*\)sourceURLForBridge:/,
@@ -87,14 +129,8 @@ function withAppLifecycleInfoPlist(config) {
         if (!fs.existsSync(plistPath)) continue;
         const original = fs.readFileSync(plistPath, 'utf8');
         const contents = original
-          .replace(
-            /(<key>NSSupportsAutomaticTermination<\/key>\s*)<true\/>/,
-            '$1<false/>',
-          )
-          .replace(
-            /(<key>NSSupportsSuddenTermination<\/key>\s*)<true\/>/,
-            '$1<false/>',
-          );
+          .replace(/(<key>NSSupportsAutomaticTermination<\/key>\s*)<true\/>/, '$1<false/>')
+          .replace(/(<key>NSSupportsSuddenTermination<\/key>\s*)<true\/>/, '$1<false/>');
         if (contents !== original) fs.writeFileSync(plistPath, contents);
       }
       return mod;

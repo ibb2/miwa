@@ -5,8 +5,7 @@ import UserNotifications
 public let miwaShowMainWindowNotification = Notification.Name("MiwaShowMainWindow")
 
 /// Persistent UNUserNotificationCenter delegate. Shows banners while Miwa is
-/// frontmost and routes notification clicks back to JS (plus AppDelegate, so
-/// the main window reopens even when it was closed).
+/// frontmost and routes notification clicks to AppDelegate's disposable email windows.
 final class MiwaNotificationCenterDelegate: NSObject, UNUserNotificationCenterDelegate {
   static let shared = MiwaNotificationCenterDelegate()
   var onResponse: (([AnyHashable: Any]) -> Void)?
@@ -26,7 +25,9 @@ final class MiwaNotificationCenterDelegate: NSObject, UNUserNotificationCenterDe
   ) {
     let userInfo = response.notification.request.content.userInfo
     onResponse?(userInfo)
-    NotificationCenter.default.post(name: miwaShowMainWindowNotification, object: nil)
+    DispatchQueue.main.async {
+      NotificationCenter.default.post(name: miwaShowMainWindowNotification, object: nil, userInfo: userInfo)
+    }
     completionHandler()
   }
 }
