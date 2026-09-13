@@ -23,6 +23,11 @@ import { senderDisplayName } from './notifications';
 const ROW_HEIGHT = 58;
 const timeFormatter = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' });
 const dateFormatter = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' });
+const dateWithYearFormatter = new Intl.DateTimeFormat(undefined, {
+  month: 'short',
+  day: 'numeric',
+  year: 'numeric',
+});
 function keyExtractor(thread: MailThreadSummary) {
   return `${thread.accountId}:${thread.threadId}`;
 }
@@ -51,9 +56,10 @@ function itemsAreEqual(prev: MailThreadSummary, next: MailThreadSummary) {
 function formatDate(milliseconds: number) {
   const date = new Date(milliseconds);
   const today = new Date();
-  return date.toDateString() === today.toDateString()
-    ? timeFormatter.format(date)
-    : dateFormatter.format(date);
+  if (date.toDateString() === today.toDateString()) return timeFormatter.format(date);
+  return date.getFullYear() === today.getFullYear()
+    ? dateFormatter.format(date)
+    : dateWithYearFormatter.format(date);
 }
 
 type ThreadRowHostProps = {
