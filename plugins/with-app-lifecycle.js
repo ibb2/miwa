@@ -4,17 +4,15 @@ const { withDangerousMod } = require('@expo/config-plugins');
 const { withAppDelegate } = require('expo-desktop-config-plugins');
 const { mergeContents } = require('@expo/config-plugins/build/utils/generateCode');
 
-function mergeOrThrow(contents, options) {
+function mergeGenerated(contents, options) {
   const { src: newSrc, ...mergeOptions } = options;
-  const result = mergeContents({
+  // A missing anchor throws from mergeContents; an already up-to-date block is
+  // reported as "no merge" and simply leaves the contents untouched.
+  return mergeContents({
     src: contents,
     newSrc,
     ...mergeOptions,
-  });
-  if (!result.didMerge && !result.didClear) {
-    throw new Error(`Unable to apply ${options.tag} to the macOS AppDelegate`);
-  }
-  return result.contents;
+  }).contents;
 }
 
 // Closing the last window must not quit Miwa: the red traffic light only
@@ -24,7 +22,7 @@ function mergeOrThrow(contents, options) {
 function withAppLifecycleAppDelegate(config) {
   return withAppDelegate(config, (mod) => {
     let contents = mod.modResults.contents;
-    contents = mergeOrThrow(contents, {
+    contents = mergeGenerated(contents, {
       tag: 'miwa-app-lifecycle-observer',
       src: `  self.window.releasedWhenClosed = NO;
   [[NSNotificationCenter defaultCenter] addObserver:self
@@ -36,7 +34,7 @@ function withAppLifecycleAppDelegate(config) {
       comment: '//',
     });
 
-    contents = mergeOrThrow(contents, {
+    contents = mergeGenerated(contents, {
       tag: 'miwa-app-lifecycle-implementation',
       src: `- (BOOL)applicationShouldTerminateAfterLastWindowClosed:(NSApplication *)sender
 {

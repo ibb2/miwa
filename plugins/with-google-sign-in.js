@@ -7,24 +7,22 @@ const {
 } = require("expo-desktop-config-plugins");
 const { mergeContents } = require("@expo/config-plugins/build/utils/generateCode");
 
-function mergeOrThrow(contents, options) {
+function mergeGenerated(contents, options) {
   const { src: newSrc, ...mergeOptions } = options;
-  const result = mergeContents({
+  // A missing anchor throws from mergeContents; an already up-to-date block is
+  // reported as "no merge" and simply leaves the contents untouched.
+  return mergeContents({
     src: contents,
     newSrc,
     ...mergeOptions,
-  });
-  if (!result.didMerge && !result.didClear) {
-    throw new Error(`Unable to apply ${options.tag} to the macOS AppDelegate`);
-  }
-  return result.contents;
+  }).contents;
 }
 
 function withGoogleAppDelegate(config) {
   return withAppDelegate(config, (mod) => {
     let contents = mod.modResults.contents;
 
-    contents = mergeOrThrow(contents, {
+    contents = mergeGenerated(contents, {
       tag: "miwa-google-sign-in-import",
       src: "#import <GoogleSignIn/GoogleSignIn.h>",
       anchor: /#import <ReactAppDependencyProvider\/RCTAppDependencyProvider\.h>/,
@@ -32,7 +30,7 @@ function withGoogleAppDelegate(config) {
       comment: "//",
     });
 
-    contents = mergeOrThrow(contents, {
+    contents = mergeGenerated(contents, {
       tag: "miwa-google-sign-in-registration",
       src: `  [[NSAppleEventManager sharedAppleEventManager]
       setEventHandler:self
@@ -44,7 +42,7 @@ function withGoogleAppDelegate(config) {
       comment: "//",
     });
 
-    contents = mergeOrThrow(contents, {
+    contents = mergeGenerated(contents, {
       tag: "miwa-google-sign-in-handler",
       src: `- (void)handleGetURLEvent:(NSAppleEventDescriptor *)event
             withReplyEvent:(NSAppleEventDescriptor *)replyEvent

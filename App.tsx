@@ -23,7 +23,7 @@ import { useAccounts } from './src/mail/use-accounts';
 import { useInboxDownload } from './src/mail/use-inbox-download';
 import { useMailbox } from './src/mail/use-mailbox';
 import { createMailSearch } from './src/mail/search';
-import type { MailboxView } from './src/mail/types';
+import type { MailboxView, MailThreadSummary } from './src/mail/types';
 import { loadMailPreferences } from './src/settings/preferences';
 import {
   dismissDeliveredNotifications,
@@ -178,35 +178,76 @@ export default function App() {
     mailboxView.kind === 'account' ? accountsById.get(mailboxView.accountId)?.email : undefined;
   const inboxTitle = mailboxView.kind === 'all' ? 'All Inboxes' : (mailboxName ?? 'Inbox');
 
-  const toolbarInput: ToolbarInput = {
-    surface,
-    gatekeeperMessage:
-      surface === 'gatekeeper' && gatekeeperMessage
-        ? { busy: !!mailbox.gatekeeperActionEmail }
-        : undefined,
-    inboxTitle,
-    thread:
-      surface === 'mail' && selectedThread
+  const accountsForToolbar = useMemo(
+    () => (accounts ?? []).map((account) => ({ id: account.id, email: account.email })),
+    [accounts],
+  );
+
+  const hasGatekeeperMessage = surface === 'gatekeeper' && gatekeeperMessage !== undefined;
+  const gatekeeperMessageBusy = !!mailbox.gatekeeperActionEmail;
+  const hasSelectedThread = surface === 'mail' && selectedThread !== undefined;
+  const threadDone = selectedThread?.done;
+  const threadUnread = selectedThread?.unread;
+  const threadPinned = selectedThread?.pinned;
+  const threadBusy = mailbox.busyAction !== undefined;
+  const downloadFraction = download?.fraction;
+  const downloadLabel = download?.label;
+  const gatekeeperBlockedCount = mailbox.gatekeeper?.blocked.length ?? 0;
+  const gatekeeperPendingCount = mailbox.gatekeeper?.pending.length ?? 0;
+
+  const toolbarInput: ToolbarInput = useMemo(
+    () => ({
+      surface,
+      gatekeeperMessage: hasGatekeeperMessage ? { busy: gatekeeperMessageBusy } : undefined,
+      inboxTitle,
+      thread: hasSelectedThread
         ? {
-            done: selectedThread.done,
-            unread: selectedThread.unread,
-            pinned: selectedThread.pinned,
-            busy: mailbox.busyAction !== undefined,
+            done: threadDone ?? false,
+            unread: threadUnread ?? false,
+            pinned: threadPinned ?? false,
+            busy: threadBusy,
           }
         : undefined,
-    accountSegments,
-    selectedAccountIndex,
-    syncing: mailbox.syncing,
-    syncLabel: mailbox.syncLabel,
-    download,
-    gatekeeperQuery,
-    mailQuery,
-    gatekeeperTab,
-    gatekeeperBlocked: mailbox.gatekeeper?.blocked.length ?? 0,
-    gatekeeperPending: mailbox.gatekeeper?.pending.length ?? 0,
-    accounts: (accounts ?? []).map((account) => ({ id: account.id, email: account.email })),
-  };
-  const toolbarItems = buildToolbarItems(toolbarInput);
+      accountSegments,
+      selectedAccountIndex,
+      syncing: mailbox.syncing,
+      syncLabel: mailbox.syncLabel,
+      download:
+        downloadFraction !== undefined && downloadLabel !== undefined
+          ? { fraction: downloadFraction, label: downloadLabel }
+          : undefined,
+      gatekeeperQuery,
+      mailQuery,
+      gatekeeperTab,
+      gatekeeperBlocked: gatekeeperBlockedCount,
+      gatekeeperPending: gatekeeperPendingCount,
+      accounts: accountsForToolbar,
+    }),
+    [
+      surface,
+      hasGatekeeperMessage,
+      gatekeeperMessageBusy,
+      inboxTitle,
+      hasSelectedThread,
+      threadDone,
+      threadUnread,
+      threadPinned,
+      threadBusy,
+      accountSegments,
+      selectedAccountIndex,
+      mailbox.syncing,
+      mailbox.syncLabel,
+      downloadFraction,
+      downloadLabel,
+      gatekeeperQuery,
+      mailQuery,
+      gatekeeperTab,
+      gatekeeperBlockedCount,
+      gatekeeperPendingCount,
+      accountsForToolbar,
+    ],
+  );
+  const toolbarItems = useMemo(() => buildToolbarItems(toolbarInput), [toolbarInput]);
 
   const selectMailbox = useCallback((segmentId: string) => {
     if (mailboxFrameRef.current !== null) cancelAnimationFrame(mailboxFrameRef.current);
@@ -313,13 +354,66 @@ export default function App() {
     [accountsById, disconnectAccount],
   );
 
-  const searchMail = useMemo(() => createMailSearch(mailbox.threads ?? []), [mailbox.threads]);
+  const handleArchive = useCallback(
+    (thread: MailThreadSummary) => {
+      void mailbox.archiveThread(thread);
+    },
+    [mailbox.archiveThread],
+  );
+  const handleSetDone = useCallback(
+    (thread: MailThreadSummary, done: boolean) => {
+      void mailbox.setDone(thread, done);
+    },
+    [mailbox.setDone],
+  );
+  const handleSetPinned = useCallback(
+    (thread: MailThreadSummary, pinned: boolean) => {
+      void mailbox.setPinned(thread, pinned);
+    },
+    [mailbox.setPinned],
+  );
+  const handleToggleRead = useCallback(
+    (thread: MailThreadSummary) => {
+      void mailbox.toggleRead(thread);
+    },
+    [mailbox.toggleRead],
+  );
+  const handleGatekeeperApprove = useCallback(
+    (email: string) => {
+      void mailbox.decideGatekeeperSender(email, 'approved');
+    },
+    [mailbox.decideGatekeeperSender],
+  );
+  const handleGatekeeperBlock = useCallback(
+    (email: string) => {
+      void mailbox.decideGatekeeperSender(email, 'blocked');
+    },
+    [mailbox.decideGatekeeperSender],
+  );
+  const handleGatekeeperUnblock = useCallback(
+    (email: string) => {
+      void mailbox.decideGatekeeperSender(email, 'pending');
+    },
+    [mailbox.decideGatekeeperSender],
+  );
+  const handleGatekeeperRetry = useCallback(() => {
+    void mailbox.refreshGatekeeper();
+  }, [mailbox.refreshGatekeeper]);
+
+  const hasMailQuery = mailQuery.trim().length > 0;
+  const searchMail = useMemo(() => {
+    if (!hasMailQuery) return null;
+    return createMailSearch(mailbox.threads ?? []);
+  }, [mailbox.threads, hasMailQuery]);
   const visibleThreads = useMemo(() => {
-    const candidates = (mailbox.threads ?? []).filter(
-      (thread) => mailboxView.kind === 'all' || thread.accountId === mailboxView.accountId,
-    );
+    const allThreads = mailbox.threads ?? [];
+    const candidates =
+      mailboxView.kind === 'all'
+        ? allThreads
+        : allThreads.filter((thread) => thread.accountId === mailboxView.accountId);
+    if (!hasMailQuery || searchMail === null) return candidates;
     return searchMail(mailQuery, candidates);
-  }, [mailbox.threads, mailboxView, mailQuery, searchMail]);
+  }, [mailbox.threads, mailboxView, mailQuery, hasMailQuery, searchMail]);
 
   let mainContent: React.ReactNode = null;
   if (surface === 'gatekeeper') {
@@ -333,17 +427,17 @@ export default function App() {
         error={mailbox.gatekeeperError}
         loading={mailbox.gatekeeperLoading}
         onDelete={mailbox.deleteGatekeeperMessage}
-        onApprove={(email) => void mailbox.decideGatekeeperSender(email, 'approved')}
-        onBlock={(email) => void mailbox.decideGatekeeperSender(email, 'blocked')}
-        onRetry={() => void mailbox.refreshGatekeeper()}
-        onUnblock={(email) => void mailbox.decideGatekeeperSender(email, 'pending')}
+        onApprove={handleGatekeeperApprove}
+        onBlock={handleGatekeeperBlock}
+        onRetry={handleGatekeeperRetry}
+        onUnblock={handleGatekeeperUnblock}
         overview={mailbox.gatekeeper}
       />
     );
   } else if (selectedThread) {
     mainContent = (
       <ThreadDetail
-        onBlock={(email) => void mailbox.decideGatekeeperSender(email, 'blocked')}
+        onBlock={handleGatekeeperBlock}
         detail={mailbox.detail}
         loading={mailbox.detailLoading}
         error={mailbox.detailError}
@@ -391,10 +485,10 @@ export default function App() {
         emptyMailboxName={mailboxName}
         searchQuery={mailQuery}
         onOpenThread={setSelectedThread}
-        onArchive={(thread) => void mailbox.archiveThread(thread)}
-        onSetDone={(thread, done) => void mailbox.setDone(thread, done)}
-        onSetPinned={(thread, pinned) => void mailbox.setPinned(thread, pinned)}
-        onToggleRead={(thread) => void mailbox.toggleRead(thread)}
+        onArchive={handleArchive}
+        onSetDone={handleSetDone}
+        onSetPinned={handleSetPinned}
+        onToggleRead={handleToggleRead}
         preferences={preferences}
         threads={visibleThreads}
       />

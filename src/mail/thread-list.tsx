@@ -34,6 +34,23 @@ function fixedRowHeight() {
   return ROW_HEIGHT;
 }
 
+function itemsAreEqual(prev: MailThreadSummary, next: MailThreadSummary) {
+  return (
+    prev.accountId === next.accountId &&
+    prev.threadId === next.threadId &&
+    prev.sender === next.sender &&
+    prev.subject === next.subject &&
+    prev.preview === next.preview &&
+    prev.receivedAt === next.receivedAt &&
+    prev.unread === next.unread &&
+    prev.done === next.done &&
+    prev.pinned === next.pinned &&
+    prev.messageCount === next.messageCount &&
+    prev.hasAttachments === next.hasAttachments &&
+    prev.category === next.category
+  );
+}
+
 function formatDate(milliseconds: number) {
   const date = new Date(milliseconds);
   const today = new Date();
@@ -44,6 +61,8 @@ function formatDate(milliseconds: number) {
 
 type ThreadRowProps = {
   showPreview: boolean;
+  compact: boolean;
+  tint: string;
   thread: MailThreadSummary;
   onPress: (thread: MailThreadSummary) => void;
   onArchive: (thread: MailThreadSummary) => void;
@@ -52,19 +71,20 @@ type ThreadRowProps = {
   onToggleRead: (thread: MailThreadSummary) => void;
 };
 
-function RowAction({
+const RowAction = memo(function RowAction({
   label,
   symbol,
   selected = false,
+  tint,
   onPress,
 }: {
   label: string;
   symbol: React.ComponentProps<typeof Image>['systemName'];
   selected?: boolean;
+  tint: string;
   onPress: () => void;
 }) {
-  const [hovered, setHovered] = useState(false);
-  const tint = useAccent();
+  const [hovered, setHovered] = useRecyclingState(false);
   return (
     <Pressable
       accessible={false}
@@ -89,44 +109,21 @@ function RowAction({
       </Host>
     </Pressable>
   );
-}
+});
 
-const ThreadRow = memo(function ThreadRow({
-  showPreview,
+const RowMain = memo(function RowMain({
   thread,
-  onPress,
-  onArchive,
-  onSetDone,
-  onSetPinned,
-  onToggleRead,
-}: ThreadRowProps) {
-  const [hovered, setHovered] = useRecyclingState(false);
-  const tint = useAccent();
-  const { width } = useWindowDimensions();
-  const compact = width < 960;
-
+  showPreview,
+  compact,
+  tint,
+}: {
+  thread: MailThreadSummary;
+  showPreview: boolean;
+  compact: boolean;
+  tint: string;
+}) {
   return (
-    <Pressable
-      accessibilityLabel={
-        thread.sender +
-        ', ' +
-        (thread.subject || 'No subject') +
-        (thread.hasAttachments ? ', has attachment' : '')
-      }
-      accessibilityRole="button"
-      onBlur={() => setHovered(false)}
-      onFocus={() => setHovered(true)}
-      onHoverIn={() => setHovered(true)}
-      onHoverOut={() => setHovered(false)}
-      onPress={() => onPress(thread)}
-      className="w-full h-[58px] relative flex-row items-center px-[8px] gap-[8px] rounded-[12px] border-continuous active:bg-[rgba(128,128,128,0.18)]"
-      style={{
-        minWidth: 0,
-        maxWidth: '100%',
-        overflow: 'hidden',
-        backgroundColor: hovered ? 'rgba(128,128,128,0.10)' : 'transparent',
-      }}
-    >
+    <>
       <View
         accessibilityElementsHidden
         importantForAccessibility="no-hide-descendants"
@@ -219,35 +216,125 @@ const ThreadRow = memo(function ThreadRow({
           </Text>
         ) : null}
       </View>
-      <View className="items-end justify-center" style={{ width: 134, flexShrink: 0, height: 34 }}>
-        {hovered ? (
-          <View className="flex-row items-center gap-[2px]">
-            <RowAction
-              label={thread.done ? 'Mark as not done' : 'Mark as done'}
-              symbol={thread.done ? 'checkmark.circle.fill' : 'checkmark'}
-              selected={thread.done}
-              onPress={() => onSetDone(thread, !thread.done)}
-            />
-            <RowAction
-              label={thread.unread ? 'Mark as read' : 'Mark as unread'}
-              symbol={thread.unread ? 'envelope.open' : 'envelope.badge'}
-              onPress={() => onToggleRead(thread)}
-            />
-            <RowAction label="Archive" symbol="archivebox" onPress={() => onArchive(thread)} />
-            <RowAction
-              label={thread.pinned ? 'Unpin' : 'Pin'}
-              symbol={thread.pinned ? 'pin.fill' : 'pin'}
-              selected={thread.pinned}
-              onPress={() => onSetPinned(thread, !thread.pinned)}
-            />
-          </View>
-        ) : (
-          <Text className="text-[12px] tabular-nums" style={{ color: colors.secondaryLabel }}>
-            {thread.done ? '✓ Done  ·  ' : ''}
-            {formatDate(thread.receivedAt)}
-          </Text>
-        )}
-      </View>
+    </>
+  );
+});
+
+const RowTrailing = memo(function RowTrailing({
+  hovered,
+  done,
+  unread,
+  pinned,
+  receivedAt,
+  tint,
+  onPressDone,
+  onPressToggleRead,
+  onPressArchive,
+  onPressPin,
+}: {
+  hovered: boolean;
+  done: boolean;
+  unread: boolean;
+  pinned: boolean;
+  receivedAt: number;
+  tint: string;
+  onPressDone: () => void;
+  onPressToggleRead: () => void;
+  onPressArchive: () => void;
+  onPressPin: () => void;
+}) {
+  return (
+    <View className="items-end justify-center" style={{ width: 134, flexShrink: 0, height: 34 }}>
+      {hovered ? (
+        <View className="flex-row items-center gap-[2px]">
+          <RowAction
+            label={done ? 'Mark as not done' : 'Mark as done'}
+            symbol={done ? 'checkmark.circle.fill' : 'checkmark'}
+            selected={done}
+            tint={tint}
+            onPress={onPressDone}
+          />
+          <RowAction
+            label={unread ? 'Mark as read' : 'Mark as unread'}
+            symbol={unread ? 'envelope.open' : 'envelope.badge'}
+            tint={tint}
+            onPress={onPressToggleRead}
+          />
+          <RowAction label="Archive" symbol="archivebox" tint={tint} onPress={onPressArchive} />
+          <RowAction
+            label={pinned ? 'Unpin' : 'Pin'}
+            symbol={pinned ? 'pin.fill' : 'pin'}
+            selected={pinned}
+            tint={tint}
+            onPress={onPressPin}
+          />
+        </View>
+      ) : (
+        <Text className="text-[12px] tabular-nums" style={{ color: colors.secondaryLabel }}>
+          {done ? '✓ Done  ·  ' : ''}
+          {formatDate(receivedAt)}
+        </Text>
+      )}
+    </View>
+  );
+});
+
+const ThreadRow = memo(function ThreadRow({
+  showPreview,
+  compact,
+  tint,
+  thread,
+  onPress,
+  onArchive,
+  onSetDone,
+  onSetPinned,
+  onToggleRead,
+}: ThreadRowProps) {
+  const [hovered, setHovered] = useRecyclingState(false);
+  const handlePress = useCallback(() => onPress(thread), [onPress, thread]);
+  const handlePressDone = useCallback(() => onSetDone(thread, !thread.done), [onSetDone, thread]);
+  const handleToggleRead = useCallback(() => onToggleRead(thread), [onToggleRead, thread]);
+  const handleArchive = useCallback(() => onArchive(thread), [onArchive, thread]);
+  const handleTogglePin = useCallback(
+    () => onSetPinned(thread, !thread.pinned),
+    [onSetPinned, thread],
+  );
+
+  return (
+    <Pressable
+      accessibilityLabel={
+        thread.sender +
+        ', ' +
+        (thread.subject || 'No subject') +
+        (thread.hasAttachments ? ', has attachment' : '')
+      }
+      accessibilityRole="button"
+      onBlur={() => setHovered(false)}
+      onFocus={() => setHovered(true)}
+      onHoverIn={() => setHovered(true)}
+      onHoverOut={() => setHovered(false)}
+      onPress={handlePress}
+      className="w-full h-[58px] relative flex-row items-center px-[8px] gap-[8px] rounded-[12px] border-continuous active:bg-[rgba(128,128,128,0.18)]"
+      style={{
+        minWidth: 0,
+        maxWidth: '100%',
+        overflow: 'hidden',
+        backgroundColor: hovered ? 'rgba(128,128,128,0.10)' : 'transparent',
+      }}
+    >
+      <RowMain showPreview={showPreview} compact={compact} tint={tint} thread={thread} />
+      <RowTrailing
+        hovered={hovered}
+        done={thread.done}
+        unread={thread.unread}
+        pinned={thread.pinned}
+        receivedAt={thread.receivedAt}
+        tint={tint}
+        onPressDone={handlePressDone}
+        onPressToggleRead={handleToggleRead}
+        onPressArchive={handleArchive}
+        onPressPin={handleTogglePin}
+      />
     </Pressable>
   );
 });
@@ -283,6 +370,11 @@ export const ThreadList = memo(function ThreadList({
 }: ThreadListProps) {
   const listStyle = useResolveClassNames('flex-1');
   const contentStyle = useResolveClassNames('w-full px-[18px] pt-[8px] pb-[20px]');
+  const tint = useAccent();
+  const { width } = useWindowDimensions();
+  const compact = width < 960;
+  const showPreview = preferences.showPreviews;
+  const extraData = `${showPreview ? 1 : 0}:${compact ? 1 : 0}:${tint}`;
   const [selectedTab, setSelectedTab] = useState<InboxTabId>(() =>
     positionRef.current?.datasetKey === datasetKey ? positionRef.current.tab : 'inbox',
   );
@@ -318,6 +410,33 @@ export const ThreadList = memo(function ThreadList({
     () => threadsForInboxTab(threads, selectedTab),
     [selectedTab, threads],
   );
+  const selectTab = useCallback((tabId: InboxTabId) => {
+    setSelectedTab(tabId);
+  }, []);
+  const listHeader = useMemo(
+    () => (
+      <View
+        style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'flex-start',
+          height: 58,
+          gap: 12,
+        }}
+      >
+        {tabs.map((tab) => (
+          <NativeTabButton
+            key={tab.id}
+            count={tab.count}
+            label={tab.title}
+            onPress={() => selectTab(tab.id)}
+            selected={selectedTab === tab.id}
+          />
+        ))}
+      </View>
+    ),
+    [tabs, selectedTab, selectTab],
+  );
   const emptyState = useMemo(
     () => (
       <NativeEmptyState
@@ -345,37 +464,19 @@ export const ThreadList = memo(function ThreadList({
         onSetDone={onSetDone}
         onSetPinned={onSetPinned}
         onToggleRead={onToggleRead}
-        showPreview={preferences.showPreviews}
+        showPreview={showPreview}
+        compact={compact}
+        tint={tint}
         thread={item}
       />
     ),
-    [onArchive, openThread, onSetDone, onSetPinned, onToggleRead, preferences.showPreviews],
+    [onArchive, openThread, onSetDone, onSetPinned, onToggleRead, showPreview, compact, tint],
   );
 
   return (
     <View className="flex-1">
       <LegendList
-        ListHeaderComponent={
-          <View
-            style={{
-              flexDirection: 'row',
-              alignItems: 'center',
-              justifyContent: 'flex-start',
-              height: 58,
-              gap: 12,
-            }}
-          >
-            {tabs.map((tab) => (
-              <NativeTabButton
-                key={tab.id}
-                count={tab.count}
-                label={tab.title}
-                onPress={() => setSelectedTab(tab.id)}
-                selected={selectedTab === tab.id}
-              />
-            ))}
-          </View>
-        }
+        ListHeaderComponent={listHeader}
         ListEmptyComponent={emptyState}
         contentContainerStyle={contentStyle}
         contentInsetAdjustmentBehavior="automatic"
@@ -383,9 +484,11 @@ export const ThreadList = memo(function ThreadList({
         dataKey={`${datasetKey}:${selectedTab}`}
         drawDistance={700}
         estimatedItemSize={ROW_HEIGHT}
+        extraData={extraData}
         initialScrollOffset={initialScrollOffset}
         onScroll={rememberScroll}
         getFixedItemSize={fixedRowHeight}
+        itemsAreEqual={itemsAreEqual}
         keyExtractor={keyExtractor}
         recycleItems
         renderItem={renderItem}

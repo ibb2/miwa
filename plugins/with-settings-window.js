@@ -4,17 +4,15 @@ const { withDangerousMod } = require('@expo/config-plugins');
 const { withAppDelegate } = require('expo-desktop-config-plugins');
 const { mergeContents } = require('@expo/config-plugins/build/utils/generateCode');
 
-function mergeOrThrow(contents, options) {
+function mergeGenerated(contents, options) {
   const { src: newSrc, ...mergeOptions } = options;
-  const result = mergeContents({
+  // A missing anchor throws from mergeContents; an already up-to-date block is
+  // reported as "no merge" and simply leaves the contents untouched.
+  return mergeContents({
     src: contents,
     newSrc,
     ...mergeOptions,
-  });
-  if (!result.didMerge && !result.didClear) {
-    throw new Error(`Unable to apply ${options.tag} to the macOS AppDelegate`);
-  }
-  return result.contents;
+  }).contents;
 }
 
 function withSettingsAppDelegate(config) {
@@ -23,7 +21,7 @@ function withSettingsAppDelegate(config) {
   // extension inside the .mm below rather than in the header.
   return withAppDelegate(config, (mod) => {
     let contents = mod.modResults.contents;
-    contents = mergeOrThrow(contents, {
+    contents = mergeGenerated(contents, {
       tag: 'miwa-settings-window-observer',
       src: `  [[NSNotificationCenter defaultCenter] addObserver:self
                                            selector:@selector(miwaCloseSettingsWindow:)
@@ -34,7 +32,7 @@ function withSettingsAppDelegate(config) {
       comment: '//',
     });
 
-    contents = mergeOrThrow(contents, {
+    contents = mergeGenerated(contents, {
       tag: 'miwa-settings-window-extension',
       src: `@interface AppDelegate ()
 @property (nonatomic, strong, nullable) NSWindow *settingsWindow;
@@ -45,7 +43,7 @@ function withSettingsAppDelegate(config) {
       comment: '//',
     });
 
-    contents = mergeOrThrow(contents, {
+    contents = mergeGenerated(contents, {
       tag: 'miwa-settings-window-implementation',
       src: `- (IBAction)openSettingsWindow:(id)sender
 {

@@ -34,6 +34,7 @@ export function useMailbox() {
   const gatekeeperBusy = useRef(false);
   const syncRef = useRef<SyncController>(null);
   const knownThreadKeys = useRef<Set<string> | null>(null);
+  const busyRef = useRef<string | undefined>(undefined);
   const [threads, setThreads] = useState<MailThreadSummary[]>();
   const [threadsError, setThreadsError] = useState<string>();
   const [selectedThread, setSelectedThread] = useState<MailThreadSummary>();
@@ -224,7 +225,8 @@ export function useMailbox() {
   const toggleRead = useCallback(
     async (thread: MailThreadSummary) => {
       const key = `read:${thread.accountId}:${thread.threadId}`;
-      if (busyAction === key) return;
+      if (busyRef.current === key) return;
+      busyRef.current = key;
       const unread = !thread.unread;
 
       setBusyAction(key);
@@ -245,16 +247,18 @@ export function useMailbox() {
           messageFor(error),
         );
       } finally {
+        if (busyRef.current === key) busyRef.current = undefined;
         setBusyAction((current) => (current === key ? undefined : current));
       }
     },
-    [busyAction, patchThread],
+    [patchThread],
   );
 
   const archiveThread = useCallback(
     async (thread: MailThreadSummary) => {
       const key = `archive:${thread.accountId}:${thread.threadId}`;
-      if (busyAction === key) return;
+      if (busyRef.current === key) return;
+      busyRef.current = key;
 
       setBusyAction(key);
       setThreads((current) =>
@@ -281,16 +285,18 @@ export function useMailbox() {
           messageFor(error),
         );
       } finally {
+        if (busyRef.current === key) busyRef.current = undefined;
         setBusyAction((current) => (current === key ? undefined : current));
       }
     },
-    [busyAction, refreshGatekeeper, refreshThreads],
+    [refreshGatekeeper, refreshThreads],
   );
 
   const trashThread = useCallback(
     async (thread: MailThreadSummary) => {
       const key = `trash:${thread.accountId}:${thread.threadId}`;
-      if (busyAction === key) return;
+      if (busyRef.current === key) return;
+      busyRef.current = key;
 
       setBusyAction(key);
       setThreads((current) =>
@@ -317,16 +323,18 @@ export function useMailbox() {
           messageFor(error),
         );
       } finally {
+        if (busyRef.current === key) busyRef.current = undefined;
         setBusyAction((current) => (current === key ? undefined : current));
       }
     },
-    [busyAction, refreshGatekeeper, refreshThreads],
+    [refreshGatekeeper, refreshThreads],
   );
 
   const setPinned = useCallback(
     async (thread: MailThreadSummary, pinned: boolean) => {
       const key = `pin:${thread.accountId}:${thread.threadId}`;
-      if (busyAction === key) return;
+      if (busyRef.current === key) return;
+      busyRef.current = key;
 
       setBusyAction(key);
       patchThread(thread, { pinned });
@@ -336,16 +344,18 @@ export function useMailbox() {
         patchThread(thread, { pinned: thread.pinned });
         Alert.alert('Could not update pin', messageFor(error));
       } finally {
+        if (busyRef.current === key) busyRef.current = undefined;
         setBusyAction((current) => (current === key ? undefined : current));
       }
     },
-    [busyAction, patchThread],
+    [patchThread],
   );
 
   const setDone = useCallback(
     async (thread: MailThreadSummary, done: boolean) => {
       const key = `done:${thread.accountId}:${thread.threadId}`;
-      if (busyAction === key) return;
+      if (busyRef.current === key) return;
+      busyRef.current = key;
 
       setBusyAction(key);
       patchThread(thread, { done });
@@ -355,10 +365,11 @@ export function useMailbox() {
         patchThread(thread, { done: thread.done });
         Alert.alert('Could not update done status', messageFor(error));
       } finally {
+        if (busyRef.current === key) busyRef.current = undefined;
         setBusyAction((current) => (current === key ? undefined : current));
       }
     },
-    [busyAction, patchThread],
+    [patchThread],
   );
 
   const resetMailbox = useCallback(() => {
