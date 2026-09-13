@@ -482,7 +482,11 @@ public final class NativeThreadRowView: ExpoView {
 
     if showsPreviewText() {
       let innerGap: CGFloat = 8
-      let subjectAlloc = floor((subjectWidth - innerGap) * 0.7)
+      let subjectLimit = max(0, floor((subjectWidth - innerGap) * 0.7))
+      let naturalSubjectWidth = (subjectField.stringValue as NSString).size(withAttributes: [
+        .font: subjectField.font ?? NSFont.systemFont(ofSize: 13)
+      ]).width
+      let subjectAlloc = min(subjectLimit, ceil(naturalSubjectWidth) + 4)
       let previewAlloc = max(0, subjectWidth - subjectAlloc - innerGap)
       subjectField.frame = NSRect(x: subjectX, y: senderY, width: subjectAlloc, height: textHeight)
       previewField.frame = NSRect(

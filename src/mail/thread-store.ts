@@ -78,15 +78,16 @@ export async function loadThreads(): Promise<MailThreadSummary[]> {
       body: '',
       attachment: '',
     };
+    const bodySlice = message.plainTextBody.slice(0, 2000);
     fields.subject += `\n${message.subject}`;
     fields.sender += `\n${message.sender}`;
-    fields.body += `\n${message.plainTextBody}`;
+    if (fields.body.length < 8000) fields.body += `\n${bodySlice}`;
     searchByThread.set(message.threadId, fields);
     if (!categoryByThreadId.has(message.threadId)) {
       categoryByThreadId.set(message.threadId, mailCategoryForLabels(message.labelIds));
     }
     if (!previewByThreadId.has(message.threadId)) {
-      const preview = message.plainTextBody.replace(/\s+/g, ' ').trim();
+      const preview = bodySlice.replace(/\s+/g, ' ').trim();
       if (preview) previewByThreadId.set(message.threadId, preview.slice(0, 500));
     }
     if (message.hasAttachments) attachmentThreadIds.add(message.threadId);

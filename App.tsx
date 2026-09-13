@@ -1,7 +1,7 @@
 import type { GatekeeperMessage } from './src/mail/gatekeeper';
 import './global.css';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { DeviceEventEmitter, Text, View } from 'react-native';
+import { DeviceEventEmitter, Text, View, type NativeSyntheticEvent } from 'react-native';
 import { useResolveClassNames } from 'uniwind';
 import {
   NativeWindowToolbar,
@@ -354,6 +354,21 @@ export default function App() {
     [accountsById, disconnectAccount],
   );
 
+  const handleSearchChange = useCallback(
+    ({ nativeEvent }: NativeSyntheticEvent<{ id: string; text: string }>) => {
+      if (nativeEvent.id === 'mail-search') setMailQuery(nativeEvent.text);
+      else setGatekeeperQuery(nativeEvent.text);
+    },
+    [],
+  );
+
+  const handleContentInsetChange = useCallback(
+    ({ nativeEvent }: NativeSyntheticEvent<{ top: number }>) => {
+      setToolbarInset(nativeEvent.top);
+    },
+    [],
+  );
+
   const handleArchive = useCallback(
     (thread: MailThreadSummary) => {
       void mailbox.archiveThread(thread);
@@ -506,12 +521,9 @@ export default function App() {
         autosavesConfiguration
         displayMode="iconOnly"
         toolbarStyle="unified"
-        onContentInsetChange={({ nativeEvent }) => setToolbarInset(nativeEvent.top)}
+        onContentInsetChange={handleContentInsetChange}
         onItemPress={handleToolbarPress}
-        onSearchChange={({ nativeEvent }) => {
-          if (nativeEvent.id === 'mail-search') setMailQuery(nativeEvent.text);
-          else setGatekeeperQuery(nativeEvent.text);
-        }}
+        onSearchChange={handleSearchChange}
         onSegmentChange={handleSegmentChange}
         onMenuItemPress={handleMenuPress}
       />

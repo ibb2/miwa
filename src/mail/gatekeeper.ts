@@ -145,33 +145,30 @@ async function persistDiscoveredSenders(
   senders: ReadonlyMap<string, DiscoveredSender>,
 ): Promise<void> {
   const updatedAt = Date.now();
-  await Promise.all(
-    [...senders.values()]
-      .filter((sender) => sender.needsReview)
-      .map((sender) =>
-        db
-          .insert(gatekeeperSenders)
-          .values({
-            email: sender.email,
-            displayName: sender.displayName,
-            status: 'pending',
-            firstSeenAt: sender.firstSeenAt,
-            lastSeenAt: sender.lastSeenAt,
-            messageCount: sender.messagesById.size,
-            updatedAt,
-          })
-          .onConflictDoUpdate({
-            target: gatekeeperSenders.email,
-            set: {
-              displayName: sender.displayName,
-              firstSeenAt: sender.firstSeenAt,
-              lastSeenAt: sender.lastSeenAt,
-              messageCount: sender.messagesById.size,
-              updatedAt,
-            },
-          }),
-      ),
-  );
+  for (const sender of senders.values()) {
+    if (!sender.needsReview) continue;
+    await db
+      .insert(gatekeeperSenders)
+      .values({
+        email: sender.email,
+        displayName: sender.displayName,
+        status: 'pending',
+        firstSeenAt: sender.firstSeenAt,
+        lastSeenAt: sender.lastSeenAt,
+        messageCount: sender.messagesById.size,
+        updatedAt,
+      })
+      .onConflictDoUpdate({
+        target: gatekeeperSenders.email,
+        set: {
+          displayName: sender.displayName,
+          firstSeenAt: sender.firstSeenAt,
+          lastSeenAt: sender.lastSeenAt,
+          messageCount: sender.messagesById.size,
+          updatedAt,
+        },
+      });
+  }
 }
 
 export async function loadGatekeeperOverview(): Promise<GatekeeperOverview> {

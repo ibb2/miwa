@@ -95,8 +95,10 @@ export function useMailbox() {
     try {
       const loaded = await loadThreads();
       setThreads(loaded);
-      await refreshGatekeeper(false);
-      await settleNotifications(loaded).catch(() => undefined);
+      await Promise.all([
+        refreshGatekeeper(false),
+        settleNotifications(loaded).catch(() => undefined),
+      ]);
     } catch (error) {
       setThreads([]);
       setThreadsError(messageFor(error));
