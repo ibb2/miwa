@@ -1,7 +1,11 @@
 import { useResolveClassNames } from 'uniwind';
-import { memo, useCallback, useMemo, useState } from 'react';
+import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useAccent } from '../components/native-colors';
-import { LegendList, type LegendListRenderItemProps } from '@legendapp/list/react-native';
+import {
+  LegendList,
+  type LegendListRef,
+  type LegendListRenderItemProps,
+} from '@legendapp/list/react-native';
 import {
   View,
   useWindowDimensions,
@@ -157,11 +161,21 @@ export const ThreadList = memo(function ThreadList({
   const [selectedTab, setSelectedTab] = useState<InboxTabId>(() =>
     positionRef.current?.datasetKey === datasetKey ? positionRef.current.tab : 'inbox',
   );
-  const savedPosition = positionRef.current;
-  const initialScrollOffset =
-    savedPosition?.datasetKey === datasetKey && savedPosition.tab === selectedTab
-      ? savedPosition.offset
-      : 0;
+  const [initialScrollOffset] = useState(() => {
+    const saved = positionRef.current;
+    return saved?.datasetKey === datasetKey ? saved.offset : 0;
+  });
+  const listRef = useRef<LegendListRef>(null);
+  const listIdentity = `${datasetKey}:${selectedTab}`;
+  const previousIdentity = useRef(listIdentity);
+  // Reset only the scroll position: dataKey resets can leave macOS row containers hidden.
+  useLayoutEffect(() => {
+    if (previousIdentity.current !== listIdentity) {
+      previousIdentity.current = listIdentity;
+      positionRef.current = { datasetKey, tab: selectedTab, offset: 0 };
+      void listRef.current?.scrollToOffset({ offset: 0, animated: false });
+    }
+  }, [listIdentity, datasetKey, selectedTab, positionRef]);
   const rememberScroll = useCallback(
     ({ nativeEvent }: NativeSyntheticEvent<NativeScrollEvent>) => {
       positionRef.current = {
@@ -255,12 +269,12 @@ export const ThreadList = memo(function ThreadList({
   return (
     <View className="flex-1">
       <LegendList
+        ref={listRef}
         ListHeaderComponent={listHeader}
         ListEmptyComponent={emptyState}
         contentContainerStyle={contentStyle}
         contentInsetAdjustmentBehavior="automatic"
         data={visibleThreads}
-        dataKey={`${datasetKey}:${selectedTab}`}
         drawDistance={700}
         estimatedItemSize={ROW_HEIGHT}
         extraData={extraData}
