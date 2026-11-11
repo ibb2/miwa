@@ -1,0 +1,210 @@
+import { asc, eq } from 'drizzle-orm';
+
+import { db } from '../db/db';
+import {
+  gatekeeperSenders,
+  gatekeeperSettings,
+  mailAccounts,
+  mailMessageAddresses,
+  mailMessages,
+  mailThreads,
+} from '../db/schema';
+
+export type GatekeeperStatus = 'pending' | 'approved' | 'blocked';
+
+export type GatekeeperMessage = {
+  id: string;
+  accountId: string;
+  accountEmail: string;
+  providerMessageId: string;
+  threadId: string;
+  sender: string;
+  subject: string;
+  snippet: string;
+  sentAt: number;
+};
+
+export type GatekeeperSender = {
+  email: string;
+  displayName: string;
+  avatarUrl?: string;
+  status: GatekeeperStatus;
+  firstSeenAt: number;
+  lastSeenAt: number;
+  messageCount: number;
+  messages: GatekeeperMessage[];
+};
+
+export type GatekeeperOverview = {
+  activatedAt: number;
+  pending: GatekeeperSender[];
+  blocked: GatekeeperSender[];
+};
+
+type DiscoveredSender = {
+  email: string;
+  displayName: string;
+  firstSeenAt: number;
+  lastSeenAt: number;
+  needsReview: boolean;
+  messagesById: Map<string, GatekeeperMessage>;
+};
+
+function normalizeSenderAddress(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+/**
+ * The activation timestamp: Gatekeeper only reviews senders that arrived after
+ * it first ran, so an existing mailbox is not flagged as new on every launch.
+ */
+async function loadActivationTime(): Promise<number> {
+  const setting = await db
+    .select({ activatedAt: gatekeeperSettings.activatedAt })
+    .from(gatekeeperSettings)
+    .where(eq(gatekeeperSettings.id, 1))
+    .get();
+
+  if (setting) return setting.activatedAt;
+
+  const activatedAt = Date.now();
+  await db.insert(gatekeeperSettings).values({ id: 1, activatedAt });
+  return activatedAt;
+}
+
+/** Discovers new inbox senders, including all their available local emails for review. */
+async function discoverSenders(activatedAt: number): Promise<Map<string, DiscoveredSender>> {
+  const [addressRows, accountRows] = await Promise.all([
+    db
+      .select({
+        address: mailMessageAddresses.address,
+        displayName: mailMessageAddresses.name,
+        messageId: mailMessages.id,
+        providerMessageId: mailMessages.providerMessageId,
+        threadId: mailThreads.providerThreadId,
+        accountId: mailMessages.accountId,
+        sender: mailMessages.sender,
+        subject: mailMessages.subject,
+        snippet: mailMessages.snippet,
+        sentAt: mailMessages.sentAt,
+        labelIds: mailMessages.labelIds,
+      })
+      .from(mailMessageAddresses)
+      .innerJoin(mailMessages, eq(mailMessageAddresses.messageId, mailMessages.id))
+      .innerJoin(mailThreads, eq(mailThreads.id, mailMessages.threadId))
+      .where(eq(mailMessageAddresses.kind, 'from'))
+      .orderBy(asc(mailMessages.sentAt)),
+    db.select({ id: mailAccounts.id, email: mailAccounts.email }).from(mailAccounts),
+  ]);
+
+  const accountEmails = new Map(accountRows.map((account) => [account.id, account.email]));
+  const ownAddresses = new Set(accountRows.map((account) => normalizeSenderAddress(account.email)));
+  const senders = new Map<string, DiscoveredSender>();
+
+  for (const row of addressRows) {
+    if (!row.address || row.labelIds.includes('TRASH') || row.labelIds.includes('SPAM')) continue;
+    const email = normalizeSenderAddress(row.address);
+    if (!email || ownAddresses.has(email)) continue;
+
+    const message: GatekeeperMessage = {
+      id: row.messageId,
+      accountId: row.accountId,
+      accountEmail: accountEmails.get(row.accountId) ?? '',
+      providerMessageId: row.providerMessageId,
+      threadId: row.threadId,
+      sender: row.sender,
+      subject: row.subject,
+      snippet: row.snippet,
+      sentAt: row.sentAt,
+    };
+    const needsReview = row.sentAt >= activatedAt && row.labelIds.includes('INBOX');
+    const existing = senders.get(email);
+    if (existing) {
+      existing.needsReview ||= needsReview;
+      existing.displayName = row.displayName?.trim() || existing.displayName;
+      existing.firstSeenAt = Math.min(existing.firstSeenAt, row.sentAt);
+      existing.lastSeenAt = Math.max(existing.lastSeenAt, row.sentAt);
+      existing.messagesById.set(row.messageId, message);
+    } else {
+      senders.set(email, {
+        email,
+        displayName: row.displayName?.trim() ?? '',
+        firstSeenAt: row.sentAt,
+        lastSeenAt: row.sentAt,
+        needsReview,
+        messagesById: new Map([[row.messageId, message]]),
+      });
+    }
+  }
+
+  return senders;
+}
+
+/** Upserts discovered senders without touching decided statuses. */
+async function persistDiscoveredSenders(
+  senders: ReadonlyMap<string, DiscoveredSender>,
+): Promise<void> {
+  const updatedAt = Date.now();
+  for (const sender of senders.values()) {
+    if (!sender.needsReview) continue;
+    await db
+      .insert(gatekeeperSenders)
+      .values({
+        email: sender.email,
+        displayName: sender.displayName,
+        status: 'pending',
+        firstSeenAt: sender.firstSeenAt,
+        lastSeenAt: sender.lastSeenAt,
+        messageCount: sender.messagesById.size,
+        updatedAt,
+      })
+      .onConflictDoUpdate({
+        target: gatekeeperSenders.email,
+        set: {
+          displayName: sender.displayName,
+          firstSeenAt: sender.firstSeenAt,
+          lastSeenAt: sender.lastSeenAt,
+          messageCount: sender.messagesById.size,
+          updatedAt,
+        },
+      });
+  }
+}
+
+export async function loadGatekeeperOverview(): Promise<GatekeeperOverview> {
+  const activatedAt = await loadActivationTime();
+  const discovered = await discoverSenders(activatedAt);
+  await persistDiscoveredSenders(discovered);
+
+  const rows = await db.select().from(gatekeeperSenders).orderBy(asc(gatekeeperSenders.lastSeenAt));
+  const pending: GatekeeperSender[] = [];
+  const blocked: GatekeeperSender[] = [];
+
+  for (const row of rows.reverse()) {
+    const sender: GatekeeperSender = {
+      email: row.email,
+      displayName: row.displayName,
+      status: row.status,
+      firstSeenAt: row.firstSeenAt,
+      lastSeenAt: row.lastSeenAt,
+      messageCount: discovered.get(row.email)?.messagesById.size ?? 0,
+      messages: [...(discovered.get(row.email)?.messagesById.values() ?? [])].sort(
+        (left, right) => right.sentAt - left.sentAt,
+      ),
+    };
+    if (row.status === 'pending' && sender.messages.length) pending.push(sender);
+    if (row.status === 'blocked') blocked.push(sender);
+  }
+
+  return { activatedAt, pending, blocked };
+}
+
+export async function setGatekeeperSenderStatus(
+  email: string,
+  status: GatekeeperStatus,
+): Promise<void> {
+  await db
+    .update(gatekeeperSenders)
+    .set({ status, updatedAt: Date.now() })
+    .where(eq(gatekeeperSenders.email, normalizeSenderAddress(email)));
+}

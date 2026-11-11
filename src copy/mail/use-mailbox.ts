@@ -1,0 +1,443 @@
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Alert } from 'react-native';
+import { clearLocalDatabase } from '../db/db';
+import { loadMailPreferences, saveNotificationPreferences } from '../settings/preferences';
+import { gmailAccountAuth } from './accounts';
+import { messageFor } from './async';
+import { notifyNewMailThreads, syncNotificationBadge, threadNotificationId } from './notifications';
+import {
+  loadGatekeeperOverview,
+  setGatekeeperSenderStatus,
+  type GatekeeperOverview,
+  type GatekeeperStatus,
+} from './gatekeeper';
+import {
+  archiveGmailThread,
+  trashGmailThread,
+  setGmailThreadReadState,
+  withGmailReauth,
+} from './gmail';
+import {
+  loadThreadDetail,
+  loadThreads,
+  removeInboxThread,
+  setThreadDoneState,
+  setThreadPinnedState,
+  setThreadReadState,
+} from './thread-store';
+import { trashMessage } from './trash-message';
+import type { GatekeeperMessage } from './gatekeeper';
+import { startInboxSync, type SyncController } from './sync';
+import type { MailThreadDetail, MailThreadSummary } from './types';
+
+export function useMailbox() {
+  const gatekeeperBusy = useRef(false);
+  const syncRef = useRef<SyncController>(null);
+  const knownThreadKeys = useRef<Set<string> | null>(null);
+  const busyRef = useRef<string | undefined>(undefined);
+  const [threads, setThreads] = useState<MailThreadSummary[]>();
+  const [threadsError, setThreadsError] = useState<string>();
+  const [selectedThread, setSelectedThread] = useState<MailThreadSummary>();
+  const [detail, setDetail] = useState<MailThreadDetail>();
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState<string>();
+  const [gatekeeper, setGatekeeper] = useState<GatekeeperOverview>();
+  const [gatekeeperLoading, setGatekeeperLoading] = useState(true);
+  const [gatekeeperError, setGatekeeperError] = useState<string>();
+  const [gatekeeperActionEmail, setGatekeeperActionEmail] = useState<string>();
+  const [syncing, setSyncing] = useState(false);
+  const [syncLabel, setSyncLabel] = useState('Check Gmail for new mail');
+  const [syncRevision, setSyncRevision] = useState(0);
+  const [busyAction, setBusyAction] = useState<string>();
+
+  const refreshGatekeeper = useCallback(async (showLoading = true) => {
+    if (showLoading) setGatekeeperLoading(true);
+    setGatekeeperError(undefined);
+    try {
+      setGatekeeper(await loadGatekeeperOverview());
+    } catch (error) {
+      setGatekeeperError(messageFor(error));
+    } finally {
+      setGatekeeperLoading(false);
+    }
+  }, []);
+
+  // Reconciles freshly loaded threads with posted notifications: brand-new
+  // arrivals banner (gated by preferences, quiet hours, and recency inside
+  // notifyNewMailThreads), and the Dock badge mirrors the unread count.
+  const settleNotifications = useCallback(async (loaded: MailThreadSummary[]) => {
+    const keys = new Set(loaded.map((thread) => threadNotificationId(thread)));
+    const previous = knownThreadKeys.current;
+    knownThreadKeys.current = keys;
+
+    let preferences = loadMailPreferences();
+    if (!preferences.notificationsBaselined) {
+      // First sight of the list (install, re-download, or restart) never
+      // banners; only later arrivals do.
+      saveNotificationPreferences({ notificationsBaselined: true });
+      preferences = { ...preferences, notificationsBaselined: true };
+    } else if (preferences.notificationsEnabled && previous !== null) {
+      const fresh = loaded.filter((thread) => !previous.has(threadNotificationId(thread)));
+      if (fresh.length > 0) {
+        const accounts = await gmailAccountAuth.listAccounts().catch(() => []);
+        await notifyNewMailThreads(
+          fresh,
+          preferences,
+          new Map(accounts.map((account) => [account.id, account.email])),
+        );
+      }
+    }
+    await syncNotificationBadge(loaded.filter((thread) => thread.unread).length, preferences);
+  }, []);
+
+  const refreshThreads = useCallback(async () => {
+    setThreadsError(undefined);
+    try {
+      const loaded = await loadThreads();
+      setThreads(loaded);
+      await Promise.all([
+        refreshGatekeeper(false),
+        settleNotifications(loaded).catch(() => undefined),
+      ]);
+    } catch (error) {
+      setThreads([]);
+      setThreadsError(messageFor(error));
+    }
+  }, [refreshGatekeeper, settleNotifications]);
+
+  useEffect(() => {
+    void refreshThreads();
+  }, [refreshThreads]);
+
+  const accountId = selectedThread?.accountId;
+  const threadId = selectedThread?.threadId;
+  useEffect(() => {
+    if (!accountId || !threadId) {
+      setDetail(undefined);
+      setDetailError(undefined);
+      setDetailLoading(false);
+      return;
+    }
+    let active = true;
+    setDetail(undefined);
+    setDetailError(undefined);
+    setDetailLoading(true);
+    loadThreadDetail(accountId, threadId)
+      .then((loaded) => {
+        if (active) setDetail(loaded);
+      })
+      .catch((error) => {
+        if (active) setDetailError(messageFor(error));
+      })
+      .finally(() => {
+        if (active) setDetailLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [accountId, threadId]);
+
+  // Poll Gmail for changes; refresh the list whenever a sync cycle changed mail.
+  useEffect(() => {
+    const sync = startInboxSync({
+      onCycleStart: () => {
+        setSyncing(true);
+        setSyncLabel('Checking Gmail for new mail…');
+      },
+      onCycleComplete: (cycle) => {
+        const changed = cycle.accounts.some(
+          (account) => account.threadsUpserted > 0 || account.threadsRemoved > 0,
+        );
+        if (changed) void refreshThreads();
+        setSyncLabel(
+          cycle.failures.length > 0
+            ? 'Mail sync finished with errors'
+            : changed
+              ? 'Mail updated'
+              : 'Mail is up to date',
+        );
+      },
+      onError: () => setSyncLabel('Mail sync failed'),
+      onCycleEnd: () => setSyncing(false),
+    });
+    syncRef.current = sync;
+    return () => {
+      if (syncRef.current === sync) syncRef.current = null;
+      sync.stop();
+    };
+  }, [refreshThreads, syncRevision]);
+
+  const decideGatekeeperSender = useCallback(
+    async (email: string, status: GatekeeperStatus) => {
+      if (gatekeeperBusy.current) return;
+      gatekeeperBusy.current = true;
+      setGatekeeperActionEmail(email);
+      setGatekeeperError(undefined);
+      try {
+        await setGatekeeperSenderStatus(email, status);
+        await refreshThreads();
+      } catch (error) {
+        setGatekeeperError(messageFor(error));
+        Alert.alert('Could not update Gatekeeper', messageFor(error));
+      } finally {
+        gatekeeperBusy.current = false;
+        setGatekeeperActionEmail(undefined);
+      }
+    },
+    [refreshThreads],
+  );
+
+  const deleteGatekeeperMessage = useCallback(
+    async (email: string, message: GatekeeperMessage) => {
+      if (gatekeeperBusy.current) return false;
+      gatekeeperBusy.current = true;
+      setGatekeeperActionEmail(email);
+      let success = false;
+      try {
+        await trashMessage(message);
+        success = true;
+      } catch (error) {
+        Alert.alert('Could not move email to Trash', messageFor(error));
+      } finally {
+        await refreshThreads();
+        gatekeeperBusy.current = false;
+        setGatekeeperActionEmail(undefined);
+      }
+      return success;
+    },
+    [refreshThreads],
+  );
+
+  // Update the list immediately, restoring it if Gmail rejects the action.
+
+  const patchThread = useCallback(
+    (thread: MailThreadSummary, patch: Partial<MailThreadSummary>) => {
+      const matches = (item: MailThreadSummary) =>
+        item.accountId === thread.accountId && item.threadId === thread.threadId;
+      setThreads((current) =>
+        current?.map((item) => (matches(item) ? { ...item, ...patch } : item)),
+      );
+      setSelectedThread((current) =>
+        current && matches(current) ? { ...current, ...patch } : current,
+      );
+    },
+    [],
+  );
+
+  const toggleRead = useCallback(
+    async (thread: MailThreadSummary) => {
+      const key = `read:${thread.accountId}:${thread.threadId}`;
+      if (busyRef.current === key) return;
+      busyRef.current = key;
+      const unread = !thread.unread;
+
+      setBusyAction(key);
+      patchThread(thread, { unread });
+      let gmailUpdated = false;
+      try {
+        await withGmailReauth(thread.accountId, () =>
+          setGmailThreadReadState(thread.accountId, thread.threadId, unread),
+        );
+        gmailUpdated = true;
+        await setThreadReadState(thread.accountId, thread.threadId, unread);
+        syncRef.current?.runNow();
+      } catch (error) {
+        if (!gmailUpdated) patchThread(thread, { unread: thread.unread });
+        else syncRef.current?.runNow();
+        Alert.alert(
+          gmailUpdated ? 'Gmail updated, but Miwa could not refresh' : 'Could not update Gmail',
+          messageFor(error),
+        );
+      } finally {
+        if (busyRef.current === key) busyRef.current = undefined;
+        setBusyAction((current) => (current === key ? undefined : current));
+      }
+    },
+    [patchThread],
+  );
+
+  const archiveThread = useCallback(
+    async (thread: MailThreadSummary) => {
+      const key = `archive:${thread.accountId}:${thread.threadId}`;
+      if (busyRef.current === key) return;
+      busyRef.current = key;
+
+      setBusyAction(key);
+      setThreads((current) =>
+        current?.filter(
+          (item) => item.accountId !== thread.accountId || item.threadId !== thread.threadId,
+        ),
+      );
+      let gmailUpdated = false;
+      try {
+        await withGmailReauth(thread.accountId, () =>
+          archiveGmailThread(thread.accountId, thread.threadId),
+        );
+        gmailUpdated = true;
+        await removeInboxThread(thread.accountId, thread.threadId);
+        void refreshGatekeeper(false);
+        syncRef.current?.runNow();
+      } catch (error) {
+        await refreshThreads();
+        if (gmailUpdated) syncRef.current?.runNow();
+        Alert.alert(
+          gmailUpdated
+            ? 'Gmail archived the conversation, but Miwa could not refresh'
+            : 'Could not archive conversation',
+          messageFor(error),
+        );
+      } finally {
+        if (busyRef.current === key) busyRef.current = undefined;
+        setBusyAction((current) => (current === key ? undefined : current));
+      }
+    },
+    [refreshGatekeeper, refreshThreads],
+  );
+
+  const trashThread = useCallback(
+    async (thread: MailThreadSummary) => {
+      const key = `trash:${thread.accountId}:${thread.threadId}`;
+      if (busyRef.current === key) return;
+      busyRef.current = key;
+
+      setBusyAction(key);
+      setThreads((current) =>
+        current?.filter(
+          (item) => item.accountId !== thread.accountId || item.threadId !== thread.threadId,
+        ),
+      );
+      let gmailUpdated = false;
+      try {
+        await withGmailReauth(thread.accountId, () =>
+          trashGmailThread(thread.accountId, thread.threadId),
+        );
+        gmailUpdated = true;
+        await removeInboxThread(thread.accountId, thread.threadId);
+        void refreshGatekeeper(false);
+        syncRef.current?.runNow();
+      } catch (error) {
+        await refreshThreads();
+        if (gmailUpdated) syncRef.current?.runNow();
+        Alert.alert(
+          gmailUpdated
+            ? 'Gmail trashed the conversation, but Miwa could not refresh'
+            : 'Could not move conversation to Trash',
+          messageFor(error),
+        );
+      } finally {
+        if (busyRef.current === key) busyRef.current = undefined;
+        setBusyAction((current) => (current === key ? undefined : current));
+      }
+    },
+    [refreshGatekeeper, refreshThreads],
+  );
+
+  const setPinned = useCallback(
+    async (thread: MailThreadSummary, pinned: boolean) => {
+      const key = `pin:${thread.accountId}:${thread.threadId}`;
+      if (busyRef.current === key) return;
+      busyRef.current = key;
+
+      setBusyAction(key);
+      patchThread(thread, { pinned });
+      try {
+        await setThreadPinnedState(thread.accountId, thread.threadId, pinned);
+      } catch (error) {
+        patchThread(thread, { pinned: thread.pinned });
+        Alert.alert('Could not update pin', messageFor(error));
+      } finally {
+        if (busyRef.current === key) busyRef.current = undefined;
+        setBusyAction((current) => (current === key ? undefined : current));
+      }
+    },
+    [patchThread],
+  );
+
+  const setDone = useCallback(
+    async (thread: MailThreadSummary, done: boolean) => {
+      const key = `done:${thread.accountId}:${thread.threadId}`;
+      if (busyRef.current === key) return;
+      busyRef.current = key;
+
+      // Finishing a conversation reads it too. Without the Gmail update the
+      // next sync would download the thread and restore its unread state.
+      const markRead = done && thread.unread;
+      setBusyAction(key);
+      patchThread(thread, markRead ? { done, unread: false } : { done });
+      try {
+        await setThreadDoneState(thread.accountId, thread.threadId, done);
+        if (markRead) {
+          let gmailUpdated = false;
+          try {
+            await withGmailReauth(thread.accountId, () =>
+              setGmailThreadReadState(thread.accountId, thread.threadId, false),
+            );
+            gmailUpdated = true;
+            await setThreadReadState(thread.accountId, thread.threadId, false);
+            syncRef.current?.runNow();
+          } catch (error) {
+            // The done state stands; the conversation just stays unread.
+            patchThread(thread, { unread: thread.unread });
+            if (gmailUpdated) syncRef.current?.runNow();
+            Alert.alert('Could not mark conversation as read', messageFor(error));
+          }
+        }
+      } catch (error) {
+        patchThread(
+          thread,
+          markRead ? { done: thread.done, unread: thread.unread } : { done: thread.done },
+        );
+        Alert.alert('Could not update done status', messageFor(error));
+      } finally {
+        if (busyRef.current === key) busyRef.current = undefined;
+        setBusyAction((current) => (current === key ? undefined : current));
+      }
+    },
+    [patchThread],
+  );
+
+  const resetMailbox = useCallback(() => {
+    syncRef.current?.stop();
+    syncRef.current = null;
+    try {
+      clearLocalDatabase();
+      setThreads([]);
+      setThreadsError(undefined);
+      setSelectedThread(undefined);
+      setDetail(undefined);
+      setDetailError(undefined);
+      setSyncing(false);
+      setSyncLabel('No downloaded mail to sync');
+      void refreshGatekeeper();
+    } finally {
+      setSyncRevision((current) => current + 1);
+    }
+  }, [refreshGatekeeper]);
+
+  return {
+    threads,
+    threadsError,
+    refreshThreads,
+    selectedThread,
+    setSelectedThread,
+    detail,
+    detailLoading,
+    detailError,
+    busyAction,
+    toggleRead,
+    archiveThread,
+    trashThread,
+    setDone,
+    setPinned,
+    gatekeeper,
+    gatekeeperLoading,
+    gatekeeperError,
+    gatekeeperActionEmail,
+    refreshGatekeeper,
+    decideGatekeeperSender,
+    deleteGatekeeperMessage,
+    syncing,
+    syncLabel,
+    resetMailbox,
+  };
+}

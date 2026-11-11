@@ -1,0 +1,44 @@
+diff --git a/node_modules/expo-modules-core/ios/Core/Views/SwiftUI/SwiftUIVirtualViewObjC.h b/node_modules/expo-modules-core/ios/Core/Views/SwiftUI/SwiftUIVirtualViewObjC.h
+index 62486da..789b072 100644
+--- a/node_modules/expo-modules-core/ios/Core/Views/SwiftUI/SwiftUIVirtualViewObjC.h
++++ b/node_modules/expo-modules-core/ios/Core/Views/SwiftUI/SwiftUIVirtualViewObjC.h
+@@ -13,6 +13,14 @@ NS_ASSUME_NONNULL_BEGIN
+ 
+ @property (nonatomic) NSInteger tag;
+ 
++#if TARGET_OS_OSX
++// react-native-macos's Fabric mounting (RCTComponentViewRegistry) sets
++// `view.reactTag = @(tag)` on macOS, whereas iOS sets `view.tag = tag`.
++// This virtual view is a bare NSObject, so without this it doesn't respond to
++// `setReactTag:` and mounting crashes. Bridge `reactTag` to the existing `tag`.
++@property (nonatomic, nullable, strong) NSNumber *reactTag;
++#endif
++
+ - (void)dispatchEvent:(nonnull NSString *)eventName payload:(nullable id)payload;
+ 
+ - (void)updateProps:(nonnull NSDictionary<NSString *, id> *)props;
+diff --git a/node_modules/expo-modules-core/ios/Core/Views/SwiftUI/SwiftUIVirtualViewObjC.mm b/node_modules/expo-modules-core/ios/Core/Views/SwiftUI/SwiftUIVirtualViewObjC.mm
+index 6898101..763926a 100644
+--- a/node_modules/expo-modules-core/ios/Core/Views/SwiftUI/SwiftUIVirtualViewObjC.mm
++++ b/node_modules/expo-modules-core/ios/Core/Views/SwiftUI/SwiftUIVirtualViewObjC.mm
+@@ -96,6 +96,20 @@ - (instancetype)init
+   return self;
+ }
+ 
++#if TARGET_OS_OSX
++// Bridge react-native-macos's `reactTag` (NSNumber) onto the `tag` used by the
++// rest of the virtual-view machinery, matching iOS's `view.tag = tag`.
++- (void)setReactTag:(nullable NSNumber *)reactTag
++{
++  self.tag = reactTag.integerValue;
++}
++
++- (nullable NSNumber *)reactTag
++{
++  return @(self.tag);
++}
++#endif
++
+ #pragma mark - UIView(UIViewHierarchy)
+ 
+ - (nullable UIView *)superview
