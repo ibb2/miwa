@@ -1,73 +1,18 @@
 {
   "name": "miwa",
   "version": "0.0.1",
-  "main": "index.ts",
+  "private": true,
   "scripts": {
-    "start": "expo start",
-    "android": "expo run:android",
-    "ios": "expo run:ios",
-    "web": "expo start --web",
-    "prebuild:macos": "./scripts/run-expo-desktop prebuild --platform macos --template expo-desktop-template-bare-minimum@beta",
-    "prebuild:macos:clean": "./scripts/run-expo-desktop prebuild --platform macos --clean --template expo-desktop-template-bare-minimum@beta",
-    "macos": "react-native run-macos --mode Debug --allow-provisioning-updates",
-    "windows": "react-native run-windows",
-    "autolink-windows": "react-native autolink-windows",
-    "typecheck": "tsc --noEmit",
-    "postinstall": "patch-package",
-    "format": "prettier --write App.tsx src modules/*/src metro.config.js global.css",
-    "format:check": "prettier --check App.tsx src modules/*/src metro.config.js global.css",
-    "styles:generate": "uniwind generate-artifacts --css ./global.css --dts ./src/uniwind-types.d.ts",
-    "package:macos": "./scripts/package-macos.sh"
+    "mac": "bun exact.mjs mac --run",
+    "check": "bun exact.mjs contract build app.contract --json --errors-only",
+    "format": "prettier --write app.ts src",
+    "format:check": "prettier --check app.ts src"
   },
   "dependencies": {
-    "@expo/ui": "0.2.0-beta.9",
-    "@legendapp/list": "3.3.10",
-    "drizzle-orm": "^1.0.0-rc.4",
-    "expo": "~54.0.35",
-    "expo-desktop-config-plugins": "1.2.0-beta.0",
-    "expo-desktop-modules-core": "~54.0.14-beta.0",
-    "expo-desktop-prebuild-config": "~1.1.0-beta.0",
-    "expo-desktop-stubs": "~54.0.14-beta.0",
-    "expo-sqlite": "~16.0.10",
-    "expo-status-bar": "~3.0.9",
-    "react": "19.1.4",
-    "react-native": "0.81.6",
-    "react-native-macos": "0.81.7",
-    "react-native-nitro-modules": "0.36.1",
-    "react-native-sensitive-info": "6.1.5",
-    "react-native-windows": "0.81.35",
-    "tailwindcss": "^4.3.3",
-    "uniwind": "^1.12.0"
+    "@exact/oauth": "file:../exact/packages/oauth",
+    "@exact/notifications": "file:../exact/packages/notifications"
   },
   "devDependencies": {
-    "@react-native-community/cli": "^20.1.3",
-    "@react-native/metro-config": "0.81.6",
-    "@rnx-kit/metro-config": "^2.2.4",
-    "@types/bun": "^1.4.1",
-    "@types/react": "~19.2.17",
-    "@types/react-test-renderer": "^19.1.0",
-    "drizzle-kit": "^1.0.0-rc.4",
-    "expo-desktop": "1.0.0-beta.4",
-    "expo-desktop-template-bare-minimum": "~54.81.1-beta.4",
-    "patch-package": "^8.0.1",
-    "prettier": "^3.9.6",
-    "react-test-renderer": "19.1.4",
-    "typescript": "~5.9.2"
-  },
-  "private": true,
-  "engines": {
-    "node": ">=26 <27"
-  },
-  "overrides": {
-    "react": "19.1.4",
-    "react-native": "0.81.6"
-  },
-  "expo": {
-    "install": {
-      "exclude": [
-        "react",
-        "react-native"
-      ]
-    }
+    "prettier": "^3.9.6"
   }
 }

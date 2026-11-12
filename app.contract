@@ -1,0 +1,1260 @@
+// Miwa: your Gmail inboxes, together on your Mac. The view; app.ts answers
+// what it asks for. Each screen draws its own bar in the window's title row.
+use notificationStatus, requestNotificationPermission, notificationclick, NotificationStatus, NotificationEvent from "@exact/notifications"
+
+shape Time
+  epochAtZero: number
+  utcOffset: number
+
+shape Viewport
+  width: number
+  displayMode: string
+
+shape Account
+  id: string
+  email: string
+  displayName: string
+  initials: string
+
+shape SignInSession
+  error: string
+
+shape ThreadRow
+  key: string
+  accountId: string
+  threadId: string
+  sender: string
+  subject: string
+  preview: string
+  receivedAt: number
+  unread: bool
+  done: bool
+  pinned: bool
+  messageCount: number
+  hasAttachments: bool
+
+shape Mailbox
+  threads: ThreadRow[]
+  inboxCount: number
+  pinnedCount: number
+  totalCount: number
+  error: string
+
+shape Address
+  kind: string
+  kindLabel: string
+  label: string
+  full: string
+  email: string
+  rawValue: string
+  avatar: string
+  canBlock: bool
+
+shape Attachment
+  id: string
+  filename: string
+  symbol: string
+  color: string
+
+shape Message
+  id: string
+  name: string
+  initials: string
+  avatar: string
+  from: Address[]
+  to: Address[]
+  recipients: string
+  addresses: Address[]
+  sentAt: number
+  body: string
+  imageError: bool
+
+shape Detail
+  found: bool
+  error: string
+  accountId: string
+  threadId: string
+  subject: string
+  done: bool
+  unread: bool
+  pinned: bool
+  attachments: Attachment[]
+  messages: Message[]
+
+shape ReviewMessage
+  id: string
+  accountId: string
+  accountEmail: string
+  threadId: string
+  providerMessageId: string
+  subject: string
+  snippet: string
+  sentAt: number
+
+shape Sender
+  email: string
+  title: string
+  subtitle: string
+  initials: string
+  color: string
+  blocked: bool
+  countLabel: string
+  messages: ReviewMessage[]
+
+shape Gatekeeper
+  loaded: bool
+  error: string
+  pendingCount: number
+  blockedCount: number
+  senders: Sender[]
+
+shape AccountPref
+  id: string
+  email: string
+  displayName: string
+  notified: bool
+
+shape Prefs
+  showPreviews: bool
+  notificationsEnabled: bool
+  notificationsSound: bool
+  notificationsBadge: bool
+  notificationsShowPreview: bool
+  notificationsDndEnabled: bool
+  notificationsDndStartHour: number
+  notificationsDndEndHour: number
+  accounts: AccountPref[]
+
+shape DownloadStatus
+  active: bool
+  fraction: number
+  label: string
+  accountId: string
+
+shape Reply
+  ok: bool
+  title: string
+  error: string
+
+shape ConnectReply
+  ok: bool
+  title: string
+  error: string
+  accountId: string
+
+shape UrlReply
+  ok: bool
+  title: string
+  error: string
+  url: string
+
+shape FileReply
+  ok: bool
+  title: string
+  error: string
+  path: string
+  filename: string
+
+shape SyncReply
+  label: string
+  changed: bool
+
+// A list row's date: the time today, the day this year, else the full date.
+fn year(ms: number, offset: number): string = formatDate(ms, offset, "iso").slice(0, 4)
+fn shortDate(ms: number, offset: number): string = formatDate(ms, offset, "medium").replaceAll(`, ${year(ms, offset)}`, "")
+fn listDate(ms: number, now: number, offset: number): string = formatDate(ms, offset, "iso") == formatDate(now, offset, "iso") ? formatTime(ms, offset, "short") : (year(ms, offset) == year(now, offset) ? shortDate(ms, offset) : formatDate(ms, offset, "medium"))
+fn cardDate(ms: number, offset: number): string = `${shortDate(ms, offset)}, ${formatTime(ms, offset, "short")}`
+fn longDate(ms: number, offset: number): string = `${formatDate(ms, offset, "medium")} at ${formatTime(ms, offset, "short")}`
+fn hourLabel(hour: number): string = `${hour % 12 == 0 ? 12 : hour % 12} ${hour < 12 ? "AM" : "PM"}`
+fn plural(count: number, one: string, many: string): string = `${count} ${count == 1 ? one : many}`
+fn part(path: string, index: number): string = match path.split("/").at(index) { case some(v) => v, case none => "" }
+
+// What a pointer over a control, or a press of it, shows (LLP 1121 D8).
+// Plain: a borderless icon or text control, washed grey.
+style Plain
+  :hover
+    background-color = "control.hover"
+  :active
+    background-color = "control.press"
+
+// Filled: a control already filled (a selected tab, a toggle that is on), dimmed.
+style Filled
+  :hover
+    opacity = 0.88
+  :active
+    opacity = 0.72
+
+// Row: a list row that opens what it shows.
+style Row
+  :hover
+    background-color = "row.hover"
+  :active
+    background-color = "row.press"
+
+// Still: pressable only to keep its clicks in the page (the title row); a press shows nothing.
+style Still
+  :active
+    opacity = 1
+    -exact-press-scale = 1
+
+// Card: an item of the contact card, which keeps its light look in Dark Mode.
+style Card
+  :hover
+    background-color = "contact.hover"
+  :active
+    background-color = "contact.press"
+
+component App
+  state screen = "inbox"
+  state openAccount = ""
+  state openThreadId = ""
+  state openMessage = ""
+  state mailboxView = "all"
+  state inboxTab = "inbox"
+  state mailQuery = ""
+  state showDone = false
+  state gkTab = 0
+  state gkQuery = ""
+  state expandedSender = ""
+  state reviewSubject = ""
+  state settingsTab = "offline"
+  state syncLabel = "Check Gmail for new mail"
+  state now = 0
+  state alertTitle = ""
+  state alertMessage = ""
+  state removing = ""
+  state removingEmail = ""
+  state contactName = ""
+  state contactEmail = ""
+  state contactRaw = ""
+  state contactAvatar = ""
+  state contactCanBlock = false
+  state copied = false
+  state attachmentIds: string[] = []
+
+  resource time = exactTime() as shape Time
+  resource viewport = exactViewport() as shape Viewport
+  resource accounts = loadAccounts() as shape Account[] else empty()
+  resource signIn = signInSession() as shape SignInSession else empty(error="")
+  resource mailbox = loadMailbox(mailboxView, inboxTab, mailQuery, showDone) as shape Mailbox
+  resource detail = loadDetail(openAccount, openThreadId, openMessage, reviewSubject) as shape Detail
+  resource gatekeeper = loadGatekeeper(gkTab, gkQuery) with time.epochAtZero as shape Gatekeeper
+  resource prefs = loadPrefs() as shape Prefs
+  resource download = downloadStatus() as shape DownloadStatus
+  resource notify = notificationStatus() as shape NotificationStatus
+
+  mutation acted as shape Reply queue refreshes mailbox, detail, gatekeeper then afterAct
+  mutation decided as shape Reply queue refreshes mailbox, gatekeeper then afterDecide
+  mutation trashed as shape Reply refreshes mailbox, detail, gatekeeper then afterTrash
+  mutation synced as shape SyncReply refreshes mailbox, detail, gatekeeper then afterSync
+  mutation downloaded as shape Reply refreshes mailbox, gatekeeper, download, prefs then afterDownload
+  mutation connected as shape ConnectReply refreshes accounts, signIn, prefs, mailbox then afterConnect
+  mutation disconnected as shape Reply refreshes accounts, signIn, prefs, mailbox then afterDisconnect
+  mutation prefSaved as shape Reply queue refreshes prefs then afterPref
+  mutation zoomed as shape Reply
+  mutation cleared as shape Reply refreshes mailbox, detail, gatekeeper, prefs then afterClear
+  mutation composed as shape UrlReply then afterCompose
+  mutation prepared as shape FileReply then afterPrepare
+  mutation savedAll as shape Reply then afterSaveAll
+  mutation asked as shape NotificationStatus refreshes notify
+
+  derive clock = time.epochAtZero + now
+  derive accountName = match first(accounts.filter(a => a.id == mailboxView)) { case some(a) => a.email, case none => "" }
+  derive settingsTitle = settingsTab == "offline" ? "Offline" : (settingsTab == "inbox" ? "Inbox" : (settingsTab == "notifications" ? "Notifications" : (settingsTab == "accounts" ? "Accounts" : "Data")))
+  derive dndOn = prefs.notificationsEnabled and prefs.notificationsDndEnabled
+  // The Mac's tall title row: its menu bar holds Settings… (⌘,), so no bar button does.
+  derive macWindow = viewport.displayMode == "window-controls-overlay"
+  derive inboxTitle = mailboxView == "all" ? "All Inboxes" : (accountName != "" ? accountName : "Inbox")
+  derive compact = viewport.width < 960
+  derive busy = pending(acted)
+  derive gkBusy = pending(decided) or pending(trashed)
+  derive downloading = download.active or pending(downloaded)
+  derive accountEmail = match first(accounts.filter(a => a.id == detail.accountId)) { case some(a) => a.email, case none => "" }
+  derive mailSearchHint = "Search mail, or use subject:, sender:, attachment: and body:. Quote phrases, e.g. subject:\"monthly report\"."
+
+  task firstSync mount
+    after(1500, runSync)
+  task syncEvery mount
+    every(60000, runSync)
+  task tick mount
+    every(30000, step)
+  task downloadPoll when downloading
+    every(500, pollDownload)
+
+  action step
+    now = performanceNow()
+  action runSync
+    now = performanceNow()
+    if time.epochAtZero > 0 and not pending(synced) and not downloading
+      syncLabel = "Checking Gmail for new mail…"
+      send synced = syncMail(time.epochAtZero + performanceNow(), time.utcOffset)
+  action afterSync
+    match synced
+      case some(r)
+        syncLabel = r.label
+      case none
+        syncLabel = "Mail sync failed"
+  action pollDownload
+    refresh download
+
+  // Alerts: one dialog, its title and message set before it opens.
+  action alert(title: string, message: string)
+    alertTitle = title
+    alertMessage = message
+    showModal("alert")
+  action report(ok: bool, title: string, error: string)
+    if not ok and title != ""
+      alert(title, error)
+
+  // Navigation.
+  action back
+    if screen == "review"
+      screen = "gatekeeper"
+      openMessage = ""
+    else
+      screen = "inbox"
+      openAccount = ""
+      openThreadId = ""
+      openMessage = ""
+  // A new-mail notification's click opens its conversation ("/mail/<account>/<thread>").
+  action opened(tag: string, e: NotificationEvent)
+    match e.data
+      case some(d)
+        if part(d, 1) == "mail"
+          openThread(part(d, 2), part(d, 3))
+      case none
+        now = performanceNow()
+  action selectView(view: string)
+    mailboxView = view
+    inboxTab = "inbox"
+    screen = "inbox"
+  action selectTab(tab: string)
+    inboxTab = tab
+  action searchMail(query: string)
+    mailQuery = query
+  action setShowDone(on: bool)
+    showDone = on
+  action openThread(accountId: string, threadId: string)
+    openAccount = accountId
+    openThreadId = threadId
+    openMessage = ""
+    screen = "conversation"
+  action openGatekeeper
+    expandedSender = ""
+    screen = "gatekeeper"
+  // A double click on a bar control is two presses, never the window's zoom.
+  state barTaps = 0
+  action stay
+    barTaps = 0
+  action zoomWindow
+    send zoomed = zoomWindow()
+  action newMessage
+    openURL("mailto:")
+  action openSettings
+    showModal("settings")
+  action selectSettings(tab: string)
+    settingsTab = tab
+
+  // Conversation actions, from a row or the toolbar. The overlay shows each at once.
+  action setDone(accountId: string, threadId: string, done: bool, unread: bool)
+    send acted = threadAction("done", accountId, threadId, done, unread, time.epochAtZero + performanceNow())
+  action setUnread(accountId: string, threadId: string, unread: bool)
+    send acted = threadAction("read", accountId, threadId, unread, false, time.epochAtZero + performanceNow())
+  action setPinned(accountId: string, threadId: string, pinned: bool)
+    send acted = threadAction("pin", accountId, threadId, pinned, false, time.epochAtZero + performanceNow())
+  action archive(accountId: string, threadId: string)
+    send acted = threadAction("archive", accountId, threadId, false, false, time.epochAtZero + performanceNow())
+  action trashThread(accountId: string, threadId: string)
+    send acted = threadAction("trash", accountId, threadId, false, false, time.epochAtZero + performanceNow())
+  action leaveRemoved(accountId: string, threadId: string)
+    if screen == "conversation" and openAccount == accountId and openThreadId == threadId
+      back()
+  action archiveOpen
+    archive(detail.accountId, detail.threadId)
+    leaveRemoved(detail.accountId, detail.threadId)
+  action trashOpen
+    trashThread(detail.accountId, detail.threadId)
+    leaveRemoved(detail.accountId, detail.threadId)
+  action afterAct
+    match acted
+      case some(r)
+        report(r.ok, r.title, r.error)
+        if r.ok
+          runSync()
+      case none
+        now = performanceNow()
+
+  // Reply, Reply All and Forward open a draft in the default mail app.
+  action compose(kind: string)
+    send composed = composeUrl(detail.accountId, detail.threadId, screen == "review" ? openMessage : "", kind, time.utcOffset)
+  action afterCompose
+    match composed
+      case some(r)
+        if r.ok
+          openURL(r.url)
+        else
+          alert(r.title, r.error)
+      case none
+        now = performanceNow()
+
+  // Gatekeeper.
+  action selectGkTab(tab: number)
+    gkTab = tab
+    expandedSender = ""
+  action searchGatekeeper(query: string)
+    gkQuery = query
+  action toggleSender(email: string)
+    expandedSender = expandedSender == email ? "" : email
+  action decide(email: string, status: string)
+    send decided = decideSender(email, status, time.epochAtZero + performanceNow())
+  action afterDecide
+    match decided
+      case some(r)
+        report(r.ok, r.title, r.error)
+      case none
+        now = performanceNow()
+  action openReview(m: ReviewMessage)
+    reviewSubject = m.subject
+    openAccount = m.accountId
+    openThreadId = m.threadId
+    openMessage = m.id
+    screen = "review"
+  action trashReviewed(accountId: string, providerMessageId: string)
+    send trashed = trashMessage(accountId, providerMessageId, time.epochAtZero + performanceNow())
+  action trashOpenReview
+    match first(gatekeeper.senders.map(s => s.messages).flat().filter(m => m.id == openMessage))
+      case some(m)
+        trashReviewed(m.accountId, m.providerMessageId)
+      case none
+        now = performanceNow()
+  action afterTrash
+    match trashed
+      case some(r)
+        report(r.ok, r.title, r.error)
+        if r.ok and screen == "review"
+          back()
+      case none
+        now = performanceNow()
+
+  // The contact card beside an address.
+  action showContact(a: Address)
+    contactName = a.label
+    contactEmail = a.email
+    contactRaw = a.rawValue
+    contactAvatar = a.avatar
+    contactCanBlock = a.canBlock
+    copied = false
+  action mailContact
+    openURL(`mailto:${encodeURIComponent(contactEmail)}`)
+  action copyContact
+    copyText(contactEmail)
+    copied = true
+  action searchContact
+    if accountEmail == ""
+      alert("Could not open Gmail search", "The email account is no longer connected.")
+    else
+      openURL(`https://mail.google.com/mail/u/?authuser=${encodeURIComponent(accountEmail)}#search/${encodeURIComponent(`from:${contactEmail}`)}`)
+  action blockContact
+    decide(contactEmail, "blocked")
+  action openLink(e: FrameNewWindow)
+    openURL(e.url)
+
+  // Attachments are saved where the person chooses.
+  action saveAttachment(id: string)
+    send prepared = prepareAttachment(id)
+  action afterPrepare
+    match prepared
+      case some(r)
+        if r.ok
+          saveFile("attachment-save", r.path, r.filename)
+        else
+          alert(r.title, r.error)
+      case none
+        now = performanceNow()
+  action saveAllAttachments
+    attachmentIds = detail.attachments.map(a => a.id)
+    showDirectoryPicker("attachments-folder")
+  action savedFolder(folder: string)
+    send savedAll = saveAttachments(attachmentIds, folder)
+  action afterSaveAll
+    match savedAll
+      case some(r)
+        report(r.ok, r.title, r.error)
+      case none
+        now = performanceNow()
+  action retryImages
+    refresh detail
+
+  // Accounts.
+  action connect
+    send connected = connectGmail(time.epochAtZero + performanceNow())
+  action afterConnect
+    match connected
+      case some(r)
+        if r.ok
+          mailboxView = r.accountId
+        else
+          alert(r.title, r.error)
+      case none
+        now = performanceNow()
+  action askRemove(id: string, email: string)
+    removing = id
+    removingEmail = email
+    showModal("remove-account")
+  action remove
+    send disconnected = disconnectGmail(removing)
+  action afterDisconnect
+    match disconnected
+      case some(r)
+        if r.ok
+          mailboxView = "all"
+        else
+          alert(r.title, r.error)
+      case none
+        now = performanceNow()
+
+  // Settings.
+  action downloadAll
+    send downloaded = downloadMail("", time.epochAtZero + performanceNow())
+  action downloadOne(id: string)
+    send downloaded = downloadMail(id, time.epochAtZero + performanceNow())
+  action afterDownload
+    refresh download
+    match downloaded
+      case some(r)
+        if r.title != ""
+          alert(r.title, r.error)
+      case none
+        now = performanceNow()
+  action setPref(key: string, on: bool)
+    send prefSaved = setPreference(key, on ? 1 : 0)
+  action setHour(key: string, hour: number)
+    send prefSaved = setPreference(key, (hour + 24) % 24)
+  action pickHour(key: string, value: string)
+    match parseNumber(value)
+      case some(h)
+        setHour(key, h)
+      case none
+        now = now
+  action setNotify(on: bool)
+    setPref("notificationsEnabled", on)
+    if on and notify.state == "prompt"
+      send asked = requestNotificationPermission()
+  action setAccountNotify(id: string, on: bool)
+    send prefSaved = setAccountNotified(id, on)
+  action afterPref
+    match prefSaved
+      case some(r)
+        report(r.ok, r.title, r.error)
+      case none
+        now = performanceNow()
+  action openNotificationSettings
+    openURL("x-apple.systempreferences:com.apple.Notifications-Settings.extension")
+  action clearAll
+    send cleared = clearData(time.epochAtZero + performanceNow())
+  action afterClear
+    match cleared
+      case some(r)
+        mailboxView = "all"
+        syncLabel = r.ok ? "No downloaded mail to sync" : syncLabel
+        alert(r.title, r.error)
+      case none
+        now = performanceNow()
+
+  view
+    main viewport-fit="cover" notificationclick=opened width="100%" height="100%" background-color="-exact-background"
+      if screen == "inbox"
+        column position="absolute" inset=0 display="flex" flex-direction="column"
+          TitleBar(title="", backLabel="", goBack=back, zoom=zoomWindow, testId="inbox-bar")
+            if accounts.length > 0
+              AccountSwitcher(accounts=accounts, selected=mailboxView, pick=selectView)
+            row flex=1 min-width=8
+            if pending(synced)
+              progress aria-label="Syncing Mail" title=syncLabel width=16 height=16 flex-shrink=0
+            if downloading
+              if download.fraction > 0
+                progress value=download.fraction max=1 aria-label="Download Progress" title=download.label width=64 flex-shrink=0
+              else
+                progress aria-label="Download Progress" title=download.label width=16 height=16 flex-shrink=0
+            GlassSearch(value=mailQuery, input=searchMail, placeholder="Search mail", tip=mailSearchHint, testId="mail-search")
+            row align-items="center" gap=10 height=36 padding="0 6px 0 14px" border-radius=18 flex-shrink=0 backgroundMaterial="glass" border="0.5px solid glass.edge" box-sizing="border-box" dblclick=stay title=(showDone ? "Hide done conversations" : "Show done conversations")
+              text "Show Done" font-size=13 color="-exact-secondary-label" white-space="nowrap"
+              input type="checkbox" role="switch" checked=showDone change=setShowDone aria-label="Show Done" testId="done-toggle"
+            button appearance="none" press=openGatekeeper aria-label="Gatekeeper" title=(gatekeeper.pendingCount > 0 ? `Review ${plural(gatekeeper.pendingCount, "new sender", "new senders")}` : "No new senders to review") height=36 min-width=36 padding=(gatekeeper.pendingCount > 0 ? "0 14px 0 12px" : "0") border-radius=18 flex-shrink=0 display="flex" align-items="center" justify-content="center" gap=6 backgroundMaterial="glass" border="0.5px solid glass.edge" box-sizing="border-box" class=Plain dblclick=stay testId="gatekeeper"
+              image "symbol:sf/checkmark.shield" font-size=15 color="-exact-label"
+              if gatekeeper.pendingCount > 0
+                text `${gatekeeper.pendingCount}` font-size=14 font-weight=500 color="-exact-label" font-variant-numeric="tabular-nums"
+            button appearance="none" press=newMessage aria-label="New Message" title="New message in your default mail app" width=36 height=36 border-radius=18 flex-shrink=0 display="flex" align-items="center" justify-content="center" backgroundMaterial="glass" border="0.5px solid glass.edge" box-sizing="border-box" class=Plain dblclick=stay testId="compose"
+              image "symbol:compose" font-size=15 color="-exact-label"
+            if macWindow
+              button appearance="none" press=openSettings aria-label="Settings…" aria-keyshortcuts="Meta+," -exact-menu="app" position="absolute" width=1 height=1 opacity=0 overflow="hidden" pointer-events="none" testId="open-settings"
+            else
+              button appearance="none" press=openSettings aria-label="Settings…" title="Settings" aria-keyshortcuts="Meta+," width=36 height=36 border-radius=18 flex-shrink=0 display="flex" align-items="center" justify-content="center" backgroundMaterial="glass" border="0.5px solid glass.edge" box-sizing="border-box" class=Plain dblclick=stay testId="open-settings"
+                image "symbol:settings" font-size=15 color="-exact-label"
+          InboxBody(mailbox=mailbox, accounts=accounts, loaded=(not pending(mailbox) or mailbox.totalCount > 0 or mailbox.error != ""), tab=inboxTab, query=mailQuery, mailboxName=accountName, showPreview=(prefs.showPreviews and not compact), fadeDone=showDone, now=clock, offset=time.utcOffset, selectTab=selectTab, open=openThread, setDone=setDone, setUnread=setUnread, archive=archive, setPinned=setPinned, connect=connect, retry=runSync)
+
+      if screen == "conversation"
+        column position="absolute" inset=0 display="flex" flex-direction="column"
+          TitleBar(title="", backLabel=`Back to ${inboxTitle}`, goBack=back, zoom=zoomWindow, testId="conversation-bar")
+            row flex=1 min-width=0
+            BarGroup(label="Reply")
+              BarButton(symbol="symbol:sf/arrowshape.turn.up.left", label="Reply", tip="Reply in your default mail app", press=compose("reply"), disabled=busy, active=false, testId="reply")
+              BarButton(symbol="symbol:sf/arrowshape.turn.up.left.2", label="Reply All", tip="Reply All in your default mail app", press=compose("reply-all"), disabled=busy, active=false, testId="reply-all")
+              BarButton(symbol="symbol:forward", label="Forward", tip="Forward in your default mail app", press=compose("forward"), disabled=busy, active=false, testId="forward")
+            BarGroup(label="Conversation")
+              BarButton(symbol="symbol:select", label=(detail.done ? "Mark as not done" : "Done"), tip=(detail.done ? "Mark as not done" : "Done"), press=setDone(detail.accountId, detail.threadId, not detail.done, detail.unread), disabled=busy, active=detail.done, testId="message-done")
+              BarButton(symbol=(detail.unread ? "symbol:sf/envelope.badge" : "symbol:sf/envelope.open"), label=(detail.unread ? "Mark as read" : "Mark as unread"), tip=(detail.unread ? "Mark as read" : "Mark as unread"), press=setUnread(detail.accountId, detail.threadId, not detail.unread), disabled=busy, active=false, testId="message-read")
+              BarButton(symbol="symbol:sf/archivebox", label="Archive", tip="Archive conversation", press=archiveOpen, disabled=busy, active=false, testId="message-archive")
+              BarButton(symbol="symbol:pin", label=(detail.pinned ? "Unpin" : "Pin"), tip=(detail.pinned ? "Unpin conversation" : "Pin conversation"), press=setPinned(detail.accountId, detail.threadId, not detail.pinned), disabled=busy, active=detail.pinned, testId="message-pin")
+            BarGroup(label="Trash")
+              BarButton(symbol="symbol:delete", label="Move to Trash", tip="Move conversation to Gmail Trash", press=trashOpen, disabled=busy, active=false, testId="message-trash")
+          DetailBody(detail=detail, scroller="detail", loading=pending(detail), offset=time.utcOffset, contact=showContact, saveAttachment=saveAttachment, saveAll=saveAllAttachments, saving=(pending(prepared) or pending(savedAll)), retryImages=retryImages, openLink=openLink)
+
+      if screen == "gatekeeper"
+        column position="absolute" inset=0 display="flex" flex-direction="column"
+          TitleBar(title="Gatekeeper", backLabel="Back to inbox", goBack=back, zoom=zoomWindow, testId="gatekeeper-bar")
+            row role="tablist" aria-label="Sender status" height=36 gap=2 padding="0 4px" border-radius=18 align-items="center" flex-shrink=0 backgroundMaterial="glass" border="0.5px solid glass.edge" box-sizing="border-box" dblclick=stay
+              BarTab(label=`New (${gatekeeper.pendingCount})`, selected=(gkTab == 0), pick=selectGkTab(0), testId="gk-new")
+              BarTab(label=`Blocked (${gatekeeper.blockedCount})`, selected=(gkTab == 1), pick=selectGkTab(1), testId="gk-blocked")
+            GlassSearch(value=gkQuery, input=searchGatekeeper, placeholder="Search senders or emails", tip="", testId="gk-search")
+          scroll id="senders" flex=1 min-height=0
+            column width="100%" padding="6px 18px 16px" gap=2 box-sizing="border-box"
+              if gatekeeper.error != ""
+                column gap=8
+                  text gatekeeper.error color="-exact-system-red"
+                  button press=runSync testId="gk-retry"
+                    text "Try again"
+              if not gatekeeper.loaded and gatekeeper.error == ""
+                text "Loading senders…" color="-exact-secondary-label"
+              if gatekeeper.loaded and gatekeeper.senders.length == 0
+                text (gkQuery.trim() != "" ? "No matching senders or emails." : (gkTab == 0 ? "No new senders to review." : "No blocked senders.")) font-size=13 padding="24px 0" color="-exact-secondary-label" testId="gk-empty"
+              for s in gatekeeper.senders key=s.email
+                SenderRow(sender=s, expanded=(expandedSender == s.email), busy=gkBusy, offset=time.utcOffset, toggle=toggleSender(s.email), allow=decide(s.email, "approved"), block=decide(s.email, "blocked"), unblock=decide(s.email, "pending"), open=openReview, trash=trashReviewed)
+
+      if screen == "review"
+        column position="absolute" inset=0 display="flex" flex-direction="column"
+          TitleBar(title="", backLabel="Back to senders", goBack=back, zoom=zoomWindow, testId="review-bar")
+            row flex=1 min-width=0
+            BarGroup(label="Reply")
+              BarButton(symbol="symbol:sf/arrowshape.turn.up.left", label="Reply", tip="Reply in your default mail app", press=compose("reply"), disabled=gkBusy, active=false, testId="review-reply")
+              BarButton(symbol="symbol:sf/arrowshape.turn.up.left.2", label="Reply All", tip="Reply All in your default mail app", press=compose("reply-all"), disabled=gkBusy, active=false, testId="review-reply-all")
+              BarButton(symbol="symbol:forward", label="Forward", tip="Forward in your default mail app", press=compose("forward"), disabled=gkBusy, active=false, testId="review-forward")
+            BarGroup(label="Trash")
+              BarButton(symbol="symbol:delete", label="Move to Trash", tip="Move this email to Gmail Trash", press=trashOpenReview, disabled=gkBusy, active=false, testId="review-trash")
+          DetailBody(detail=detail, scroller="review-detail", loading=pending(detail), offset=time.utcOffset, contact=showContact, saveAttachment=saveAttachment, saveAll=saveAllAttachments, saving=(pending(prepared) or pending(savedAll)), retryImages=retryImages, openLink=openLink)
+
+      dialog id="settings" aria-label="Settings" width=640 height=600 padding=0 display="flex" flex-direction="column"
+        column flex-shrink=0 align-items="center" gap=8 padding="12px 16px 10px" user-select="none"
+          text settingsTitle role="heading" aria-level=1 font-size=13 font-weight=700 color="-exact-secondary-label"
+          row role="tablist" aria-label="Settings" gap=4
+            SettingsTab(id="offline", label="Offline", symbol="symbol:download", selected=settingsTab, pick=selectSettings("offline"))
+            SettingsTab(id="inbox", label="Inbox", symbol="symbol:sf/tray.full", selected=settingsTab, pick=selectSettings("inbox"))
+            SettingsTab(id="notifications", label="Notifications", symbol="symbol:notifications", selected=settingsTab, pick=selectSettings("notifications"))
+            SettingsTab(id="accounts", label="Accounts", symbol="symbol:person", selected=settingsTab, pick=selectSettings("accounts"))
+            SettingsTab(id="data", label="Data", symbol="symbol:sf/internaldrive", selected=settingsTab, pick=selectSettings("data"))
+        Divider()
+        scroll id="settings-pane" flex=1 min-height=0 overflow-y="auto"
+          column padding="20px 32px 24px" gap=14
+            if settingsTab == "offline"
+              FormRow(label="Download")
+                row gap=10 align-items="center"
+                  button press=downloadAll disabled=(downloading or accounts.length == 0) testId="download-all"
+                    text (downloading ? "Downloading…" : "Download All Mail")
+                  if downloading
+                    if download.fraction > 0
+                      progress value=download.fraction max=1 aria-label="Download Progress" width=140
+                    else
+                      progress aria-label="Download Progress" width=16 height=16
+                Note(text=(downloading ? download.label : "Download up to 1,000 inbox emails per account. New mail syncs automatically afterwards."), indent=false)
+              Divider()
+              FormRow(label="Mailboxes")
+                for a in accounts key=a.id
+                  row gap=10 align-items="center" min-width=0
+                    text a.email font-size=13 flex=1 min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
+                    button press=downloadOne(a.id) disabled=downloading aria-label=`Download mail for ${a.email}` testId=`download-${a.id}`
+                      text (downloading and download.accountId == a.id ? "Downloading…" : "Download")
+                if accounts.length == 0
+                  Note(text="Add a Gmail account in Accounts to start downloading mail.", indent=false)
+            if settingsTab == "inbox"
+              FormRow(label="Inbox")
+                Check(label="Show message previews", note="Include a short excerpt after each email’s subject.", checked=prefs.showPreviews, disabled=false, change=setPref("showPreviews"), testId="pref-previews")
+            if settingsTab == "notifications"
+              FormRow(label="New mail")
+                Check(label="Notify about new mail", note=(notify.available ? "Show a notification when new mail arrives. The first time registers Miwa in System Settings › Notifications." : "Notifications need a macOS build of Miwa."), checked=prefs.notificationsEnabled, disabled=(not notify.available), change=setNotify, testId="pref-notify")
+                if prefs.notificationsEnabled and notify.state == "denied"
+                  row gap=10 align-items="center" padding-left=22
+                    text "Notifications are blocked in System Settings." font-size=12 color="-exact-system-red" flex=1 min-width=0
+                    button press=openNotificationSettings testId="open-notification-settings"
+                      text "Open Settings…"
+              Divider()
+              FormRow(label="Alerts")
+                Check(label="Play a sound", note="", checked=prefs.notificationsSound, disabled=(not prefs.notificationsEnabled), change=setPref("notificationsSound"), testId="pref-sound")
+                Check(label="Show unread count on the Dock icon", note="", checked=prefs.notificationsBadge, disabled=(not prefs.notificationsEnabled), change=setPref("notificationsBadge"), testId="pref-badge")
+                Check(label="Show sender and subject", note="Turn off to keep notifications generic.", checked=prefs.notificationsShowPreview, disabled=(not prefs.notificationsEnabled), change=setPref("notificationsShowPreview"), testId="pref-preview")
+              Divider()
+              FormRow(label="Mailboxes")
+                for a in prefs.accounts key=a.id
+                  Check(label=a.email, note="", checked=a.notified, disabled=(not prefs.notificationsEnabled), change=setAccountNotify(a.id), testId=`notify-${a.id}`)
+                if prefs.accounts.length == 0
+                  Note(text="Add a Gmail account in Accounts to choose which inboxes notify.", indent=false)
+              Divider()
+              FormRow(label="Quiet hours")
+                Check(label="Silence notifications at night", note="", checked=prefs.notificationsDndEnabled, disabled=(not prefs.notificationsEnabled), change=setPref("notificationsDndEnabled"), testId="pref-dnd")
+                row gap=8 align-items="center" padding-left=22
+                  text "From" font-size=13 color=(dndOn ? "-exact-label" : "-exact-secondary-label")
+                  HourPicker(label="Quiet hours start", hour=prefs.notificationsDndStartHour, disabled=(not dndOn), pick=pickHour("notificationsDndStartHour"), testId="dnd-start")
+                  text "until" font-size=13 color=(dndOn ? "-exact-label" : "-exact-secondary-label")
+                  HourPicker(label="Quiet hours end", hour=prefs.notificationsDndEndHour, disabled=(not dndOn), pick=pickHour("notificationsDndEndHour"), testId="dnd-end")
+            if settingsTab == "accounts"
+              FormRow(label="Accounts")
+                for a in prefs.accounts key=a.id
+                  row gap=10 align-items="center" min-width=0
+                    image "symbol:sf/person.crop.circle.fill" font-size=22 color="-exact-secondary-label"
+                    column flex=1 gap=1 min-width=0
+                      text (a.displayName != "" ? a.displayName : "Gmail") font-size=13 white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
+                      text a.email font-size=11 color="-exact-secondary-label" white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
+                    button press=askRemove(a.id, a.email) aria-label=`Remove ${a.email}` testId=`remove-${a.id}`
+                      text "Remove…"
+                if prefs.accounts.length == 0
+                  Note(text="Add a Gmail account to bring its inbox into Miwa.", indent=false)
+              Divider()
+              FormRow(label="")
+                row
+                  button press=connect disabled=pending(connected) testId="add-account"
+                    text (pending(connected) ? "Waiting for Google…" : "Add Gmail Account…")
+                if signIn.error != "" and not pending(connected)
+                  text signIn.error font-size=12 color="-exact-system-red"
+            if settingsTab == "data"
+              FormRow(label="Storage")
+                row
+                  button commandfor="clear-data" command="show-modal" destructive=true disabled=(downloading or pending(cleared)) testId="clear-data"
+                    text (pending(cleared) ? "Clearing…" : "Clear Local Data…")
+                Note(text="Removes downloaded messages, attachments and sync history, and resets preferences. Your Gmail accounts stay connected.", indent=false)
+              Divider()
+              FormRow(label="About")
+                text "Miwa 0.0.1" font-size=13
+                Note(text="Your Gmail inboxes, together on your Mac.", indent=false)
+        Divider()
+        row flex-shrink=0 justify-content="flex-end" padding="12px 20px"
+          button commandfor="settings" command="close" buttonStyle="bordered-prominent" autofocus=true min-width=72 testId="settings-done"
+            text "Done"
+
+      // The contact card, beside the address that opened it.
+      column id="contact" popover="auto" width=300 background-color="contact.fill" border="1px solid contact.edge" border-radius=13 box-shadow="0 5px 12px rgba(48, 35, 30, 0.18)"
+        row padding="15px 14px" gap=10 align-items="flex-start"
+          if contactAvatar != ""
+            image contactAvatar width=36 height=36 border-radius=18 background-color="paper" border="1px solid #F1EEEB" object-fit="contain"
+          else
+            image "symbol:sf/person.crop.circle.fill" width=36 height=36 font-size=34 color="contact.placeholder"
+          column flex=1 gap=5 min-width=0
+            text contactName font-size=14 font-weight=600 color="contact.name" testId="contact-name"
+            if contactEmail != ""
+              row gap=5 align-items="center"
+                button appearance="none" press=mailContact padding="1px 3px" border-radius=4 class=Card testId="contact-email"
+                  text contactEmail font-size=11 color="contact.link"
+                button appearance="none" press=copyContact aria-label=(copied ? "Address copied" : "Copy email address") padding=3 border-radius=4 class=Card testId="contact-copy"
+                  image (copied ? "symbol:checkmark" : "symbol:copy") font-size=10 color="contact.link"
+            else
+              text contactRaw font-size=11 color="contact.muted"
+        if contactEmail != ""
+          column height=1 background-color="contact.rule"
+          column padding="7px 8px" gap=2
+            button appearance="none" press=mailContact popovertarget="contact" popovertargetaction="hide" display="flex" flex-direction="row" align-items="center" gap=10 padding=7 border-radius=6 class=Card testId="contact-compose"
+              image "symbol:compose" font-size=14 color="contact.icon"
+              text "Compose an Email" font-size=12 color="contact.text"
+            button appearance="none" press=searchContact popovertarget="contact" popovertargetaction="hide" display="flex" flex-direction="row" align-items="center" gap=10 padding=7 border-radius=6 class=Card testId="contact-search"
+              image "symbol:search" font-size=14 color="contact.icon"
+              column gap=3 align-items="flex-start"
+                text "Search Emails from" font-size=12 color="contact.text"
+                text contactEmail font-size=10 color="contact.muted"
+            if contactCanBlock
+              button appearance="none" press=blockContact popovertarget="contact" popovertargetaction="hide" display="flex" flex-direction="row" align-items="center" gap=10 padding=7 border-radius=6 class=Card testId="contact-block"
+                image "symbol:sf/hand.thumbsdown" font-size=14 color="contact.danger"
+                text "Block Sender" font-size=12 color="contact.danger"
+
+      input id="attachment-save" display="none"
+      input id="attachments-folder" display="none" change=savedFolder
+
+      dialog id="alert" role="alertdialog" aria-label=alertTitle
+        text alertMessage
+        button commandfor="alert" command="close" testId="alert-ok"
+          text "OK"
+
+      dialog id="remove-account" role="alertdialog" aria-label="Remove Gmail account?"
+        text `${removingEmail} will be removed from Miwa. Your Gmail data will not be deleted.`
+        button press=remove destructive=true commandfor="remove-account" command="close" testId="remove-confirm"
+          text "Remove"
+        button commandfor="remove-account" command="close" testId="remove-cancel"
+          text "Cancel"
+
+      dialog id="clear-data" role="alertdialog" aria-label="Clear all local data?"
+        text "Every downloaded message and attachment, cached account record, sync cursor, and preference will be removed from Miwa. Your Gmail accounts and Gmail messages will not be changed."
+        button press=clearAll destructive=true commandfor="clear-data" command="close" testId="clear-confirm"
+          text "Clear Everything"
+        button commandfor="clear-data" command="close" testId="clear-cancel"
+          text "Cancel"
+
+// The inbox: its tabs, its rows, or why there are none.
+component InboxBody
+  props
+    mailbox: Mailbox
+    accounts: Account[]
+    loaded: bool
+    tab: string
+    query: string
+    mailboxName: string
+    showPreview: bool
+    fadeDone: bool
+    now: number
+    offset: number
+    selectTab: action
+    open: action
+    setDone: action
+    setUnread: action
+    archive: action
+    setPinned: action
+    connect: action
+    retry: action
+  view
+    if not loaded
+      text "Loading downloaded mail…" padding=20 font-size=12 text-align="center" color="-exact-secondary-label" testId="loading"
+    else if mailbox.error != ""
+      EmptyState(symbol="symbol:alert", title="The mail drawer is stuck.", message=mailbox.error)
+        button press=retry testId="try-again"
+          text "Try Again"
+    else if accounts.length == 0 and mailbox.totalCount == 0
+      EmptyState(symbol="symbol:mail", title="We couldn't find any inboxes.", message="Connect a Gmail account and download the inbox to get started.")
+        button press=connect buttonStyle="filled" testId="connect-gmail"
+          text "Connect Gmail"
+    else
+      column flex=1 min-height=0 padding="0 18px"
+        row height=46 align-items="center" gap=6 flex-shrink=0
+          TabButton(label="Inbox", count=mailbox.inboxCount, selected=(tab == "inbox"), pick=selectTab("inbox"), testId="tab-inbox")
+          TabButton(label="Pinned", count=mailbox.pinnedCount, selected=(tab == "pinned"), pick=selectTab("pinned"), testId="tab-pinned")
+        if mailbox.threads.length == 0
+          if query.trim() != ""
+            EmptyState(symbol="symbol:search", title="No matching messages.", message="Try another term, or use subject:, sender:, attachment: or body: to narrow your search.")
+          else if tab == "inbox"
+            EmptyState(symbol="symbol:sf/tray", title="Nothing here yet.", message=(mailboxName != "" ? `Open Settings to download ${mailboxName} and get started.` : "Open Settings to download your connected inboxes and get started."))
+          else
+            EmptyState(symbol="symbol:sf/tray", title="Nothing here yet.", message="No messages have been Pinned.")
+        else
+          list id="threads" virtualized=true appearance="none" flex=1 min-height=0 padding="0 0 16px"
+            for t in mailbox.threads key=t.key
+              ThreadRowView(thread=t, date=listDate(t.receivedAt, now, offset), showPreview=showPreview, faded=(fadeDone and t.done), open=open(t.accountId, t.threadId), toggleDone=setDone(t.accountId, t.threadId, not t.done, t.unread), toggleRead=setUnread(t.accountId, t.threadId, not t.unread), archive=archive(t.accountId, t.threadId), togglePin=setPinned(t.accountId, t.threadId, not t.pinned))
+
+// A screen's bar, in the window's title row beside the traffic lights: Back
+// (when there is somewhere to go back to), the screen's title, then its controls.
+component TitleBar
+  props
+    title: string
+    backLabel: string
+    goBack: action
+    zoom: action
+    testId: string
+  slot
+  // A press of its own keeps the title row's clicks in the page, so a double
+  // click reaches `dblclick` (a press on bare title space is the window's drag).
+  state clicks = 0
+  action click
+    clicks = 0
+  view
+    row testId=testId height="env(titlebar-area-height, 52px)" flex-shrink=0 align-items="center" gap=8 padding-left="calc(env(titlebar-area-x, 0px) + 8px)" padding-right=10 box-sizing="border-box" user-select="none" press=click dblclick=zoom tabindex=-1 outline="none" class=Still
+      if backLabel != ""
+        button appearance="none" press=goBack aria-label=backLabel title=backLabel aria-keyshortcuts="Meta+[" width=36 height=36 border-radius=18 flex-shrink=0 display="flex" align-items="center" justify-content="center" backgroundMaterial="glass" border="0.5px solid glass.edge" box-sizing="border-box" class=Plain dblclick=click testId="back"
+          image "symbol:back" font-size=15 color="-exact-label"
+      if title != ""
+        text title role="heading" aria-level=1 font-size=15 font-weight=700 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" flex=1 min-width=0
+      children
+
+// Buttons that belong together, in one capsule.
+component BarGroup
+  props
+    label: string
+  slot
+  state taps = 0
+  action stay
+    taps = 0
+  view
+    row role="group" aria-label=label height=36 padding="0 3px" gap=2 border-radius=18 align-items="center" flex-shrink=0 backgroundMaterial="glass" border="0.5px solid glass.edge" box-sizing="border-box" dblclick=stay
+      children
+
+// One icon button of a bar; `active` fills it, as a toggle that is on.
+component BarButton
+  props
+    symbol: string
+    label: string
+    tip: string
+    press: action
+    disabled: bool
+    active: bool
+    testId: string
+  view
+    if active
+      button appearance="none" press=press disabled=disabled aria-label=label title=tip width=30 height=30 border-radius=15 display="flex" align-items="center" justify-content="center" opacity=(disabled ? 0.4 : 1) background-color="AccentColor" class=Filled testId=testId
+        image symbol font-size=15 color="#FFFFFF"
+    else
+      button appearance="none" press=press disabled=disabled aria-label=label title=tip width=30 height=30 border-radius=15 display="flex" align-items="center" justify-content="center" opacity=(disabled ? 0.4 : 1) class=Plain testId=testId
+        image symbol font-size=15 color="-exact-label"
+
+// One segment of the title bar's account switcher.
+component BarTab
+  props
+    label: string
+    selected: bool
+    pick: action
+    testId: string
+  view
+    if selected
+      button appearance="none" role="tab" aria-selected=selected press=pick height=26 padding="0 12px" border-radius=13 background-color="AccentColor" class=Filled testId=testId
+        text label font-size=12 font-weight=500 color="#FFFFFF" white-space="nowrap"
+    else
+      button appearance="none" role="tab" aria-selected=selected press=pick height=26 padding="0 12px" border-radius=13 class=Plain testId=testId
+        text label font-size=12 font-weight=500 color="-exact-label" white-space="nowrap"
+
+component TabButton
+  props
+    label: string
+    count: number
+    selected: bool
+    pick: action
+    testId: string
+  view
+    if selected
+      button appearance="none" press=pick aria-selected=selected display="flex" flex-direction="row" align-items="center" gap=6 padding="6px 12px" border-radius=999 background-color="-exact-secondary-fill" class=Filled testId=testId
+        text label font-size=13 font-weight=500 color="-exact-label"
+        text `${count}` font-size=12 color="-exact-secondary-label" font-variant-numeric="tabular-nums"
+    else
+      button appearance="none" press=pick aria-selected=selected display="flex" flex-direction="row" align-items="center" gap=6 padding="6px 12px" border-radius=999 class=Plain testId=testId
+        text label font-size=13 font-weight=500 color="-exact-secondary-label"
+        text `${count}` font-size=12 color="-exact-secondary-label" font-variant-numeric="tabular-nums"
+
+// One conversation: its sender, subject and preview, its date or, under the pointer, its actions.
+component ThreadRowView
+  props
+    thread: ThreadRow
+    date: string
+    showPreview: bool
+    faded: bool
+    open: action
+    toggleDone: action
+    toggleRead: action
+    archive: action
+    togglePin: action
+  state hovered = false
+  action hover(on: bool)
+    hovered = on
+  view
+    row height=52 flex-shrink=0 align-items="center" gap=10 padding="0 12px 0 6px" border-radius=10 opacity=(faded ? 0.45 : 1) class=Row hover=hover press=open role="button" aria-label=`${thread.sender}, ${thread.subject}` testId=`row-${thread.key}`
+      row width=7 height=7 border-radius=4 flex-shrink=0 background-color=(thread.unread ? "AccentColor" : "transparent")
+      row width="22%" max-width=220 flex-shrink=0 align-items="center" gap=6 min-width=0
+        text thread.sender font-size=13 font-weight=(thread.unread ? 700 : 400) white-space="nowrap" overflow="hidden" text-overflow="ellipsis" min-width=0
+        if thread.messageCount > 1
+          text `${thread.messageCount}` font-size=11 color="-exact-secondary-label" flex-shrink=0
+      if thread.hasAttachments
+        image "symbol:sf/paperclip" font-size=12 color="-exact-secondary-label" flex-shrink=0
+      row flex=1 min-width=0 gap=6 align-items="baseline" overflow="hidden"
+        text thread.subject font-size=13 font-weight=(thread.unread ? 700 : 400) white-space="nowrap" overflow="hidden" text-overflow="ellipsis" flex-shrink=0 max-width="100%"
+        if showPreview and thread.preview != ""
+          text thread.preview font-size=13 color="-exact-secondary-label" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" min-width=0 flex=1
+      if hovered
+        row gap=2 flex-shrink=0 align-items="center"
+          button appearance="none" press=toggleDone aria-label=(thread.done ? "Mark as not done" : "Done") title=(thread.done ? "Mark as not done" : "Done") padding=6 border-radius=6 class=Plain testId=`row-done-${thread.key}`
+            image (thread.done ? "symbol:sf/checkmark.circle.fill" : "symbol:sf/checkmark.circle") font-size=14 color=(thread.done ? "AccentColor" : "-exact-secondary-label")
+          button appearance="none" press=toggleRead aria-label=(thread.unread ? "Mark as read" : "Mark as unread") title=(thread.unread ? "Mark as read" : "Mark as unread") padding=6 border-radius=6 class=Plain testId=`row-read-${thread.key}`
+            image (thread.unread ? "symbol:sf/envelope.badge" : "symbol:sf/envelope.open") font-size=14 color="-exact-secondary-label"
+          button appearance="none" press=archive aria-label="Archive" title="Archive conversation" padding=6 border-radius=6 class=Plain testId=`row-archive-${thread.key}`
+            image "symbol:sf/archivebox" font-size=14 color="-exact-secondary-label"
+          button appearance="none" press=togglePin aria-label=(thread.pinned ? "Unpin" : "Pin") title=(thread.pinned ? "Unpin conversation" : "Pin conversation") padding=6 border-radius=6 class=Plain testId=`row-pin-${thread.key}`
+            image (thread.pinned ? "symbol:sf/pin.slash" : "symbol:pin") font-size=14 color=(thread.pinned ? "AccentColor" : "-exact-secondary-label")
+      else
+        text date font-size=12 color="-exact-secondary-label" font-variant-numeric="tabular-nums" flex-shrink=0
+
+// A conversation (or one reviewed email): subject, attachments, message cards.
+component DetailBody
+  props
+    detail: Detail
+    scroller: string
+    loading: bool
+    offset: number
+    contact: action
+    saveAttachment: action
+    saveAll: action
+    saving: bool
+    retryImages: action
+    openLink: action
+  view
+    scroll id=scroller flex=1 min-height=0
+      column width="100%" max-width=1080 align-self="center" padding="20px 24px 32px" gap=16 box-sizing="border-box"
+        if loading and not detail.found
+          text "Opening conversation…" color="-exact-secondary-label"
+        if detail.error != ""
+          text detail.error color="-exact-system-red" testId="detail-error"
+        if detail.found
+          text detail.subject font-size=17 font-weight=600 testId="detail-subject"
+          if detail.attachments.length > 0
+            row align-items="center" gap=8
+              scroll flex=1 min-width=0 overflow-x="auto" overflow-y="hidden"
+                row gap=8
+                  for a in detail.attachments key=a.id
+                    button appearance="none" press=saveAttachment(a.id) disabled=saving title=a.filename aria-label=`Download ${a.filename}` width=170 height=34 flex-shrink=0 display="flex" flex-direction="row" align-items="center" gap=6 padding="0 10px" border-radius=999 background-color="-exact-secondary-background" border="0.5px solid -exact-separator" opacity=(saving ? 0.55 : 1) class=Filled testId=`attachment-${a.id}`
+                      image `symbol:sf/${a.symbol}` font-size=13 color=a.color width=16
+                      text a.filename font-size=12 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" flex=1 min-width=0
+              button press=saveAll disabled=saving buttonStyle="glass" aria-label=`Download all ${detail.attachments.length} attachments` testId="download-attachments"
+                image "symbol:sf/arrow.down.circle"
+                text (saving ? "Saving…" : "Download all")
+          for m in detail.messages key=m.id
+            MessageCard(message=m, collapsible=(detail.messages.length > 1), offset=offset, contact=contact, retryImages=retryImages, openLink=openLink)
+
+component MessageCard
+  props
+    message: Message
+    collapsible: bool
+    offset: number
+    contact: action
+    retryImages: action
+    openLink: action
+  state expanded = true
+  state details = false
+  state bodyHeight = 1
+  action toggleExpanded
+    expanded = not expanded
+  action toggleDetails
+    details = not details
+  action measured(text: string)
+    match parseNumber(text)
+      case some(h)
+        bodyHeight = h
+      case none
+        bodyHeight = bodyHeight
+  view
+    column border-radius=14 overflow="hidden" border="0.5px solid -exact-separator" testId=`message-${message.id}`
+      row padding=18 gap=12 align-items="flex-start" background-color="-exact-secondary-background"
+        if message.avatar != ""
+          image message.avatar width=38 height=38 border-radius=19 background-color="paper" object-fit="contain"
+        else
+          text message.initials width=38 height=38 line-height="38px" text-align="center" border-radius=19 background-color="avatar.fill" color="avatar.ink" font-size=13 font-weight=600
+        column flex=1 gap=10 min-width=0
+          row align-items="center" gap=12
+            row flex=1 flex-wrap="wrap" align-items="center" gap=5 min-width=0
+              for a in message.from key=a.rawValue
+                button appearance="none" press=contact(a) popovertarget="contact" aria-label=`Show contact card for ${a.label}` padding="2px 4px" border-radius=6 class=Plain
+                  text a.label font-size=13 font-weight=600
+              if message.from.length == 0
+                text message.name font-size=13 font-weight=600
+              text "to" font-size=12 color="-exact-secondary-label"
+              for a, i in message.to key=`${i}`
+                button appearance="none" press=contact(a) popovertarget="contact" aria-label=`Show contact card for ${a.label}` padding="2px 4px" border-radius=6 class=Plain
+                  text a.label font-size=13 font-weight=600
+              if message.to.length == 0
+                text message.recipients font-size=12 color="-exact-secondary-label"
+              button appearance="none" press=toggleDetails aria-label=(details ? "Hide address details" : "Show address details") width=20 height=22 border-radius=5 class=Plain
+                image (details ? "symbol:sf/chevron.up" : "symbol:sf/chevron.down") font-size=9 color="-exact-secondary-label"
+            row gap=10 align-items="center" flex-shrink=0
+              text cardDate(message.sentAt, offset) font-size=11 color="-exact-secondary-label"
+              if collapsible
+                button appearance="none" press=toggleExpanded aria-label=`${expanded ? "Collapse" : "Expand"} message` width=22 height=22 border-radius=5 class=Plain
+                  image (expanded ? "symbol:sf/chevron.up" : "symbol:sf/chevron.down") font-size=10
+          if details
+            column gap=6
+              for a, i in message.addresses key=`${a.kind}:${i}`
+                row align-items="center" gap=8
+                  text a.kindLabel width=48 text-align="right" font-size=11 color="-exact-secondary-label" flex-shrink=0
+                  button appearance="none" press=contact(a) popovertarget="contact" aria-label=`Show contact card for ${a.label}` display="flex" flex-direction="row" align-items="center" gap=6 padding="5px 8px" border-radius=6 background-color="chip.fill" min-width=0 class=Filled
+                    text a.full font-size=12 color="chip.ink" text-decoration="underline" min-width=0
+                    image "symbol:sf/person.crop.circle" font-size=12 color="chip.ink"
+              row align-items="center" gap=8
+                text "date" width=48 text-align="right" font-size=11 color="-exact-secondary-label"
+                text longDate(message.sentAt, offset) font-size=11
+      if expanded
+        if message.imageError
+          row gap=12 padding="9px 18px" align-items="center"
+            image "symbol:photo" font-size=12 color="-exact-secondary-label"
+            text "Some images could not be loaded" font-size=11 color="-exact-secondary-label" flex=1
+            button press=retryImages testId=`retry-images-${message.id}`
+              text "Retry images"
+        column background-color="paper" padding=14
+          iframe message.body sandbox="allow-scripts" message=measured newwindow=openLink width="100%" height=bodyHeight border="none" testId=`body-${message.id}`
+
+component SenderRow
+  props
+    sender: Sender
+    expanded: bool
+    busy: bool
+    offset: number
+    toggle: action
+    allow: action
+    block: action
+    unblock: action
+    open: action
+    trash: action
+  view
+    column testId=`sender-${sender.email}`
+      row align-items="center" gap=12 padding="8px 12px" min-height=52 box-sizing="border-box"
+        text sender.initials width=32 height=32 line-height="32px" text-align="center" border-radius=16 background-color=sender.color color="#FFFFFF" font-size=12 font-weight=600
+        button appearance="none" press=toggle aria-label=`${expanded ? "Hide" : "Show"} ${sender.countLabel} from ${sender.title}` flex=1 min-width=0 display="flex" flex-direction="row" align-items="center" gap=10 padding="6px 8px" border-radius=8 class=Plain testId=`sender-toggle-${sender.email}`
+          column flex=1 min-width=0 gap=3 align-items="flex-start"
+            text sender.title font-size=13 font-weight=600 white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
+            if sender.subtitle != ""
+              text sender.subtitle font-size=11 color="-exact-secondary-label" white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
+          text sender.countLabel font-size=11 color="-exact-secondary-label"
+          image (expanded ? "symbol:sf/chevron.down" : "symbol:sf/chevron.right") font-size=10 width=12 color="-exact-secondary-label"
+        row gap=8 flex-shrink=0
+          if sender.blocked
+            button press=unblock disabled=busy buttonStyle="bordered" testId=`unblock-${sender.email}`
+              text "Unblock"
+          else
+            button press=block disabled=busy buttonStyle="bordered" testId=`block-${sender.email}`
+              text "Block"
+            button press=allow disabled=busy buttonStyle="bordered-prominent" testId=`allow-${sender.email}`
+              text "Allow"
+      if expanded
+        column margin-left=56 padding-bottom=8
+          if sender.messages.length == 0
+            text "No emails stored locally." font-size=12 padding="12px 0" color="-exact-secondary-label"
+          for m in sender.messages key=m.id
+            row align-items="center" gap=12 padding="8px" border-radius=10 class=Row press=open(m) role="button" aria-label=`Open ${m.subject}` testId=`review-${m.id}`
+              column flex=1 min-width=0 gap=4
+                text m.subject font-size=12 font-weight=500 white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
+                if m.snippet != ""
+                  text m.snippet font-size=11 color="-exact-secondary-label" white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
+                text `${longDate(m.sentAt, offset)} · ${m.accountEmail}` font-size=10 color="-exact-secondary-label" white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
+              button appearance="none" press=trash(m.accountId, m.providerMessageId) disabled=busy destructive=true aria-label=`Move ${m.subject} to Trash` width=32 height=30 border-radius=6 class=Plain testId=`trash-${m.id}`
+                image "symbol:delete" font-size=14 color="-exact-secondary-label"
+
+
+// The title bar's account switcher, one glass capsule as the original Miwa's
+// toolbar: all inboxes, then each account; a grey selection springs
+// to the inbox pressed.
+component AccountSwitcher
+  props
+    accounts: Account[]
+    selected: string
+    pick: action
+  derive ids = ["all"].concat(accounts.map(a => a.id))
+  derive chosen = ids.indexOf(selected) < 0 ? 0 : ids.indexOf(selected)
+  // Segments are 32 wide with 2 between them.
+  derive pillX = chosen * 34
+  state taps = 0
+  action stay
+    taps = 0
+  view
+    row role="radiogroup" aria-label="Inbox account" appearance="none" position="relative" height=36 padding="0 4px" gap=2 border-radius=18 align-items="center" flex-shrink=0 backgroundMaterial="glass" border="0.5px solid glass.edge" box-sizing="border-box" dblclick=stay testId="account-switcher"
+      box aria-hidden=true position="absolute" left=4 top=2 width=32 height=32 border-radius=16 background-color="control.press" translate=`${pillX}px 0px` transition="translate -exact-spring(380, 30, 1)" testId="account-pill"
+      SwitcherSegment(label="All inboxes", initials="", checked=(chosen == 0), pick=pick("all"), testId="view-all")
+      for a, i in accounts key=a.id
+        SwitcherSegment(label=a.email, initials=a.initials, checked=(chosen == i + 1), pick=pick(a.id), testId=`view-${a.id}`)
+
+// One inbox of the account switcher: a tray for all of them, or the account's initials.
+component SwitcherSegment
+  props
+    label: string
+    initials: string
+    checked: bool
+    pick: action
+    testId: string
+  view
+    button appearance="none" role="radio" aria-checked=checked aria-label=label title=label press=pick position="relative" width=32 height=32 border-radius=16 display="flex" align-items="center" justify-content="center" outline="none" class=Plain testId=testId
+      if initials == ""
+        image "symbol:sf/tray.full" font-size=15 color="-exact-label"
+      else
+        text initials width=24 height=24 line-height="24px" border-radius=12 text-align="center" font-size=(initials.length > 1 ? 9 : 11) font-weight=600 background-color="avatar.fill" color="avatar.ink"
+
+// A search field in a glass capsule, as the original Miwa's toolbar drew it.
+component GlassSearch
+  props
+    value: string
+    input: action
+    placeholder: string
+    tip: string
+    testId: string
+  state taps = 0
+  action stay
+    taps = 0
+  view
+    row align-items="center" gap=6 height=36 padding="0 14px 0 12px" border-radius=18 flex="0 1 340px" min-width=150 box-sizing="border-box" backgroundMaterial="glass" border="0.5px solid glass.edge" dblclick=stay title=tip
+      image "symbol:search" font-size=14 color="-exact-secondary-label" flex-shrink=0
+      input type="search" value=value input=input placeholder=placeholder aria-label=placeholder flex=1 min-width=0 font-size=14 background-color="transparent" border="none" outline="none" padding=0 testId=testId
+
+// A page of Settings: its symbol over its name, at one width so choosing one moves nothing.
+component SettingsTab
+  props
+    id: string
+    label: string
+    symbol: string
+    selected: string
+    pick: action
+  view
+    if selected == id
+      button appearance="none" role="tab" aria-selected=(selected == id) aria-controls="settings-pane" press=pick width=88 height=52 border-radius=8 display="flex" flex-direction="column" align-items="center" justify-content="center" gap=3 background-color="-exact-secondary-fill" class=Filled testId=`settings-${id}`
+        image symbol font-size=20 height=22 color="AccentColor"
+        text label font-size=11 font-weight=500 white-space="nowrap" color="AccentColor"
+    else
+      button appearance="none" role="tab" aria-selected=(selected == id) aria-controls="settings-pane" press=pick width=88 height=52 border-radius=8 display="flex" flex-direction="column" align-items="center" justify-content="center" gap=3 class=Plain testId=`settings-${id}`
+        image symbol font-size=20 height=22 color="-exact-secondary-label"
+        text label font-size=11 font-weight=500 white-space="nowrap" color="-exact-secondary-label"
+
+// One line of a Settings form: its label on the right of a fixed column, its controls after it.
+component FormRow
+  props
+    label: string
+  slot
+  view
+    row gap=10 align-items="flex-start"
+      text (label != "" ? `${label}:` : "") width=130 flex-shrink=0 text-align="right" font-size=13 line-height="22px" user-select="none"
+      column flex=1 min-width=0 gap=8
+        children
+
+// A checkbox with its label and, under the label, what it does.
+component Check
+  props
+    label: string
+    note: string
+    checked: bool
+    disabled: bool
+    change: action
+    testId: string
+  view
+    column gap=3 min-width=0
+      row gap=6 align-items="center" min-height=22
+        input type="checkbox" checked=checked disabled=disabled change=change aria-label=label testId=testId
+        text label font-size=13 color=(disabled ? "-exact-secondary-label" : "-exact-label") min-width=0 user-select="none"
+      if note != ""
+        Note(text=note, indent=true)
+
+component Note
+  props
+    text: string
+    indent: bool
+  view
+    text text font-size=11 color="-exact-secondary-label" padding-left=(indent ? 22 : 0)
+
+component Divider
+  view
+    row height=1 flex-shrink=0 background-color="-exact-separator"
+
+// An hour of the day, as a pop-up button.
+component HourPicker
+  props
+    label: string
+    hour: number
+    disabled: bool
+    pick: action
+    testId: string
+  view
+    select value=`${hour}` change=pick disabled=disabled aria-label=label testId=testId
+      for h in range(24) key=h
+        option hourLabel(h) value=`${h}`
+
+component EmptyState
+  props
+    symbol: string
+    title: string
+    message: string
+  slot
+  view
+    column flex=1 align-items="center" justify-content="center" gap=10 padding=32 text-align="center"
+      image symbol font-size=34 color="-exact-secondary-label"
+      text title font-size=15 font-weight=600
+      text message font-size=12 color="-exact-secondary-label" max-width=360
+      children

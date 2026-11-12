@@ -1,112 +1,88 @@
 # Miwa
 
-Miwa is a native macOS multi-inbox Gmail reader built with Expo Desktop, React Native macOS, and AppKit.
+Miwa is a native macOS multi-inbox Gmail reader built with [Expo Exact](https://github.com/expo/exact).
+The view is one Contract file; the data layer is TypeScript that talks to Gmail and keeps an offline
+copy of each inbox in SQLite.
 
 ## Requirements
 
-- Node.js 26 (the project includes an `.nvmrc`)
-- Bun
-- Xcode with CocoaPods
+- An Exact checkout. `exact.mjs` finds it through `EXACT2`, defaulting to the path `exact new` recorded.
+- Bun 1.4.2 (`exact.mjs` refuses older versions; set `BUN` to point at it)
+- Xcode and a Rust toolchain, both of which Exact uses to build the macOS host
 
-## Setup
+## Running
 
 ```sh
 bun install
-bun run prebuild:macos:clean
-bun run macos
+bun exact.mjs mac --run
 ```
 
-The prebuild script loads Node 26 through nvm itself, including when the current shell only has Bun on `PATH`. Expo Desktop uses `npm` internally to download its native template.
+`bun run check` compiles `app.contract` and type-checks `app.ts` and `src/` against the generated
+`app.contract.d.ts`. `bun run format` and `bun run format:check` run Prettier.
 
-The macOS project is generated and ignored by Git. Native changes must be implemented in Expo config, a config plugin, or a local Expo module so a clean prebuild remains reproducible.
+To drive the built app without clicking through it, use Exact's agent, for example:
 
-## Expo UI on macOS
-
-Dependency installation applies the Expo Desktop project's recommended macOS compatibility patches for `@expo/ui@0.2.0-beta.9` and `expo-modules-core@3.0.30` with `patch-package`. The former `modules/expo-ui-macos` workaround has been removed. Keep the package versions and patch filenames aligned when upgrading Expo UI.
-
-Miwa uses compact SwiftUI hosts for native buttons, switches, symbols, dividers, stacks, and empty states. React Native remains responsible for scrolling and complex mail-row composition where Expo UI does not yet provide a safe macOS host for React Native children.
-
-## macOS scrolling patch
-
-The `react-native-macos@0.81.7` patch delivers Fabric events before the main run loop processes sources as well as before it waits. During continuous trackpad scrolling, waiting-stage delivery alone can hold scroll events for over a second while the native viewport keeps moving, leaving LegendList's rendered range behind. The extra delivery stage is enabled only on macOS. Recheck continuous scrolling before removing this patch when upgrading React Native macOS.
+```sh
+bun exact.mjs agent macos --chrome platform --size 1100x760 tree "screenshot shot.png window"
+```
 
 ## Gmail setup
 
-The generated macOS target is configured with the Google OAuth client for bundle identifier `com.ib.miwa`. Enable the Gmail API, add the restricted `gmail.readonly` scope, and set the Google Auth Platform **Branding** app name to `Miwa`. Google displays that branding name during consent.
+Sign-in uses `@exact/oauth` against Google's OAuth client for bundle identifier `com.ib.miwa`,
+returning to the reversed client ID callback declared in `app.ts`'s grants. Enable the Gmail API,
+add the `gmail.modify` scope, and set the Google Auth Platform **Branding** app name to `Miwa`.
+Google requires OAuth verification before a public release that requests a restricted Gmail scope.
 
-`plugins/with-google-sign-in.js` configures the Google client IDs, callback URL scheme, AppDelegate handler, sandbox permissions, and Keychain access during prebuild.
-
-Google Sign-In on macOS requires an Apple-signed app for Keychain access. After prebuilding, open `macos/Miwa.xcworkspace`, enable automatic signing for the `Miwa-macOS` target, and select the configured development team if Xcode requests it. `bun run macos` allows Xcode to create or refresh the development provisioning profile using your signed-in Apple account. A local `react-native-macos` patch adds this option to its CLI.
-
-Google requires OAuth verification before a public release that requests `gmail.readonly`. Connected-account credentials are stored in the signed app's macOS Keychain; only profile metadata is stored in user defaults.
+Every connected account and its OAuth session live in one Keychain secret, `miwa.gmail.accounts`.
+Downloaded mail lives in `app:/data/miwa.db`.
 
 ## Finding your way around
 
-Start with `App.tsx`. It chooses the current screen and connects toolbar events to
-three hooks. There is no global context provider or generic state-management layer.
-
 ```text
-App.tsx                      Screen selection, toolbar events, settings actions
+app.contract           Screens, title bars, the Settings sheet, dialogs, timers: the whole view
+app.tamber             Miwa's colour tokens
+app.ts                 Grants, the sources the contract calls, the optimistic overlay
+strings/en.json        Permission purpose strings
+modules/apple/         WindowZoom.swift: the title row's double-click zooms the window
 src/
-  mail/
-    use-accounts.ts          Connected account state and connect/disconnect actions
-    use-mailbox.ts           Local mail, selection, sync lifecycle, message actions
-    use-inbox-download.ts    Download progress and completion messages
-    thread-list.tsx          Inbox tabs and conversation rows
-    thread-detail.tsx        The open conversation
-    gatekeeper-screen.tsx    New and blocked senders
-    sender-review-card.tsx   Expandable message preview and sender decisions
-    inbox-tabs.ts            Tab definitions, category matching, counts
-    thread-store.ts          Read and update downloaded mail in SQLite
-    download-inbox.ts        Select and coordinate an initial inbox download
-    download-thread.ts       Download, save, and reconcile one Gmail conversation
-    sync.ts                  Poll Gmail history and recover expired cursors
-    gmail.ts                 Authenticated Gmail requests, retries, label changes
-    gmail-content.ts         Decode message bodies, addresses, and safe HTML
-    accounts.ts              Keychain credentials and native Google sign-in bridge
-    types.ts                 Mail data shown by the UI
-  settings/
-    settings-screen.tsx      Settings UI
-    preferences.ts           Load and save the message-preview preference
-  components/
-    native-controls.tsx      Shared SwiftUI buttons, avatars, and empty states
-    native-colors.ts         Adaptive AppKit colors
-    mail-toolbar.ts          Toolbar items for each screen
-  db/
-    db.ts                    Open and clear the database
-    schema.ts                Tables and the row types used by mail code
-    migrations.ts            Preserve and upgrade existing installations
-modules/
-  gmail-account-auth/        Native Google sign-in
-  native-mail-viewer/        Native email HTML viewer
-  native-window-toolbar/     AppKit window toolbar and its bridge records
+  view.ts              Answers for the inbox list, conversation, Gatekeeper and Settings
+  actions.ts           Thread actions, sender decisions, accounts, settings, attachments
+  accounts.ts          Google OAuth and the connected-account secret
+  gmail.ts             Authenticated Gmail requests, retries, label changes
+  gmail-content.ts     Decode message bodies, addresses and safe HTML
+  download.ts          Initial inbox download and per-thread storage
+  sync.ts              Poll Gmail history and recover expired cursors
+  thread-store.ts      Read and update downloaded mail in SQLite
+  message-images.ts    Inline and restore remote images in message HTML
+  gatekeeper.ts        New-sender discovery and decisions
+  notifications.ts     New-mail banners and the Dock badge
+  preferences.ts       Settings stored in SQLite
+  inbox-tabs.ts        Inbox and Pinned tabs
+  search.ts            subject:, sender:, attachment: and body: search
+  db.ts                Schema, the shared database handle, row helpers
 ```
 
-A typical update follows one path: a screen calls a hook action, the action updates
-Gmail and/or SQLite, and the hook updates the data passed back to the screen. Sync
-uses the same conversation download and storage code as the initial inbox download.
-Message actions update the list immediately and restore it if Gmail rejects them.
-Pins and Gatekeeper decisions remain local to Miwa.
+A typical update follows one path. A button sends a mutation in `app.contract`. `app.ts` maps it to
+a function in `src/actions.ts`, which updates Gmail and then SQLite. The mutation's `refreshes`
+reloads the affected lists. While it is in flight, `overlay` in `app.ts` already shows the
+change: a row marked read, done or pinned, or removed after archive or trash. Sync runs every
+minute, uses the same download and storage code as the initial download, and then
+posts notifications. Pins, Done and Gatekeeper decisions stay local to Miwa.
 
-## Styling and checks
+## Window layout
 
-Layouts, spacing, typography, borders, and interaction states use Uniwind classes
-beside the JSX. `global.css` contains the accent colors and hairline utilities;
-`metro.config.js` enables Uniwind. AppKit's `PlatformColor` values and calculated
-avatar/button values remain inline so native appearance settings keep working.
-Native hosts and libraries that need a `style` prop use `withUniwind` or
-`useResolveClassNames` at their call site. See the [Uniwind setup guide](https://docs.uniwind.dev/quickstart).
+The app has no `routes`. The `screen` state picks the inbox, a conversation, Gatekeeper or a
+reviewed email, so the window has no NSToolbar. Each screen draws its own bar in the window's
+title row (`display_override: ["window-controls-overlay"]`), beside the traffic lights. The bar
+matches the page whether or not the window is focused, and its controls sit in Liquid Glass
+capsules, as the original Miwa's toolbar did. Its empty space drags the window, and a double
+click there zooms it (or minimizes it, as System Settings says) through
+`modules/apple/WindowZoom.swift`. The bar's own `press` keeps those clicks in the page;
+controls in it take `dblclick=stay` so a double click on one is not a zoom.
 
-```sh
-bun run typecheck
-bun run format:check
-bun run format
-bun run styles:generate  # Regenerate Uniwind's type declarations after theme changes
-```
+A notification click opens its conversation from the notification's `data` path. Settings is a
+sheet (`dialog id="settings"`). On the Mac it opens from Miwa ▸ Settings… (⌘,), a hidden
+`-exact-menu="app"` button; elsewhere a gear in the inbox bar opens it. Exact warns
+`lower-screen-by-state` about the screens; the warning is expected.
 
-Use the macOS app to verify native appearance, toolbar customization, and real Gmail access.
-There is no separate lint configuration. Formatting and TypeScript checks are the
-available static checks.
-
-Older preference columns remain in the database migrations for compatibility, but
-the app only reads and writes the preview preference that is present in Settings.
+There are no tests. Use the contract build, Prettier and the running app to verify changes.

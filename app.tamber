@@ -1,0 +1,26 @@
+tamber miwa
+
+theme
+  AccentColor = light-dark(#5AA3CC, #73B9DF)
+  avatar.fill = #F5E4DE  scheme=fixed
+  avatar.ink = #8C5147  scheme=fixed
+  chip.fill = #FAEDE8  scheme=fixed
+  chip.ink = #B64735  scheme=fixed
+  contact.fill = #FFFCFA  scheme=fixed
+  contact.edge = #DED8D4  scheme=fixed
+  contact.rule = #E7E2DE  scheme=fixed
+  contact.link = #1677D2  scheme=fixed
+  contact.icon = #72777F  scheme=fixed
+  contact.text = #626871  scheme=fixed
+  contact.muted = #7B8087  scheme=fixed
+  contact.placeholder = #C7B3A9  scheme=fixed
+  contact.danger = #DD5148  scheme=fixed
+  contact.name = #1D1D1F  scheme=fixed
+  paper = #FFFFFF  scheme=fixed
+  row.hover = rgba(128, 128, 128, 0.10)
+  row.press = rgba(128, 128, 128, 0.18)
+  control.hover = rgba(128, 128, 128, 0.14)
+  control.press = rgba(128, 128, 128, 0.26)
+  contact.hover = rgba(0, 0, 0, 0.05)  scheme=fixed
+  contact.press = rgba(0, 0, 0, 0.10)  scheme=fixed
+  glass.edge = light-dark(rgba(0, 0, 0, 0.09), rgba(255, 255, 255, 0.14))

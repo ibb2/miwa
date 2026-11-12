@@ -1,6 +1,19 @@
-# Expo HAS CHANGED
+# Miwa is an Expo Exact app
 
-Read the exact versioned docs at https://docs.expo.dev/versions/v54.0.0/ before writing any code.
+Exact is not React Native. Before writing code, read the Exact checkout's `docs/start-here.md` and
+`docs/contract-for-agents.md`. Look up a contract word with `bun exact.mjs contract vocab <name>`.
+`bun exact.mjs agent --help` lists the driver's operations.
+
+- `bun exact.mjs contract build app.contract --json --errors-only` is the type check. It compiles the
+  contract and checks `app.ts` and `src/` against the generated `app.contract.d.ts`.
+- Data code runs under Hermes with Exact's rules: no `Date.now()`, no `new Date()` without an
+  argument, no `Math.random()`, no `setInterval`. The contract passes the time in
+  (`time.epochAtZero + performanceNow()`). Long loops `await scheduler.yield()`.
+- Open SQLite only through `withDb` in `src/db.ts`. Each storage operation queues behind the last,
+  and an open database locks its file.
+- Verify on the Mac with `bun exact.mjs mac`, then
+  `bun exact.mjs agent macos --chrome platform …`. Without `--chrome platform` the agent paints
+  headers in the page instead of the toolbar.
 
 # Project preferences
 
