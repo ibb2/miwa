@@ -80,6 +80,19 @@ click there zooms it (or minimizes it, as System Settings says) through
 `modules/apple/WindowZoom.swift`. The bar's own `press` keeps those clicks in the page;
 controls in it take `dblclick=stay` so a double click on one is not a zoom.
 
+Gatekeeper lays new senders out as a grid of cards. Each card is one size and shows the
+sender's latest two emails, and pressing one opens all of their emails. Tab moves between cards
+(the first has focus on opening), and the focused card takes the keys: ← blocks, → allows, ⇧← blocks and moves all of their emails to
+Gmail Trash (`trashSender`), and Space opens all of their emails. Deciding a card focuses its
+neighbour, and ⌘Z undoes the last allow or block. The bar's layout button switches to one card
+at a time, with the same keys as shortcuts plus ↓ for later; below 720 points wide that is the
+only layout. A decided card leaves the way it went. The hand button lists blocked senders,
+where they can be unblocked.
+
+A sender's emails screen (`screen == "sender"`, `loadSenderDetail`) stacks every email from
+them with the conversation reader's `DetailBody` and `MessageCard`, each headed by its subject
+and collapsible, with Delete All, Block and Allow in the bar.
+
 A notification click opens its conversation from the notification's `data` path. Settings is a
 sheet (`dialog id="settings"`). On the Mac it opens from Miwa ▸ Settings… (⌘,), a hidden
 `-exact-menu="app"` button; elsewhere a gear in the inbox bar opens it. Exact warns

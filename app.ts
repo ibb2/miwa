@@ -15,6 +15,7 @@ import {
   setPreference,
   threadAction,
   trashMessage,
+  trashSender,
 } from './src/actions';
 import { messageFor } from './src/async';
 import { withDb } from './src/db';
@@ -22,7 +23,14 @@ import { downloadAccounts, downloadStatus } from './src/download';
 import { forgetSeenThreads, settleNotifications } from './src/notifications';
 import { syncMail } from './src/sync';
 import { loadThreads } from './src/thread-store';
-import { accountRows, loadDetail, loadGatekeeper, loadMailbox, loadPrefs } from './src/view';
+import {
+  accountRows,
+  loadDetail,
+  loadGatekeeper,
+  loadMailbox,
+  loadPrefs,
+  loadSenderDetail,
+} from './src/view';
 
 export const grants = [
   'sqlite.open app:/data/miwa.db',
@@ -50,6 +58,7 @@ const sources: Sources = {
   loadDetail: ([accountId, threadId, messageId, subject], store, storage) =>
     loadDetail(store, storage, accountId, threadId, messageId, subject),
   loadGatekeeper: ([tab, query, now], _, storage) => loadGatekeeper(storage, tab, query, now),
+  loadSenderDetail: ([email, now], store, storage) => loadSenderDetail(store, storage, email, now),
   loadPrefs: (_, store, storage) => loadPrefs(store, storage),
   downloadStatus: () => downloadStatus(),
 
@@ -81,6 +90,7 @@ const sources: Sources = {
   decideSender: ([email, status, now], _, storage) => decideSender(storage, email, status, now),
   trashMessage: ([accountId, providerMessageId, now], store, storage) =>
     trashMessage(store, storage, accountId, providerMessageId, now),
+  trashSender: ([email, now], store, storage) => trashSender(store, storage, email, now),
   connectGmail: ([now], store) => connectGmail(store, now),
   disconnectGmail: ([accountId], store) => disconnectGmail(store, accountId),
   setPreference: ([key, value], _, storage) => setPreference(storage, key, value),
@@ -106,7 +116,7 @@ export const answer: Answer = (source, args, store, storage, native) =>
 // ---- Optimistic writes ----
 
 type ThreadWrite = Extract<Write, { source: 'threadAction' }>;
-type DecideWrite = Extract<Write, { source: 'decideSender' }>;
+type DecideWrite = Extract<Write, { source: 'decideSender' | 'trashSender' }>;
 type ThreadFlags = {
   accountId: string;
   threadId: string;
@@ -164,14 +174,16 @@ export const overlay: Overlay = (source, args, answer, writes) => {
   }
   if (source === 'loadGatekeeper') {
     const pending = writes.filter(
-      (write): write is DecideWrite => write.source === 'decideSender' && showing(write),
+      (write): write is DecideWrite =>
+        (write.source === 'decideSender' || write.source === 'trashSender') && showing(write),
     );
     if (!pending.length) return undefined;
     const gatekeeper = answer as Result<'loadGatekeeper'>;
     const [tab] = args as [number, string, number];
     const decided = new Map<string, string>();
     for (const write of pending) {
-      decided.set(write.args[0].trim().toLowerCase(), write.args[1]);
+      const status = write.source === 'decideSender' ? write.args[1] : 'blocked';
+      decided.set(write.args[0].trim().toLowerCase(), status);
       write.keep();
     }
     const senders = gatekeeper.senders.filter((sender) => {

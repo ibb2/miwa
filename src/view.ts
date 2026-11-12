@@ -301,6 +301,56 @@ const emptyDetail = (error: string) => ({
   messages: [],
 });
 
+type StoredMessage = MailThreadDetail['messages'][number];
+
+/** One email as the reader draws it; `subject` heads it when emails from many threads stack. */
+async function messageRow(storage: Storage, message: StoredMessage, subject: string) {
+  const sender = message.addresses.find((item) => item.kind === 'from');
+  const name = sender ? addressLabel(sender) : message.sender;
+  const avatar = logoFor(message.safeHtml ?? '', name);
+  return {
+    id: message.id,
+    subject,
+    name,
+    initials: name
+      .split(/\s+/)
+      .slice(0, 2)
+      .map((word) => word[0] ?? '')
+      .join('')
+      .toUpperCase(),
+    avatar,
+    from: sender ? [toAddress(sender, avatar)] : [],
+    to: message.addresses.filter((item) => item.kind === 'to').map((item) => toAddress(item, '')),
+    recipients: message.recipients || 'undisclosed recipients',
+    addresses: message.addresses.map((item) =>
+      toAddress(item, item.address && item.address === sender?.address ? avatar : ''),
+    ),
+    sentAt: message.sentAt,
+    body: await writeBody(storage, message.safeHtml, message.plainText),
+    imageError: imagesTried.get(message.id) === false,
+  };
+}
+
+const attachmentRows = (messages: StoredMessage[]) =>
+  messages
+    .flatMap((message) => message.attachments)
+    .map((attachment) => {
+      const [symbol, color] = iconFor(attachment);
+      return {
+        id: attachment.id ?? '',
+        filename: attachment.filename || 'Attachment',
+        symbol,
+        color,
+      };
+    });
+
+/** A thread from disk, with images restored for mail cached before Miwa kept them. */
+async function threadDetail(store: Store, storage: Storage, accountId: string, threadId: string) {
+  const detail = await withDb(storage, (db) => loadThreadDetail(db, accountId, threadId));
+  if (!(await restoreImages(store, storage, detail))) return detail;
+  return withDb(storage, (db) => loadThreadDetail(db, accountId, threadId));
+}
+
 /** One conversation, or with `messageId` one email of it (a Gatekeeper review). */
 export async function loadDetail(
   store: Store,
@@ -312,10 +362,7 @@ export async function loadDetail(
 ) {
   if (!accountId || !threadId) return emptyDetail('');
   try {
-    let detail = await withDb(storage, (db) => loadThreadDetail(db, accountId, threadId));
-    if (await restoreImages(store, storage, detail)) {
-      detail = await withDb(storage, (db) => loadThreadDetail(db, accountId, threadId));
-    }
+    const detail = await threadDetail(store, storage, accountId, threadId);
     const summary = (await withDb(storage, loadThreads)).find(
       (thread) => thread.accountId === accountId && thread.threadId === threadId,
     );
@@ -325,33 +372,7 @@ export async function loadDetail(
       if (!messages.length) throw new Error('This email is no longer available locally.');
     }
     const rows = [];
-    for (const message of messages) {
-      const sender = message.addresses.find((item) => item.kind === 'from');
-      const name = sender ? addressLabel(sender) : message.sender;
-      const avatar = logoFor(message.safeHtml ?? '', name);
-      rows.push({
-        id: message.id,
-        name,
-        initials: name
-          .split(/\s+/)
-          .slice(0, 2)
-          .map((word) => word[0] ?? '')
-          .join('')
-          .toUpperCase(),
-        avatar,
-        from: sender ? [toAddress(sender, avatar)] : [],
-        to: message.addresses
-          .filter((item) => item.kind === 'to')
-          .map((item) => toAddress(item, '')),
-        recipients: message.recipients || 'undisclosed recipients',
-        addresses: message.addresses.map((item) =>
-          toAddress(item, item.address && item.address === sender?.address ? avatar : ''),
-        ),
-        sentAt: message.sentAt,
-        body: await writeBody(storage, message.safeHtml, message.plainText),
-        imageError: imagesTried.get(message.id) === false,
-      });
-    }
+    for (const message of messages) rows.push(await messageRow(storage, message, ''));
     return {
       found: true,
       error: '',
@@ -361,17 +382,46 @@ export async function loadDetail(
       done: summary?.done ?? false,
       unread: summary?.unread ?? false,
       pinned: summary?.pinned ?? false,
-      attachments: messages
-        .flatMap((message) => message.attachments)
-        .map((attachment) => {
-          const [symbol, color] = iconFor(attachment);
-          return {
-            id: attachment.id ?? '',
-            filename: attachment.filename || 'Attachment',
-            symbol,
-            color,
-          };
-        }),
+      attachments: attachmentRows(messages),
+      messages: rows,
+    };
+  } catch (error) {
+    return emptyDetail(messageFor(error));
+  }
+}
+
+/** Every email from one Gatekeeper sender, newest first, each headed by its subject. */
+export async function loadSenderDetail(store: Store, storage: Storage, email: string, now: number) {
+  if (!email) return emptyDetail('');
+  try {
+    const overview = await withDb(storage, (db) => loadGatekeeperOverview(db, now));
+    const sender = [...overview.pending, ...overview.blocked].find((item) => item.email === email);
+    if (!sender) return emptyDetail('This sender has no emails left.');
+    const threads = new Map<string, MailThreadDetail>();
+    const messages: StoredMessage[] = [];
+    const rows = [];
+    for (const item of sender.messages) {
+      const key = `${item.accountId}:${item.threadId}`;
+      let thread = threads.get(key);
+      if (!thread) {
+        thread = await threadDetail(store, storage, item.accountId, item.threadId);
+        threads.set(key, thread);
+      }
+      const message = thread.messages.find((stored) => stored.id === item.id);
+      if (!message) continue;
+      messages.push(message);
+      rows.push(await messageRow(storage, message, item.subject || '(No subject)'));
+    }
+    return {
+      found: true,
+      error: '',
+      accountId: '',
+      threadId: '',
+      subject: sender.displayName || sender.email,
+      done: false,
+      unread: false,
+      pinned: false,
+      attachments: attachmentRows(messages),
       messages: rows,
     };
   } catch (error) {

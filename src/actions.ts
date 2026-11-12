@@ -2,7 +2,11 @@ import type { Storage, Store } from '../app.contract.d.ts';
 import { connectAccount, disconnectAccount, listAccounts } from './accounts';
 import { messageFor } from './async';
 import { bytes, clearLocalDatabase, str, withDb } from './db';
-import { setGatekeeperSenderStatus, type GatekeeperStatus } from './gatekeeper';
+import {
+  loadGatekeeperOverview,
+  setGatekeeperSenderStatus,
+  type GatekeeperStatus,
+} from './gatekeeper';
 import {
   archiveGmailThread,
   setGmailThreadReadState,
@@ -125,6 +129,32 @@ export async function decideSender(
     return ok;
   } catch (error) {
     return failed('Could not update Gatekeeper', error);
+  }
+}
+
+/** Blocks a sender and moves every email Miwa has from them to Gmail Trash. */
+export async function trashSender(
+  store: Store,
+  storage: Storage,
+  email: string,
+  now: number,
+): Promise<Reply> {
+  const address = email.trim().toLowerCase();
+  try {
+    const overview = await withDb(storage, (db) => loadGatekeeperOverview(db, now));
+    const sender = [...overview.pending, ...overview.blocked].find((s) => s.email === address);
+    for (const message of sender?.messages ?? []) {
+      await withGmailReauth(store, message.accountId, () =>
+        trashGmailMessage(store, message.accountId, message.providerMessageId),
+      );
+      await withDb(storage, (db) =>
+        removeTrashedMessage(db, message.accountId, message.providerMessageId, now),
+      );
+    }
+    await withDb(storage, (db) => setGatekeeperSenderStatus(db, address, 'blocked', now));
+    return ok;
+  } catch (error) {
+    return failed("Could not delete this sender's emails", error);
   }
 }
 

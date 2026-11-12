@@ -24,3 +24,5 @@ theme
   contact.hover = rgba(0, 0, 0, 0.05)  scheme=fixed
   contact.press = rgba(0, 0, 0, 0.10)  scheme=fixed
   glass.edge = light-dark(rgba(0, 0, 0, 0.09), rgba(255, 255, 255, 0.14))
+  card.fill = light-dark(#FFFFFF, #2C2C2E)
+  tile.fill = light-dark(rgba(0, 0, 0, 0.035), rgba(255, 255, 255, 0.06))

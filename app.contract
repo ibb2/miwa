@@ -9,6 +9,7 @@ shape Time
 shape Viewport
   width: number
   displayMode: string
+  prefersReducedMotion: bool
 
 shape Account
   id: string
@@ -58,6 +59,7 @@ shape Attachment
 
 shape Message
   id: string
+  subject: string
   name: string
   initials: string
   avatar: string
@@ -197,6 +199,16 @@ style Still
     opacity = 1
     -exact-press-scale = 1
 
+// Gatekeeper's card leaves the way it was decided: right allowed, left blocked, down for later.
+keyframes flingRight
+  to opacity=0 translate="460px 30px" rotate=14 animation-timing-function="ease-in"
+keyframes flingLeft
+  to opacity=0 translate="-460px 30px" rotate=-14 animation-timing-function="ease-in"
+keyframes flingDown
+  to opacity=0 translate="0px 80px" scale=0.92 animation-timing-function="ease-in"
+keyframes cardIn
+  from opacity=0 scale=0.95 translate="0px 12px"
+
 // Card: an item of the contact card, which keeps its light look in Dark Mode.
 style Card
   :hover
@@ -216,6 +228,12 @@ component App
   state gkTab = 0
   state gkQuery = ""
   state expandedSender = ""
+  state gkFocus = ""
+  state gkIndex = 0
+  state gkFling = "right"
+  state gkCards = false
+  state senderEmail = ""
+  state gkUndo = ""
   state reviewSubject = ""
   state settingsTab = "offline"
   state syncLabel = "Check Gmail for new mail"
@@ -239,12 +257,14 @@ component App
   resource mailbox = loadMailbox(mailboxView, inboxTab, mailQuery, showDone) as shape Mailbox
   resource detail = loadDetail(openAccount, openThreadId, openMessage, reviewSubject) as shape Detail
   resource gatekeeper = loadGatekeeper(gkTab, gkQuery) with time.epochAtZero as shape Gatekeeper
+  resource senderDetail = loadSenderDetail(senderEmail) with time.epochAtZero as shape Detail
   resource prefs = loadPrefs() as shape Prefs
   resource download = downloadStatus() as shape DownloadStatus
   resource notify = notificationStatus() as shape NotificationStatus
 
   mutation acted as shape Reply queue refreshes mailbox, detail, gatekeeper then afterAct
   mutation decided as shape Reply queue refreshes mailbox, gatekeeper then afterDecide
+  mutation purged as shape Reply queue refreshes mailbox, gatekeeper then afterPurge
   mutation trashed as shape Reply refreshes mailbox, detail, gatekeeper then afterTrash
   mutation synced as shape SyncReply refreshes mailbox, detail, gatekeeper then afterSync
   mutation downloaded as shape Reply refreshes mailbox, gatekeeper, download, prefs then afterDownload
@@ -268,6 +288,15 @@ component App
   derive compact = viewport.width < 960
   derive busy = pending(acted)
   derive gkBusy = pending(decided) or pending(trashed)
+  derive still = viewport.prefersReducedMotion
+  // The card on top of Gatekeeper's queue; Later moves past it, and a decision
+  // takes it out of the queue so the same index shows the next one.
+  derive cardIndex = gatekeeper.senders.length == 0 ? 0 : gkIndex % gatekeeper.senders.length
+  derive topCard = gatekeeper.senders.slice(cardIndex, cardIndex + 1)
+  // A narrow window reviews one card at a time; a wider one lays every card out
+  // unless the bar's toggle asks for one at a time.
+  derive narrow = viewport.width < 720
+  derive oneCard = gkCards or narrow
   derive downloading = download.active or pending(downloaded)
   derive accountEmail = match first(accounts.filter(a => a.id == detail.accountId)) { case some(a) => a.email, case none => "" }
   derive mailSearchHint = "Search mail, or use subject:, sender:, attachment: and body:. Quote phrases, e.g. subject:\"monthly report\"."
@@ -311,6 +340,10 @@ component App
     if screen == "review"
       screen = "gatekeeper"
       openMessage = ""
+    else if screen == "sender"
+      screen = "gatekeeper"
+    else if screen == "gatekeeper" and gkTab == 1
+      selectGkTab(0)
     else
       screen = "inbox"
       openAccount = ""
@@ -341,6 +374,9 @@ component App
     screen = "conversation"
   action openGatekeeper
     expandedSender = ""
+    gkTab = 0
+    gkQuery = ""
+    gkUndo = ""
     screen = "gatekeeper"
   // A double click on a bar control is two presses, never the window's zoom.
   state barTaps = 0
@@ -400,7 +436,79 @@ component App
   // Gatekeeper.
   action selectGkTab(tab: number)
     gkTab = tab
+    gkQuery = ""
     expandedSender = ""
+  // The card queue: each decision flings the card off the way it went.
+  action fling(email: string, status: string, way: string)
+    gkFling = way
+    expandedSender = ""
+    gkUndo = email
+    decide(email, status)
+  action allowCard(email: string)
+    fling(email, "approved", "right")
+  action blockCard(email: string)
+    fling(email, "blocked", "left")
+  action later
+    gkFling = "down"
+    gkIndex = cardIndex + 1
+  action undoDecision
+    if gkUndo != ""
+      decide(gkUndo, "pending")
+      gkUndo = ""
+  action toggleCards
+    gkCards = not gkCards
+  // Every email from one sender, stacked; the cards show only the latest two.
+  action showSenderEmails(email: string)
+    senderEmail = email
+    screen = "sender"
+  action decideOpenSender(status: string)
+    screen = "gatekeeper"
+    if status == "approved"
+      allowCard(senderEmail)
+    else if status == "blocked"
+      blockCard(senderEmail)
+    else
+      purgeSender(senderEmail)
+  // The grid's cards take the keys while focused; deciding one focuses its neighbour.
+  action focusCard(email: string)
+    gkFocus = email
+  action blurCard(email: string)
+    if gkFocus == email
+      gkFocus = ""
+  action focusNeighbour(index: number)
+    match first(gatekeeper.senders.slice(index + 1, index + 2).concat(gatekeeper.senders.slice(index - 1, index)))
+      case some(n)
+        focus(`gk-card-${n.email}`)
+      case none
+        gkFocus = ""
+  action cardKey(email: string, index: number, k: string, e: KeyboardEvent)
+    if k == "ArrowRight"
+      preventDefault()
+      allowCard(email)
+      focusNeighbour(index)
+    else if k == "ArrowLeft" and e.shiftKey
+      preventDefault()
+      purgeSender(email)
+      focusNeighbour(index)
+    else if k == "ArrowLeft"
+      preventDefault()
+      blockCard(email)
+      focusNeighbour(index)
+    else if k == " "
+      preventDefault()
+      showSenderEmails(email)
+  // Delete all: block the sender and move each of their emails to Gmail Trash.
+  action purgeSender(email: string)
+    gkFling = "left"
+    gkUndo = ""
+    expandedSender = ""
+    send purged = trashSender(email, time.epochAtZero + performanceNow())
+  action afterPurge
+    match purged
+      case some(r)
+        report(r.ok, r.title, r.error)
+      case none
+        now = performanceNow()
   action searchGatekeeper(query: string)
     gkQuery = query
   action toggleSender(email: string)
@@ -612,24 +720,62 @@ component App
 
       if screen == "gatekeeper"
         column position="absolute" inset=0 display="flex" flex-direction="column"
-          TitleBar(title="Gatekeeper", backLabel="Back to inbox", goBack=back, zoom=zoomWindow, testId="gatekeeper-bar")
-            row role="tablist" aria-label="Sender status" height=36 gap=2 padding="0 4px" border-radius=18 align-items="center" flex-shrink=0 backgroundMaterial="glass" border="0.5px solid glass.edge" box-sizing="border-box" dblclick=stay
-              BarTab(label=`New (${gatekeeper.pendingCount})`, selected=(gkTab == 0), pick=selectGkTab(0), testId="gk-new")
-              BarTab(label=`Blocked (${gatekeeper.blockedCount})`, selected=(gkTab == 1), pick=selectGkTab(1), testId="gk-blocked")
-            GlassSearch(value=gkQuery, input=searchGatekeeper, placeholder="Search senders or emails", tip="", testId="gk-search")
-          scroll id="senders" flex=1 min-height=0
-            column width="100%" padding="6px 18px 16px" gap=2 box-sizing="border-box"
-              if gatekeeper.error != ""
-                column gap=8
-                  text gatekeeper.error color="-exact-system-red"
-                  button press=runSync testId="gk-retry"
-                    text "Try again"
-              if not gatekeeper.loaded and gatekeeper.error == ""
-                text "Loading senders…" color="-exact-secondary-label"
-              if gatekeeper.loaded and gatekeeper.senders.length == 0
-                text (gkQuery.trim() != "" ? "No matching senders or emails." : (gkTab == 0 ? "No new senders to review." : "No blocked senders.")) font-size=13 padding="24px 0" color="-exact-secondary-label" testId="gk-empty"
-              for s in gatekeeper.senders key=s.email
-                SenderRow(sender=s, expanded=(expandedSender == s.email), busy=gkBusy, offset=time.utcOffset, toggle=toggleSender(s.email), allow=decide(s.email, "approved"), block=decide(s.email, "blocked"), unblock=decide(s.email, "pending"), open=openReview, trash=trashReviewed)
+          TitleBar(title=(gkTab == 1 ? "Blocked Senders" : "Gatekeeper"), backLabel=(gkTab == 1 ? "Back to new senders" : "Back to inbox"), goBack=back, zoom=zoomWindow, testId="gatekeeper-bar")
+            if gkTab == 0
+              if gkUndo != ""
+                GlassButton(symbol="symbol:sf/arrow.uturn.backward", label="Undo", tip="Undo the last decision", shortcut="Meta+Z", press=undoDecision, testId="gk-undo")
+              GlassButton(symbol="symbol:sf/hand.raised", label=`${gatekeeper.blockedCount}`, tip="Blocked senders", shortcut="", press=selectGkTab(1), testId="gk-blocked")
+            if gkTab == 0 and not narrow
+              GlassButton(symbol=(gkCards ? "symbol:sf/square.grid.2x2" : "symbol:sf/rectangle.stack"), label="", tip=(gkCards ? "Show all senders as a grid" : "Show one sender at a time"), shortcut="", press=toggleCards, testId="gk-layout")
+            if gkTab == 1 or not oneCard
+              GlassSearch(value=gkQuery, input=searchGatekeeper, placeholder="Search senders or emails", tip="", testId="gk-search")
+          if gatekeeper.error != ""
+            column gap=8 padding="12px 18px"
+              text gatekeeper.error color="-exact-system-red"
+              button press=runSync testId="gk-retry"
+                text "Try again"
+          if not gatekeeper.loaded and gatekeeper.error == ""
+            text "Loading senders…" padding="12px 18px" color="-exact-secondary-label"
+          if gatekeeper.loaded and gatekeeper.senders.length == 0
+            if gkQuery.trim() != ""
+              EmptyState(symbol="symbol:search", title="No Results", message="No senders or emails match your search.")
+            else if gkTab == 0
+              EmptyState(symbol="symbol:sf/checkmark.shield", title="All Caught Up", message="New senders wait here until you allow or block them.")
+            else
+              EmptyState(symbol="symbol:sf/hand.raised", title="No Blocked Senders", message="Senders you block are listed here, where you can unblock them.")
+          if gatekeeper.loaded and gatekeeper.senders.length > 0
+            if gkTab == 1
+              scroll id="senders" flex=1 min-height=0
+                column width="100%" padding="6px 18px 16px" gap=2 box-sizing="border-box"
+                  for s in gatekeeper.senders key=s.email
+                    SenderRow(sender=s, expanded=(expandedSender == s.email), busy=gkBusy, offset=time.utcOffset, toggle=toggleSender(s.email), allow=decide(s.email, "approved"), block=decide(s.email, "blocked"), unblock=decide(s.email, "pending"), open=openReview, trash=trashReviewed)
+            else if not oneCard
+              scroll id="sender-grid" flex=1 min-height=0
+                column display="grid" grid-template-columns="repeat(auto-fill, minmax(420px, 1fr))" align-items="start" gap=16 width="100%" padding="8px 20px 24px" box-sizing="border-box"
+                  for s, i in gatekeeper.senders key=s.email
+                    column id=`gk-card-${s.email}` tabindex=0 outline="none" autofocus=(i == 0) height=256 key=cardKey(s.email, i) focus=focusCard(s.email) blur=blurCard(s.email) aria-label=`${s.title}, ${s.countLabel}. Left arrow blocks, right arrow allows, Shift left arrow deletes all, Space lists all their emails.` display="flex" -exact-layout-transition=(still ? "none" : "320ms cubic-bezier(.32,.72,0,1)") -exact-exit-animation=(still ? "none" : (gkFling == "right" ? "flingRight 280ms ease-in both" : "flingLeft 280ms ease-in both")) testId=`gk-card-${s.email}`
+                      SenderCard(sender=s, focused=(gkFocus == s.email), spaceKey=false, offset=time.utcOffset, showAll=showSenderEmails(s.email))
+                        row gap=6 padding="10px 12px" flex-shrink=0 align-items="center"
+                          CardButton(label="Delete All", keycap="⇧←", tone="danger", tip=`Block ${s.title} and move all their emails to Trash`, press=purgeSender(s.email), testId=`purge-${s.email}`)
+                          row flex=1
+                          CardButton(label="Block", keycap="←", tone="plain", tip=`Block ${s.title}`, press=blockCard(s.email), testId=`block-${s.email}`)
+                          CardButton(label="Allow", keycap="→", tone="accent", tip=`Allow ${s.title}`, press=allowCard(s.email), testId=`allow-${s.email}`)
+            else
+              column flex=1 min-height=0 align-items="center" justify-content="center" gap=14 padding="4px 24px 24px" box-sizing="border-box"
+                text `${cardIndex + 1} of ${plural(gatekeeper.senders.length, "new sender", "new senders")}` font-size=12 color="-exact-secondary-label" font-variant-numeric="tabular-nums" flex-shrink=0 testId="gk-position"
+                column position="relative" width="100%" max-width=560 flex="0 1 auto" min-height=0 gap=14 padding-top=10 box-sizing="border-box"
+                  if gatekeeper.senders.length > 1
+                    box aria-hidden=true position="absolute" top=0 left=20 right=20 height=60 border-radius=16 background-color="tile.fill" border="0.5px solid glass.edge"
+                  for s in topCard key=s.email
+                    column height=206 display="flex" animation=(still ? "none" : "cardIn 260ms cubic-bezier(.32,.72,0,1) both") -exact-exit-animation=(still ? "none" : (gkFling == "right" ? "flingRight 280ms ease-in both" : (gkFling == "left" ? "flingLeft 280ms ease-in both" : "flingDown 240ms ease-in both")))
+                      SenderCard(sender=s, focused=false, spaceKey=true, offset=time.utcOffset, showAll=showSenderEmails(s.email))
+                  for s in topCard key=s.email
+                    row gap=10 padding="0 1.5px" flex-shrink=0
+                      TriageButton(symbol="symbol:delete", label="Delete All", keycap="⇧←", shortcut="Shift+ArrowLeft", tone="danger", tip=`Block ${s.title} and move all their emails to Trash`, press=purgeSender(s.email), testId="gk-purge", grow=true)
+                      TriageButton(symbol="symbol:sf/xmark", label="Block", keycap="←", shortcut="ArrowLeft", tone="plain", tip=`Block ${s.title}`, press=blockCard(s.email), testId="gk-block", grow=true)
+                      if gatekeeper.senders.length > 1
+                        TriageButton(symbol="symbol:sf/arrow.down", label="Later", keycap="↓", shortcut="ArrowDown", tone="plain", tip="Decide on this sender later", press=later, testId="gk-later", grow=true)
+                      TriageButton(symbol="symbol:sf/checkmark", label="Allow", keycap="→", shortcut="ArrowRight", tone="accent", tip=`Allow ${s.title}`, press=allowCard(s.email), testId="gk-allow", grow=true)
 
       if screen == "review"
         column position="absolute" inset=0 display="flex" flex-direction="column"
@@ -642,6 +788,16 @@ component App
             BarGroup(label="Trash")
               BarButton(symbol="symbol:delete", label="Move to Trash", tip="Move this email to Gmail Trash", press=trashOpenReview, disabled=gkBusy, active=false, testId="review-trash")
           DetailBody(detail=detail, scroller="review-detail", loading=pending(detail), offset=time.utcOffset, contact=showContact, saveAttachment=saveAttachment, saveAll=saveAllAttachments, saving=(pending(prepared) or pending(savedAll)), retryImages=retryImages, openLink=openLink)
+
+      if screen == "sender"
+        column position="absolute" inset=0 display="flex" flex-direction="column"
+          TitleBar(title="", backLabel="Back to senders", goBack=back, zoom=zoomWindow, testId="sender-bar")
+            row flex=1 min-width=0
+            if senderDetail.found
+              TriageButton(symbol="symbol:delete", label="Delete All", keycap="⇧←", shortcut="Shift+ArrowLeft", tone="danger", tip=`Block ${senderDetail.subject} and move all their emails to Trash`, press=decideOpenSender("purge"), testId="sender-purge", grow=false)
+              TriageButton(symbol="symbol:sf/xmark", label="Block", keycap="←", shortcut="ArrowLeft", tone="plain", tip=`Block ${senderDetail.subject}`, press=decideOpenSender("blocked"), testId="sender-block", grow=false)
+              TriageButton(symbol="symbol:sf/checkmark", label="Allow", keycap="→", shortcut="ArrowRight", tone="accent", tip=`Allow ${senderDetail.subject}`, press=decideOpenSender("approved"), testId="sender-allow", grow=false)
+          DetailBody(detail=senderDetail, scroller="sender-detail", loading=pending(senderDetail), offset=time.utcOffset, contact=showContact, saveAttachment=saveAttachment, saveAll=saveAllAttachments, saving=(pending(prepared) or pending(savedAll)), retryImages=retryImages, openLink=openLink)
 
       dialog id="settings" aria-label="Settings" width=640 height=600 padding=0 display="flex" flex-direction="column"
         column flex-shrink=0 align-items="center" gap=8 padding="12px 16px 10px" user-select="none"
@@ -1035,6 +1191,8 @@ component MessageCard
         else
           text message.initials width=38 height=38 line-height="38px" text-align="center" border-radius=19 background-color="avatar.fill" color="avatar.ink" font-size=13 font-weight=600
         column flex=1 gap=10 min-width=0
+          if message.subject != ""
+            text message.subject font-size=15 font-weight=600 testId=`subject-${message.id}`
           row align-items="center" gap=12
             row flex=1 flex-wrap="wrap" align-items="center" gap=5 min-width=0
               for a in message.from key=a.rawValue
@@ -1075,6 +1233,113 @@ component MessageCard
               text "Retry images"
         column background-color="paper" padding=14
           iframe message.body sandbox="allow-scripts" message=measured newwindow=openLink width="100%" height=bodyHeight border="none" testId=`body-${message.id}`
+
+// A glass capsule of a title bar: a symbol, and a label when it has one.
+component GlassButton
+  props
+    symbol: string
+    label: string
+    tip: string
+    shortcut: string
+    press: action
+    testId: string
+  state taps = 0
+  action stay
+    taps = 0
+  view
+    button appearance="none" press=press aria-label=(label != "" ? label : tip) title=tip aria-keyshortcuts=shortcut height=36 min-width=36 padding=(label != "" ? "0 14px 0 12px" : "0") border-radius=18 flex-shrink=0 display="flex" align-items="center" justify-content="center" gap=6 backgroundMaterial="glass" border="0.5px solid glass.edge" box-sizing="border-box" class=Plain dblclick=stay testId=testId
+      image symbol font-size=15 color="-exact-label"
+      if label != ""
+        text label font-size=13 font-weight=500 color="-exact-label" white-space="nowrap" font-variant-numeric="tabular-nums"
+
+// Gatekeeper's card: who the sender is and their latest two emails; the rest
+// are a press (or Space) away, stacked on their own screen.
+component SenderCard
+  props
+    sender: Sender
+    focused: bool
+    spaceKey: bool
+    offset: number
+    showAll: action
+  slot
+  view
+    column flex=1 min-height=0 border-radius=16 background-color="card.fill" border=(focused ? "2px solid AccentColor" : "0.5px solid glass.edge") margin=(focused ? 0 : 1.5) box-shadow=(focused ? "0 10px 32px rgba(0, 0, 0, 0.16)" : "0 6px 22px rgba(0, 0, 0, 0.08)") overflow="hidden" testId=`card-${sender.email}`
+      column flex=1 min-height=0 press=showAll role="button" aria-keyshortcuts=(spaceKey ? "Space" : "") aria-label=`Open all ${sender.countLabel} from ${sender.title}` cursor="pointer" testId="card-open"
+        SenderHeader(sender=sender)
+        column flex=1 min-height=0 overflow="hidden" padding="0 8px"
+          for m in sender.messages.slice(0, 2) key=m.id
+            MessageLine(message=m, offset=offset, open=showAll)
+        if sender.messages.length > 2
+          text "Show all" font-size=13 font-weight=500 color="AccentColor" padding="2px 18px 12px" flex-shrink=0 testId="card-show-all"
+      children
+
+// Who a sender is: initials, name, address and how many emails they sent.
+component SenderHeader
+  props
+    sender: Sender
+  view
+    row align-items="center" gap=12 padding="16px 18px 12px" flex-shrink=0
+      text sender.initials width=44 height=44 line-height="44px" text-align="center" border-radius=22 background-color=sender.color color="#FFFFFF" font-size=15 font-weight=600 flex-shrink=0
+      column flex=1 min-width=0 gap=3
+        text sender.title font-size=16 font-weight=600 white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
+        if sender.subtitle != ""
+          text sender.subtitle font-size=12 color="-exact-secondary-label" white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
+      text sender.countLabel font-size=11 font-weight=500 padding="3px 9px" border-radius=10 background-color="-exact-secondary-fill" color="-exact-secondary-label" white-space="nowrap" flex-shrink=0
+
+// One email of a sender: subject, snippet and date; pressing it opens the email.
+component MessageLine
+  props
+    message: ReviewMessage
+    offset: number
+    open: action
+  view
+    row align-items="center" gap=12 padding="9px 10px" border-radius=10 flex-shrink=0 class=Row press=open tabindex=-1 role="button" aria-label=`Open ${message.subject}` testId=`card-message-${message.id}`
+      column flex=1 min-width=0 gap=3
+        text message.subject font-size=13 font-weight=500 white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
+        if message.snippet != ""
+          text message.snippet font-size=12 color="-exact-secondary-label" white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
+      text longDate(message.sentAt, offset) font-size=11 color="-exact-secondary-label" white-space="nowrap" flex-shrink=0
+
+// One decision under the card, with the key that makes it.
+component TriageButton
+  props
+    symbol: string
+    label: string
+    keycap: string
+    shortcut: string
+    tone: string
+    tip: string
+    press: action
+    grow: bool
+    testId: string
+  view
+    if tone == "accent"
+      button appearance="none" press=press aria-keyshortcuts=shortcut aria-label=label title=tip display="flex" flex-direction="row" align-items="center" justify-content="center" flex-grow=(grow ? 1 : 0) gap=7 height=36 padding="0 12px 0 14px" border-radius=18 background-color="AccentColor" class=Filled testId=testId
+        image symbol font-size=13 color="#FFFFFF"
+        text label font-size=13 font-weight=600 white-space="nowrap" color="#FFFFFF"
+        text keycap font-size=11 padding="1px 5px" border-radius=4 border="0.5px solid rgba(255, 255, 255, 0.6)" color="#FFFFFF"
+    else
+      button appearance="none" press=press aria-keyshortcuts=shortcut aria-label=label title=tip display="flex" flex-direction="row" align-items="center" justify-content="center" flex-grow=(grow ? 1 : 0) gap=7 height=36 padding="0 12px 0 14px" border-radius=18 background-color="-exact-secondary-fill" class=Plain testId=testId
+        image symbol font-size=13 color=(tone == "danger" ? "-exact-system-red" : "-exact-label")
+        text label font-size=13 font-weight=500 white-space="nowrap" color=(tone == "danger" ? "-exact-system-red" : "-exact-label")
+        text keycap font-size=11 padding="1px 5px" border-radius=4 border="0.5px solid -exact-separator" color="-exact-secondary-label"
+
+// A decision in a grid card's footer; its key is in the tooltip.
+component CardButton
+  props
+    label: string
+    keycap: string
+    tone: string
+    tip: string
+    press: action
+    testId: string
+  view
+    if tone == "accent"
+      button appearance="none" press=press aria-label=label title=`${tip} (${keycap})` tabindex=-1 height=30 padding="0 14px" border-radius=15 flex-shrink=0 background-color="AccentColor" class=Filled testId=testId
+        text label font-size=12 font-weight=600 white-space="nowrap" color="#FFFFFF"
+    else
+      button appearance="none" press=press aria-label=label title=`${tip} (${keycap})` tabindex=-1 height=30 padding="0 14px" border-radius=15 flex-shrink=0 background-color="-exact-secondary-fill" class=Plain testId=testId
+        text label font-size=12 font-weight=500 white-space="nowrap" color=(tone == "danger" ? "-exact-system-red" : "-exact-label")
 
 component SenderRow
   props
