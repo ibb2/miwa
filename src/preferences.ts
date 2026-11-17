@@ -2,6 +2,8 @@ import { bool, num, str, type Db } from './db';
 
 export type MailPreferences = {
   showPreviews: boolean;
+  /** Show each sender's site icon in the reader when the email carries no logo. */
+  senderIcons: boolean;
   notificationsEnabled: boolean;
   notificationsSound: boolean;
   notificationsBadge: boolean;
@@ -23,9 +25,11 @@ function clampHour(value: number, fallback: number): number {
 
 export async function loadPreferences(db: Db): Promise<MailPreferences> {
   const row = await db.get('SELECT * FROM app_preferences WHERE id = 1');
+  const reader = await db.get('SELECT * FROM reader_preferences WHERE id = 1');
   const muted = await db.all('SELECT account_id FROM notification_account_prefs WHERE enabled = 0');
   return {
     showPreviews: row ? bool(row.show_previews) : true,
+    senderIcons: reader ? bool(reader.sender_icons) : true,
     notificationsEnabled: row ? bool(row.notifications_enabled) : false,
     notificationsSound: row ? bool(row.notifications_sound) : true,
     notificationsBadge: row ? bool(row.notifications_badge) : true,
@@ -40,6 +44,7 @@ export async function loadPreferences(db: Db): Promise<MailPreferences> {
 
 const COLUMNS = {
   showPreviews: 'show_previews',
+  senderIcons: 'sender_icons',
   notificationsEnabled: 'notifications_enabled',
   notificationsSound: 'notifications_sound',
   notificationsBadge: 'notifications_badge',
@@ -58,7 +63,8 @@ export function isPreferenceKey(key: string): key is PreferenceKey {
 
 export async function savePreference(db: Db, key: PreferenceKey, value: number) {
   const stored = key.endsWith('Hour') ? clampHour(Math.round(value), 0) : value ? 1 : 0;
-  await db.run(`UPDATE app_preferences SET ${COLUMNS[key]} = ? WHERE id = 1`, [stored]);
+  const table = key === 'senderIcons' ? 'reader_preferences' : 'app_preferences';
+  await db.run(`UPDATE ${table} SET ${COLUMNS[key]} = ? WHERE id = 1`, [stored]);
 }
 
 export function isAccountNotified(preferences: MailPreferences, accountId: string): boolean {

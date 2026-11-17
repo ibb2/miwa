@@ -8,7 +8,7 @@ import {
   type GatekeeperSender,
 } from './gatekeeper';
 import { buildInboxTabs, threadsForInboxTab, type InboxTabId } from './inbox-tabs';
-import { reloadMessageImages } from './message-images';
+import { encodeBase64, reloadMessageImages } from './message-images';
 import { senderDisplayName } from './notifications';
 import { loadPreferences } from './preferences';
 import { createMailSearch } from './search';
@@ -193,17 +193,73 @@ function logoFor(html: string, name: string): string {
     })?.[0]
     .match(/\bsrc\s*=\s*["']([^"']*)["']/i)?.[1]
     ?.replace(/&amp;/g, '&');
-  // Exact's image takes a data: URL of at most 1 MiB.
-  if (logo && /^https?:/i.test(logo)) return logo;
+  // Exact's image takes a data: URL of at most 1 MiB, and no web address.
   if (logo?.startsWith('data:image/') && logo.length < 1_000_000) return logo;
   return '';
+}
+
+const ICON_FOLDER = 'app:/cache/icons';
+/** Each domain's icon this run, as a data: URL, or '' when it could not be had. */
+const siteIcons = new Map<string, Promise<string>>();
+
+/**
+ * A sender's site icon by their address's domain, from Google's favicon
+ * service. The file is kept in the cache, and the reader gets a data: URL:
+ * its `image` shows neither web addresses nor cache files.
+ */
+function siteIcon(storage: Storage, address: string | null | undefined): Promise<string> {
+  const domain = address?.split('@')[1]?.trim().toLowerCase() ?? '';
+  if (!/^[a-z0-9.-]+\.[a-z]+$/.test(domain)) return Promise.resolve('');
+  let icon = siteIcons.get(domain);
+  if (!icon) {
+    icon = loadSiteIcon(storage, domain);
+    siteIcons.set(domain, icon);
+  }
+  return icon;
+}
+
+async function loadSiteIcon(storage: Storage, domain: string): Promise<string> {
+  const path = `${ICON_FOLDER}/${domain}.png`;
+  try {
+    let bytes: Uint8Array;
+    try {
+      bytes = new Uint8Array(await storage.fs.readFile(path));
+    } catch {
+      // Mail often comes from a subdomain with no icon (email.apple.com): try its parents.
+      const labels = domain.split('.');
+      let found: Uint8Array | null = null;
+      for (let start = 0; !found && labels.length - start >= 2; start++) {
+        const site = encodeURIComponent(`https://${labels.slice(start).join('.')}`);
+        const response = await fetch(
+          `https://t2.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=${site}&size=128`,
+        );
+        if (response.ok) found = new Uint8Array(await response.arrayBuffer());
+      }
+      if (!found) return '';
+      bytes = found;
+      await storage.fs.mkdir(ICON_FOLDER).catch(() => undefined);
+      await storage.fs.writeFile(path, bytes);
+    }
+    return `data:image/png;base64,${encodeBase64(bytes)}`;
+  } catch {
+    return '';
+  }
 }
 
 const escapeHtml = (value: string) =>
   value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
+/**
+ * The page reports its height, and hands each wheel turn to the reader: the
+ * frame is as tall as its page, so a scroll over it belongs to the reader.
+ */
 const BODY_SCRIPT = `
 const content = document.getElementById('miwa-content');
+addEventListener('wheel', (event) => {
+  if (event.ctrlKey || Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
+  event.preventDefault();
+  parent.postMessage('wheel:' + event.deltaY * (event.deltaMode === 1 ? 16 : 1), '*');
+}, { passive: false });
 let lastHeight = 0;
 function reportHeight() {
   const height = Math.ceil(Math.max(content.scrollHeight, content.getBoundingClientRect().height)) + 4;
@@ -236,7 +292,8 @@ a { color: #0068da; }
 </head><body><div id="miwa-content">${body}</div><script nonce="${nonce}">${BODY_SCRIPT}</script></body></html>`;
 }
 
-const BODY_FOLDER = 'app:/cache/bodies';
+// Versioned with the page's script: a cached page keeps the script it was written with.
+const BODY_FOLDER = 'app:/cache/bodies-2';
 
 const hex = (bytes: Uint8Array) =>
   Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
@@ -304,10 +361,17 @@ const emptyDetail = (error: string) => ({
 type StoredMessage = MailThreadDetail['messages'][number];
 
 /** One email as the reader draws it; `subject` heads it when emails from many threads stack. */
-async function messageRow(storage: Storage, message: StoredMessage, subject: string) {
+async function messageRow(
+  storage: Storage,
+  message: StoredMessage,
+  subject: string,
+  icons: boolean,
+) {
   const sender = message.addresses.find((item) => item.kind === 'from');
   const name = sender ? addressLabel(sender) : message.sender;
-  const avatar = logoFor(message.safeHtml ?? '', name);
+  const avatar =
+    logoFor(message.safeHtml ?? '', name) ||
+    (icons ? await siteIcon(storage, sender?.address) : '');
   return {
     id: message.id,
     subject,
@@ -363,6 +427,7 @@ export async function loadDetail(
   if (!accountId || !threadId) return emptyDetail('');
   try {
     const detail = await threadDetail(store, storage, accountId, threadId);
+    const { senderIcons } = await withDb(storage, loadPreferences);
     const summary = (await withDb(storage, loadThreads)).find(
       (thread) => thread.accountId === accountId && thread.threadId === threadId,
     );
@@ -372,7 +437,7 @@ export async function loadDetail(
       if (!messages.length) throw new Error('This email is no longer available locally.');
     }
     const rows = [];
-    for (const message of messages) rows.push(await messageRow(storage, message, ''));
+    for (const message of messages) rows.push(await messageRow(storage, message, '', senderIcons));
     return {
       found: true,
       error: '',
@@ -397,6 +462,7 @@ export async function loadSenderDetail(store: Store, storage: Storage, email: st
     const overview = await withDb(storage, (db) => loadGatekeeperOverview(db, now));
     const sender = [...overview.pending, ...overview.blocked].find((item) => item.email === email);
     if (!sender) return emptyDetail('This sender has no emails left.');
+    const { senderIcons } = await withDb(storage, loadPreferences);
     const threads = new Map<string, MailThreadDetail>();
     const messages: StoredMessage[] = [];
     const rows = [];
@@ -410,7 +476,7 @@ export async function loadSenderDetail(store: Store, storage: Storage, email: st
       const message = thread.messages.find((stored) => stored.id === item.id);
       if (!message) continue;
       messages.push(message);
-      rows.push(await messageRow(storage, message, item.subject || '(No subject)'));
+      rows.push(await messageRow(storage, message, item.subject || '(No subject)', senderIcons));
     }
     return {
       found: true,
@@ -500,6 +566,7 @@ export async function loadPrefs(store: Store, storage: Storage) {
   const preferences = await withDb(storage, loadPreferences);
   return {
     showPreviews: preferences.showPreviews,
+    senderIcons: preferences.senderIcons,
     notificationsEnabled: preferences.notificationsEnabled,
     notificationsSound: preferences.notificationsSound,
     notificationsBadge: preferences.notificationsBadge,

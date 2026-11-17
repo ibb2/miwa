@@ -91,7 +91,14 @@ where they can be unblocked.
 
 A sender's emails screen (`screen == "sender"`, `loadSenderDetail`) stacks every email from
 them with the conversation reader's `DetailBody` and `MessageCard`, each headed by its subject
-and collapsible, with Delete All, Block and Allow in the bar.
+and collapsible from its header, with Delete All, Block and Allow in the bar.
+
+The reader (`DetailBody`) draws each email's page in an `iframe` as tall as the page. WebKit
+keeps a wheel over a frame, so the page's script posts `wheel:<dy>` and the reader moves its
+own `scrollTop`. Once the subject scrolls away, the title bar shows it. Each email's sender
+gets a logo the email carries, else their site's icon: Google's favicon service is asked
+for the domain (the `net.fetch https://t2.gstatic.com` grant) and the icon is cached in
+`app:/cache/icons`, handed to the view as a `data:` URL. Settings ▸ Inbox turns icons off.
 
 A notification click opens its conversation from the notification's `data` path. Settings is a
 sheet (`dialog id="settings"`). On the Mac it opens from Miwa ▸ Settings… (⌘,), a hidden

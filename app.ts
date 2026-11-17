@@ -43,6 +43,8 @@ export const grants = [
   'net.fetch https://oauth2.googleapis.com',
   'net.fetch https://accounts.google.com',
   'net.fetch https://openidconnect.googleapis.com',
+  // Sender icons in the reader (src/view.ts).
+  'net.fetch https://t2.gstatic.com',
   'auth.session https://accounts.google.com',
   'auth.callback com.googleusercontent.apps.611007919856-aj6ui4cnma1qojqi0iggbo1g8emg8p66:/oauth2redirect',
   'secret.keep miwa.gmail.accounts',

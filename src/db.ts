@@ -115,6 +115,13 @@ const SCHEMA = [
     notifications_baselined integer DEFAULT 0 NOT NULL
   )`,
   `INSERT OR IGNORE INTO app_preferences (id) VALUES (1)`,
+  // Preferences added after the React Native app, in a table of their own so
+  // an existing app_preferences needs no migration.
+  `CREATE TABLE IF NOT EXISTS reader_preferences (
+    id integer PRIMARY KEY NOT NULL,
+    sender_icons integer DEFAULT 1 NOT NULL
+  )`,
+  `INSERT OR IGNORE INTO reader_preferences (id) VALUES (1)`,
   `CREATE TABLE IF NOT EXISTS notification_account_prefs (
     account_id text PRIMARY KEY NOT NULL,
     enabled integer DEFAULT 1 NOT NULL
@@ -224,6 +231,8 @@ export function clearLocalDatabase(db: Db, now: number) {
       'DELETE FROM notification_account_prefs',
       'DELETE FROM app_preferences',
       'INSERT INTO app_preferences (id) VALUES (1)',
+      'DELETE FROM reader_preferences',
+      'INSERT INTO reader_preferences (id) VALUES (1)',
     ]
       .map((sql): SQLCommand => ({ sql }))
       .concat([
